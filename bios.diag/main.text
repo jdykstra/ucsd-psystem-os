@@ -1,0 +1,225 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+{ Q+,L #4:bdiag.lst.text}
+{$S-,I-}
+PROGRAM BIOS_diagnostics;
+{
+        This program is designed to test the various routines of the
+  Basic I/O Sub-system (BIOS) through various calls from the PASCAL
+  level.
+        The strategy will be to perform a test, report the results
+  and then continue on to the next test.  Any errors will be reported
+  as soon as they are detected.  A log of the errors will be maintained
+  to provide a summary at the completion of the program.
+}
+CONST
+  version = '[A1]';
+  LF = 10;              {ASCII Line feed}
+  CR = 13;              {ASCII Carriage return}
+  DLE = 16;             {ASCII DLE}
+  system = 0;           {System is unit 0}
+  console = 1;          {CONSOLE: is unit 1}
+  systerm = 2;          {SYSTERM: is unit 2}
+  graphic = 3;          {GRAPHIC: is unit 3}
+  drive_1 = 4;          {First Disk drive is unit 4}
+  drive_2 = 5;          {Second is unit 5}
+  printer = 6;          {PRINTER: is unit 6}
+  remin = 7;            {REMIN: is unit 7}
+  remout = 8;           {REMOUT: is unit 8}
+  drive_3 = 9;          {Third Disk drive is unit 9}
+  drive_4 = 10;         {Fourth is unit 10}
+  drive_5 = 11;         {Fifth is unit 11}
+  drive_6 = 12;         {Sixth is unit 12}
+  async = 1;            {ASYNC bit in I/O control word}
+  physsect = 2;         {PHYSSECT bit in I/O control word}
+  nospec = 4;           {NOSPEC bit in I/O control word}
+  nocrlf = 8;           {NOCRLF bit in I/O control word}
+  buffer_size = 1024;   {2 blocks + 1 byte}
+TYPE
+  set_of_char = SET OF CHAR;
+  byte = 0..255;
+  sys_units = system..drive_6;
+  name_string = STRING[7];
+  squawk_types = (none,dots,enter,leave,test_start,test_end,error,user_error);
+  buffer_range = 0..buffer_size;
+  buffers = PACKED ARRAY [buffer_range] OF byte;
+  error_p = ^error_rec;
+  error_rec = RECORD
+                where: STRING;
+                next_error_p: error_p;
+              END;
+VAR
+  ch: CHAR;
+  doing_dots, noisy, display, disk_used, line_error: BOOLEAN;
+  index: buffer_range;
+  error_top: ^INTEGER;
+  root, last_error_p: error_p;
+  test_errors, errors: INTEGER;
+  s_lf,s_cr: STRING[1];
+  i: INTEGER;
+  test_name, out_filename: STRING;
+  unit_names: ARRAY [sys_units] OF name_string;
+  name: name_string;
+  capital_letters, lower_case_letters: set_of_char;
+  buffer_1, buffer_2: buffers;
+  out_file: TEXT;
+
+  {$I b.diag.int.text }
+  {$I b.diag.dsk.text }
+  {$I b.diag.rsp.text }
+  {$I b.diag.ser.text }
+
+  PROCEDURE cmd_OUTPUT;
+  VAR
+    filename: STRING;
+    iorslt: INTEGER;
+  BEGIN
+    iorslt := 0;
+    WRITELN('Current output file is ',out_filename);
+    REPEAT
+      WRITE('Enter new filename: ');
+      READLN(filename);
+      IF LENGTH(filename) = 0 THEN
+        filename := out_filename
+      ELSE
+        FOR i:=1 TO LENGTH(filename) DO
+          IF filename[i] IN ['a'..'z'] THEN
+            filename[i] := CHR(ORD(filename[i]) - ORD('a') + ORD('A'));
+      IF filename <> out_filename THEN
+        BEGIN
+          CLOSE(out_file,LOCK);
+          REWRITE(out_file,filename);
+          iorslt := IORESULT;
+          IF iorslt <> 0 THEN
+            WRITELN('Can''t open ',filename);
+        END;
+    UNTIL iorslt = 0;
+    out_filename := filename;
+    display := (out_filename = 'CONSOLE:') OR
+               (out_filename = 'SYSTERM:') OR
+               (out_filename = '#1:') OR
+               (out_filename = '#2:');
+    WRITELN('Current output file is ',out_filename);
+  END {of cmd_OUTPUT};
+
+  PROCEDURE cmd_HELP;
+  BEGIN
+            {         1111111111222222222233333333334}
+            {1234567890123456789012345678901234567890}
+    WRITELN(' D(isk will select the disk drives to be');
+    WRITELN('  tested');
+    WRITELN(' C(onsole will select the console and');
+    WRITELN('  systerm to be tested');
+    WRITELN(' P(rinter will select the printer to be');
+    WRITELN('  tested');
+    WRITELN(' R(emote will select the remote to be');
+    WRITELN('  tested');
+    WRITELN(' A(ll will select all the devices to be');
+    WRITELN('  tested in the following order: Disk,');
+    WRITELN('  Console, Printer, Remote and Xwrite');
+    WRITELN;
+    WRITE(' Type <RETURN> to continue');
+    READLN;
+    WRITELN;
+    WRITELN(' S(ummary will display a summary of all');
+    WRITELN('  the errors reported');
+    WRITELN(' N(ew summary purges the error list and');
+    WRITELN('  resets the count to 0');
+    WRITELN(' Q(uiet will switch between displaying');
+    WRITELN('  all the information as the tests run');
+    WRITELN('  or just the final summary');
+    WRITELN(' X(will read and write characters to all');
+    WRITELN('  on-line character-oriented devices');
+    WRITELN(' E(xit will quit this program');
+    WRITELN(' O(utput file will display the current');
+    WRITELN('  output file and ask for a new one');
+  END {of cmd_HELP};
+
+BEGIN {Main Program}
+  initialize;
+  REPEAT
+    WRITELN;
+    WRITE('BIOS Test: D(isk, C(onsole, P(rinter, R(emote, A(ll, ? ',version);
+    ch := get_char;
+    WRITELN;
+    IF ch = '?' THEN
+      BEGIN
+        WRITE('BIOS Test: S(ummary, N(ew summary, Q(uiet, E(xit, ? ',version);
+        ch := get_char;
+        WRITELN;
+        IF ch = '?' THEN
+          BEGIN
+            WRITE('BIOS Test: O(utput file, X(write, H(elp, ? ',version);
+            ch := get_char;
+            WRITELN;
+          END;
+      END;
+    IF ch IN ['D','C','P','R','A','S','N','Q','O','X','H'] THEN
+      CASE ch OF
+        'D': disk_tester(0);
+        'C': console_tester(0);
+        'P': printer_tester(0);
+        'R': remote_tester(0);
+        'A': BEGIN
+               disk_tester(0);
+               console_tester(0);
+               printer_tester(0);
+               remote_tester(0);
+               cross_tester(0);
+             END;
+        'S': dump_errors;
+        'N': purge_errors;
+        'Q': BEGIN
+               noisy := NOT noisy;
+               IF noisy THEN
+                 WRITELN(' Noisy selected')
+               ELSE
+                 WRITELN(' Quiet selected');
+             END;
+        'O': cmd_OUTPUT;
+        'X': cross_tester(0);
+        'H': cmd_HELP;
+      END;
+  UNTIL ch = 'E';
+  CLOSE(out_file,LOCK);
+  IF disk_used THEN
+    BEGIN
+      WRITE('Put in the System Disk, then type <RETURN>');
+      READLN;
+    END;
+END.

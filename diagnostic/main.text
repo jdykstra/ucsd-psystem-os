@@ -1,0 +1,810 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+(*
+ * UCSD p-System Operating System
+ * Copyright (C) 2010 Peter Miller
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of the ucsd-psystem-os project nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *)
+
+{This is an unpublished work copyright by the Regents of
+   the University of California. This item is the property of SofTech
+   Microsystems Inc., and it may be used, copied or distributed only
+   as permitted in a written license from that company.}
+
+(*
+ * How to Use this Diagnostic Program
+ *
+ * This program runs instead of the usual operating system.  This is
+ * because it is testing the underlying p-machine implementation.  It
+ * is not testing the oprtating system functions layered on top of the
+ * p-machine.
+ *
+ * Create a new disk image, and install the compiled DIAGNOSTIC.CODE
+ * file as the SYSTEM.PASCAL file.  If you are not running an emulator
+ * you will also need to add your system interpreter and boot sectors to
+ * make the disk image bootable.
+ *
+ * You the run the tests by booting from the disk you have just created.
+ *)
+
+(*$U-,G+,R-,S+*)
+PROGRAM DIAGNOSTIC;
+LABEL 1,2,3,4;
+
+CONST BYTESEXLOHI=TRUE;     (*true if word has least significant byte first*)
+      INITERRORSONLY=FALSE; (*true if running all diagnostics at once- i.e.
+                              only prints on errors*)
+      OUTUNIT=1;            (*unit that all output is sent to with UNITWRITE*)
+
+      INITVALUE=13;
+
+
+VAR A19,A18,A17,A16,A15,A14,A13,A12,A11,A10,A9,A8,A7,A6,A5,A4,A3,A2,A1,A0,
+    F7,F6,F5,F4,F3,F2,F1,F0,
+    B8,B7,B6,B5,B4,B3,B2,B1,B0,
+    FJP3,FJP2,FJP1,FJP0,
+    UJP3,UJP2,UJP1,UJP0,
+    OK2,OK1,OK0,
+    BAD3,BAD2,BAD1,BAD0,
+    R4,R3,R2,R1,R0,
+    C4,C3,C2,C1,C0,
+    CRLF:CHAR;
+    TESTBOOL,BOOL2:BOOLEAN;
+    ALLDONE:STRING;
+    UNITNUM:INTEGER;
+
+    SAVEDESCRIPTION,BADSTACK,BADANSWER:STRING;
+    CORRECTSTACKPTR,PRESENTSTACKPTR:INTEGER;
+    ERRORSONLY,INIT:BOOLEAN;
+    NEWLINE:CHAR;
+    number_of_errors: integer;
+
+  PROCEDURE EXECERROR;FORWARD;
+            (*gets called if have run time error*)
+
+  PROCEDURE FILEINIT(WORD1,WORD2,WORD3:INTEGER);FORWARD;
+            (*calls generated by compiler for files*)
+
+  PROCEDURE INITDIAG;FORWARD;
+
+  PROCEDURE PRINTLINE(LINE:STRING);FORWARD;
+
+  PROCEDURE FILECLOSE(WORD1,WORD2:INTEGER);FORWARD;
+            (*calls generated by compiler for file close*)
+
+  PROCEDURE DESCRIPTION(S:STRING);FORWARD;
+
+  PROCEDURE CHK(TESTCORRECT:BOOLEAN);FORWARD;
+
+  PROCEDURE MYCONCAT(VAR FRONTSTRING:STRING;REARSTRING:STRING);FORWARD;
+
+  PROCEDURE PRINTINT(INT:INTEGER; VAR OUTSTRING:STRING);FORWARD;
+
+
+
+  (*CXP,TIM,IOC,IOR*)
+  (*$I diag0.text *)
+
+
+
+  (*LOR,LAND,LNOT,EQUI,NEQI,GTRI,LESI,GEQI,LEQI,ADI,SBI,ABI,MPI,SQI,MODI,DVI*)
+  (*$I diag1.text *)
+
+
+
+  (*procs,LDC,LDM,STM,IXA,SIND's,IND,INC,IXP,LDP,STP,MOV,XJP,NEW,MRK,RLS,LPA*)
+  (*$I diag2.text *)
+
+
+
+  (*EQUBOOL,NEQBOOL,GTRBOOL,LESBOOL,GEQBOOL,LEQBOOL,
+    EQUBYTE,NEQBYTE,GTRBYTE,LESBYTE,GEQBYTE,LEQBYTE,
+    EQUWRD,NEQWRD,GTRWRD,LESWRD,GEQWRD,LEQWRD,
+    EQUSTR,NEQSTR,GTRSTR,LESSTR,GRQSTR,LEQSTR*)
+  (*$I diag3.text *)
+
+
+
+  (*EQUPOWR,NEQPOWR,GEQPOWR,LEQPOWR,ADJ,SGS,SRS,INN,UNI,DIF,INT*)
+  (*$I diag4.text *)
+
+
+
+  (*FLC,MVR,MVL,SCN,EXIT,IDS,TRS*)
+  (*$I diag5.text *)
+
+
+
+  (*EQUREAL,NEQREAL,GEQREAL,LEQREAL,GTRREAL,LESREAL,ABR,NGR,MPR,SQR,
+    DVR,RND,TNC,POT*)
+  (*$I diag6.text *)
+
+
+
+
+  PROCEDURE EXECERROR;(*gets called if a run time error occurs if compiler U-*)
+  VAR MAKEDATASIZECORRECT:INTEGER;
+  BEGIN
+    PRINTLINE('EXECUTION ERROR');
+    WHILE TRUE DO;    (*better stop*)
+  END;
+
+  PROCEDURE FILEINIT;
+  BEGIN
+  END;
+
+  PROCEDURE FILECLOSE;
+  BEGIN
+  END;
+
+  PROCEDURE INITDIAG;
+  BEGIN
+    INIT:=ODD(INITVALUE);
+    BADSTACK:='  >>>STK ';
+    BADANSWER:='  >>>ANS wrong';
+    NEWLINE:=CHR(13);
+  END;
+
+  PROCEDURE PRINTLINE(*LINE:STRING*);
+  BEGIN
+    UNITWRITE(OUTUNIT,NEWLINE,2);
+    UNITWRITE(OUTUNIT,LINE[1],ORD(LINE[0]));
+  END;
+
+  PROCEDURE DESCRIPTION(*S:STRING*);
+  BEGIN
+    IF ERRORSONLY THEN
+      SAVEDESCRIPTION:=S ELSE
+      PRINTLINE(S);
+  END;
+
+  PROCEDURE CHK(*TESTCORRECT:BOOLEAN*);
+  VAR ANSWERWRONG,STACKWRONG:BOOLEAN;
+  BEGIN
+    UNITREAD(-1,PRESENTSTACKPTR,1);
+    IF ORD(TESTCORRECT)=INITVALUE THEN
+      CORRECTSTACKPTR:=PRESENTSTACKPTR ELSE
+    BEGIN
+      IF TESTCORRECT THEN       {avoid using LNOT because haven't tested it yet}
+        ANSWERWRONG:=FALSE ELSE
+        ANSWERWRONG:=TRUE;
+      IF PRESENTSTACKPTR=CORRECTSTACKPTR THEN
+        STACKWRONG:=FALSE ELSE
+      BEGIN
+        STACKWRONG:=TRUE;
+        CORRECTSTACKPTR:=PRESENTSTACKPTR;
+      END;
+      IF ERRORSONLY THEN
+        IF STACKWRONG THEN
+          PRINTLINE(SAVEDESCRIPTION) ELSE
+        IF ANSWERWRONG THEN
+          PRINTLINE(SAVEDESCRIPTION);
+      IF ANSWERWRONG THEN
+      begin
+        UNITWRITE(OUTUNIT,BADANSWER[1],ORD(BADANSWER[0]));
+        number_of_errors := number_of_errors + 1;
+      end;
+      IF STACKWRONG THEN
+      begin
+        UNITWRITE(OUTUNIT,BADSTACK[1],ORD(BADSTACK[0]));
+        number_of_errors := number_of_errors + 1;
+      end;
+    END;
+  END;
+
+  PROCEDURE MYCONCAT(*VAR FRONTSTRING:STRING;REARSTRING:STRING*);
+  VAR FRONTLENGTH,REARLENGTH,CHCNTR:INTEGER;
+  BEGIN
+    FRONTLENGTH:=ORD(FRONTSTRING[0]);
+    REARLENGTH:=ORD(REARSTRING[0]);
+    FOR CHCNTR:=1 TO REARLENGTH DO
+      FRONTSTRING[FRONTLENGTH+CHCNTR]:=REARSTRING[CHCNTR];
+    FRONTSTRING[0]:=CHR(FRONTLENGTH+REARLENGTH);
+  END;
+
+  PROCEDURE PRINTINT(*INT:INTEGER; VAR OUTSTRING:STRING*);
+  VAR POWR,DIGCNT:INTEGER;
+      HADDIGIT:BOOLEAN;
+      LITTLES:STRING;
+  BEGIN
+    OUTSTRING:='';
+    IF INT<0 THEN
+      MYCONCAT(OUTSTRING,'-');
+    INT:=ABS(INT);
+    POWR:=10000;
+    HADDIGIT:=FALSE;
+    LITTLES:=' ';
+    FOR DIGCNT:=0 TO 4 DO
+    BEGIN
+      LITTLES[1]:=CHR(ORD('0')+INT DIV POWR MOD 10);
+      IF (LITTLES<>'0') OR (HADDIGIT OR (DIGCNT=4)) THEN
+      BEGIN
+        MYCONCAT(OUTSTRING,LITTLES);
+        HADDIGIT:=TRUE;
+      END;
+      POWR:=POWR DIV 10;
+    END;
+  END;
+
+
+
+
+
+  (************************************************************
+   * the following diagnostics check the p-codes needed to    *
+   * run the standard diagnostic routines (CHK,DESCRIPTION,   *
+   * INITDIAG) enough so that those routines will have some   *
+   * chance of executing correctly. some of these P-codes are *
+   * checked more thoroughly later.                           *
+   ************************************************************)
+
+  PROCEDURE BASEPROC;
+
+    PROCEDURE GLOBALPROC;
+
+      PROCEDURE INTERMEDIATEPROC;
+      BEGIN
+        C2:='I';
+        UNITWRITE(OUTUNIT,C1,6)         (*end of CIP test*)
+      END;
+
+      PROCEDURE LOCALPROC;
+      BEGIN
+        C2:='L';
+        UNITWRITE(OUTUNIT,C1,6);        (*end of CLP test*)
+
+        C2:='I';
+        UNITWRITE(OUTUNIT,C0,10);       (*CIP test*)
+        INTERMEDIATEPROC;
+
+      END;
+
+    BEGIN
+      C2:='G';
+      UNITWRITE(OUTUNIT,C1,6);          (*end of CGP test*)
+
+      C2:='L';
+      UNITWRITE(OUTUNIT,C0,10);
+      LOCALPROC;                        (*test CLP*)
+
+      R2:='N';
+      UNITWRITE(OUTUNIT,R0,10);         (*test RNP*)
+    END;
+
+    PROCEDURE GLOBAL2PROC;
+    BEGIN
+      C2:='G';
+      UNITWRITE(OUTUNIT,C0,10);
+      GLOBALPROC;                       (*test CGP*)
+    END;
+
+  BEGIN
+    C2:='B';
+    UNITWRITE(OUTUNIT,C1,6);            (*end of CBP check*)
+
+    GLOBAL2PROC;
+
+    R2:='N';
+    UNITWRITE(OUTUNIT,R1,6);            (*end of RNP check*)
+
+    R2:='B';
+    UNITWRITE(OUTUNIT,R0,10);           (*test RBP*)
+
+  END;
+
+
+  PROCEDURE BAD;
+  VAR B1,B0:CHAR;
+  BEGIN
+    B0:='B';
+    B1:=' ';
+    UNITWRITE(OUTUNIT,B0,4);
+    number_of_errors := number_of_errors + 1;
+  END;
+
+  PROCEDURE GOOD;
+  VAR G1,G0:CHAR;
+  BEGIN
+    G0:='G';
+    G1:=' ';
+    UNITWRITE(OUTUNIT,G0,4);
+  END;
+
+  PROCEDURE CHECKPOSEQUI;               (*check equal integer for + numbers*)
+  BEGIN
+    A0:=' '; A1:='E'; A2:='Q'; A3:='U'; A4:='I'; A5:='+'; A6:=' ';
+    UNITWRITE(OUTUNIT,A0,12);
+    IF 0=0 THEN GOOD ELSE BAD;
+    IF 1=1 THEN GOOD ELSE BAD;
+    IF 32000=32000 THEN GOOD ELSE BAD;
+    IF 1=0 THEN BAD ELSE GOOD;
+    IF 0=1 THEN BAD ELSE GOOD;
+    IF 256=1 THEN BAD ELSE GOOD;
+    IF 1=256 THEN BAD ELSE GOOD;
+  END;
+
+  PROCEDURE CHECKNGI;
+  VAR BOTH:RECORD CASE BOOLEAN OF
+             TRUE:(INT:INTEGER);
+             FALSE:(PACK:PACKED ARRAY[0..1] OF 0..255);
+           END;
+  BEGIN
+    A0:='N'; A1:='G'; A2:='I'; A3:=' ';
+    UNITWRITE(OUTUNIT,A0,8);
+    WITH BOTH DO
+      IF BYTESEXLOHI THEN
+      BEGIN
+        INT:=-934;
+        IF PACK[0]=90 THEN GOOD ELSE BAD;
+        IF PACK[1]=252 THEN GOOD ELSE BAD;
+        INT:=-INT;
+        IF PACK[0]=166 THEN GOOD ELSE BAD;
+        IF PACK[1]=3 THEN GOOD ELSE BAD;
+        INT:=-30650;
+        IF PACK[0]=70 THEN GOOD ELSE BAD;
+        IF PACK[1]=136 THEN GOOD ELSE BAD;
+        INT:=-INT;
+        IF PACK[0]=186 THEN GOOD ELSE BAD;
+        IF PACK[1]=119 THEN GOOD ELSE BAD;
+      END ELSE
+      BEGIN
+        INT:=-934;
+        IF PACK[1]=90 THEN GOOD ELSE BAD;
+        IF PACK[0]=252 THEN GOOD ELSE BAD;
+        INT:=-INT;
+        IF PACK[1]=166 THEN GOOD ELSE BAD;
+        IF PACK[0]=3 THEN GOOD ELSE BAD;
+        INT:=-30650;
+        IF PACK[1]=70 THEN GOOD ELSE BAD;
+        IF PACK[0]=136 THEN GOOD ELSE BAD;
+        INT:=-INT;
+        IF PACK[1]=186 THEN GOOD ELSE BAD;
+        IF PACK[0]=119 THEN GOOD ELSE BAD;
+      END;
+  END;
+
+  PROCEDURE CHECKNEGEQUI;
+  BEGIN
+    A0:='E'; A1:='Q'; A2:='U'; A3:='I'; A4:='-'; A5:=' ';
+    UNITWRITE(OUTUNIT,A0,12);
+    IF -1=-1 THEN GOOD ELSE BAD;
+    IF -32000=-32000 THEN GOOD ELSE BAD;
+    IF -1=1 THEN BAD ELSE GOOD;
+    IF 1=-1 THEN BAD ELSE GOOD;
+    IF 1000=-1000 THEN BAD ELSE GOOD;
+    IF -1000=1000 THEN BAD ELSE GOOD;
+    IF 32767=-1 THEN BAD ELSE GOOD; (*0111111111111111=1111111111111111*)
+    IF -1=32767 THEN BAD ELSE GOOD;
+  END;
+
+  PROCEDURE CHECKLDBSTB;
+  VAR INFRONT:INTEGER;
+      SMALLLDBSTB:RECORD CASE BOOLEAN OF
+                    TRUE:(INT0:INTEGER;
+                          INT1:INTEGER);
+                    FALSE:(PACKS:PACKED ARRAY[0..3] OF 0..255);
+                  END;
+      INBACK:INTEGER;
+  BEGIN
+    (*check LDB and STB with positive offsets only*)
+    A0:='L'; A1:='D'; A2:='B'; A3:='&'; A4:='S'; A5:='T'; A6:='B'; A7:=' ';
+    UNITWRITE(OUTUNIT,A0,16);
+
+    WITH SMALLLDBSTB DO
+    BEGIN
+      INT0:=23155;
+      INT1:=4660;
+      INFRONT:=0;
+      INBACK:=0;
+      IF BYTESEXLOHI THEN
+      BEGIN
+        IF PACKS[0]=115 THEN GOOD ELSE BAD;
+        IF PACKS[1]=90 THEN GOOD ELSE BAD;
+        IF PACKS[2]=52 THEN GOOD ELSE BAD;
+        IF PACKS[3]=18 THEN GOOD ELSE BAD;
+        PACKS[0]:=20;
+        IF INT0=23060 THEN GOOD ELSE BAD;
+        PACKS[3]:=42;
+        IF INT1=10804 THEN GOOD ELSE BAD;
+      END ELSE
+      BEGIN
+        IF PACKS[0]=90 THEN GOOD ELSE BAD;
+        IF PACKS[1]=115 THEN GOOD ELSE BAD;
+        IF PACKS[2]=18 THEN GOOD ELSE BAD;
+        IF PACKS[3]=52 THEN GOOD ELSE BAD;
+        PACKS[0]:=20;
+        IF INT0=5235 THEN GOOD ELSE BAD;
+        PACKS[3]:=42;
+        IF INT1=4650 THEN GOOD ELSE BAD;
+      END;
+      IF INFRONT=0 THEN GOOD ELSE BAD;
+      IF INBACK=0 THEN GOOD ELSE BAD;
+    END;
+  END;
+
+  PROCEDURE CHECKSTRINGS;       (*checks LSA and SAS*)
+  VAR INFRONT:INTEGER;
+      SANDB1,SANDB2:RECORD CASE BOOLEAN OF
+                      TRUE:(STRNG:STRING[255]);
+                      FALSE:(BYTES:PACKED ARRAY[0..255] OF 0..255);
+                    END;
+      INBACK:INTEGER;
+  BEGIN
+
+    (* SAS *)
+    A0:='S'; A1:='A'; A2:='S'; A3:=' ';
+    UNITWRITE(OUTUNIT,A0,8);
+
+    INFRONT:=-1;
+    WITH SANDB1 DO
+    BEGIN
+      BYTES[0]:=100;
+      BYTES[1]:=100;
+      BYTES[2]:=100;
+    END;
+    SANDB2.BYTES[0]:=0;
+    SANDB2.BYTES[1]:=0;
+    SANDB1.STRNG:=SANDB2.STRNG;
+    WITH SANDB1 DO
+    BEGIN
+      IF BYTES[0]=0 THEN GOOD ELSE BAD;
+      IF BYTES[1]=100 THEN GOOD ELSE BAD;
+      IF BYTES[2]=100 THEN GOOD ELSE BAD;
+    END;
+    IF INFRONT=-1 THEN GOOD ELSE BAD;
+
+    INFRONT:=-1;
+    WITH SANDB1 DO
+    BEGIN
+      BYTES[0]:=50;
+      BYTES[1]:=50;
+      BYTES[2]:=50;
+      BYTES[3]:=50;
+    END;
+    WITH SANDB2 DO
+    BEGIN
+      BYTES[0]:=2;
+      BYTES[1]:=31;
+      BYTES[2]:=32;
+    END;
+    SANDB1.STRNG:=SANDB2.STRNG;
+    WITH SANDB1 DO
+    BEGIN
+      IF BYTES[0]=2 THEN GOOD ELSE BAD;
+      IF BYTES[1]=31 THEN GOOD ELSE BAD;
+      IF BYTES[2]=32 THEN GOOD ELSE BAD;
+      IF BYTES[3]=50 THEN GOOD ELSE BAD;
+      IF INFRONT=-1 THEN GOOD ELSE BAD;
+    END;
+
+    INFRONT:=-1;
+    INBACK:=-1;
+    WITH SANDB1 DO
+    BEGIN
+      BYTES[0]:=50;
+      BYTES[1]:=50;
+      BYTES[255]:=50;
+    END;
+    WITH SANDB2 DO
+    BEGIN
+      BYTES[0]:=255;
+      BYTES[1]:=86;
+      BYTES[255]:=99;
+    END;
+    SANDB1.STRNG:=SANDB2.STRNG;
+    WITH SANDB1 DO
+    BEGIN
+      IF BYTES[0]=255 THEN GOOD ELSE BAD;
+      IF BYTES[1]=86 THEN GOOD ELSE BAD;
+      IF BYTES[255]=99 THEN GOOD ELSE BAD;
+      IF INFRONT=-1 THEN GOOD ELSE BAD;
+      IF INBACK=-1 THEN GOOD ELSE BAD;
+    END;
+
+    (*LSA & NOP*)
+    A0:='L'; A1:='S'; A2:='A'; A3:=' ';
+    UNITWRITE(OUTUNIT,A0,8);
+
+    WITH SANDB1 DO
+    BEGIN
+      BYTES[0]:=234;
+      STRNG:='A STRING';
+      IF BYTES[0]=8 THEN GOOD ELSE BAD;
+    END;
+  END;
+
+  PROCEDURE CHECKPARAMS;    (*check parameter passing of the type used in the*)
+  VAR MESSAGE:STRING;       (*standard diagnostic routines*)
+
+    PROCEDURE PASSINT(INT:INTEGER);
+    BEGIN
+      IF INT=12345 THEN
+        MESSAGE:=' int ok ' ELSE
+        MESSAGE:=' int wrong ';
+      UNITWRITE(OUTUNIT,MESSAGE[1],ORD(MESSAGE[0]));
+    END;
+
+    PROCEDURE PASSSTRING(S:STRING);
+    BEGIN
+      UNITWRITE(OUTUNIT,S[1],ORD(S[0]));
+    END;
+
+  BEGIN
+    MESSAGE:='PARAMS';
+    UNITWRITE(OUTUNIT,MESSAGE[1],ORD(MESSAGE[0]));
+
+    PASSINT(12345);
+    PASSSTRING('str ok ');
+  END;
+
+  procedure print_number_of_errors;
+  var
+    s: string[20];
+  begin
+    if number_of_errors <> 0 then
+    begin
+      UNITWRITE(OUTUNIT, CRLF, 2);
+      s := 'found ';
+      unitwrite(outunit, s[1], ord(s[0]));
+      printint(number_of_errors, s);
+      unitwrite(outunit, s[1], ord(s[0]));
+      s := ' errors';
+      unitwrite(outunit, s[1], ord(s[0]));
+    end;
+  end;
+
+BEGIN
+  number_of_error := 0;
+
+  ERRORSONLY:=INITERRORSONLY;
+
+
+  FOR UNITNUM:=1 TO 12 DO
+    UNITCLEAR(UNITNUM);
+
+
+  CRLF:=CHR(13);
+  OK0:='O';OK1:='K';OK2:=' ';
+  BAD0:='B';BAD1:='A';BAD2:='D';BAD3:=' ';
+  UJP0:='U';UJP1:='J';UJP2:='P';UJP3:=' ';
+  FJP0:='F';FJP1:='J';FJP2:='P';FJP3:=' ';
+  B0:='b';B1:='a';B2:='c';B3:='k';B4:='w';B5:='a';B6:='r';B7:='d';B8:=' ';
+  F0:='f';F1:='o';F2:='r';F3:='w';F4:='a';F5:='r';F6:='d';F7:=' ';
+
+  (* UJP - forward jump *)
+  UNITWRITE(OUTUNIT,UJP0,8);
+  UNITWRITE(OUTUNIT,F0,16);
+  GOTO 1;                       (*forward UJP*)
+  UNITWRITE(OUTUNIT,BAD0,8);    (*probably not here but need code to foul it up
+                                 if it doesn't jump correctly*)
+
+
+
+2:
+  UNITWRITE(OUTUNIT,OK0,6);           (*end of backward jump test*)
+
+  (* FJP - backward jump *)
+  UNITWRITE(OUTUNIT,FJP0,8);
+  UNITWRITE(OUTUNIT,B0,18);
+  TESTBOOL:=FALSE;
+  REPEAT
+    IF TESTBOOL THEN
+      UNITWRITE(OUTUNIT,OK0,6);
+    BOOL2:=TESTBOOL;
+    TESTBOOL:=TRUE;
+  UNTIL BOOL2;
+
+  GOTO 4;
+
+
+1:
+  UNITWRITE(OUTUNIT,OK0,6);           (*end of forward jump test*)
+
+  (* UJP - jump of length 0  make sure interp doesn't go through JTAB *)
+  A0:='0'; A1:=' ';
+  UNITWRITE(OUTUNIT,UJP0,8);
+  UNITWRITE(OUTUNIT,A0,4);
+  GOTO 3;
+3:
+  UNITWRITE(OUTUNIT,OK0,6);
+
+  (* FJP - forward jump on false *)
+  UNITWRITE(OUTUNIT,FJP0,8);
+  UNITWRITE(OUTUNIT,F0,16);
+  TESTBOOL:=FALSE;
+  IF TESTBOOL THEN
+    UNITWRITE(OUTUNIT,BAD0,8) ELSE
+    UNITWRITE(OUTUNIT,OK0,6);
+
+  UNITWRITE(OUTUNIT,CRLF,2);
+
+  (* FJP - forward jump on false of length 0 *)
+  UNITWRITE(OUTUNIT,FJP0,8);
+  A0:='0'; A1:=' ';
+  UNITWRITE(OUTUNIT,A0,4);
+  IF TESTBOOL THEN;
+  UNITWRITE(OUTUNIT,OK0,6);
+
+  (* FJP - no jump on true *)
+  UNITWRITE(OUTUNIT,FJP0,8);
+  A0:='n'; A1:='o'; A2:=' '; A3:='j'; A4:='u';
+  A5:='m'; A6:='p'; A7:=' ';
+  UNITWRITE(OUTUNIT,A0,16);
+  TESTBOOL:=TRUE;
+  IF TESTBOOL THEN
+    UNITWRITE(OUTUNIT,OK0,6) ELSE
+    UNITWRITE(OUTUNIT,BAD0,8);
+
+  (* UJP - backward jump *)
+  UNITWRITE(OUTUNIT,UJP0,8);
+  UNITWRITE(OUTUNIT,B0,18);
+  GOTO 2;                       (*backward jump*)
+  UNITWRITE(OUTUNIT,BAD0,26);
+
+4:
+  UNITWRITE(OUTUNIT,CRLF,2);
+  C0:=' ';C1:='C';C3:='P';C4:='-';
+  R0:=' ';R1:='R';R3:='P';R4:='-';
+
+  C2:='B';
+  UNITWRITE(OUTUNIT,C0,10);
+  BASEPROC;
+
+  R2:='B';
+  UNITWRITE(OUTUNIT,R1,6);            (*end of RBP test*)
+
+  CHECKPOSEQUI;                 (*check positive integer equal compare*)
+  UNITWRITE(OUTUNIT,CRLF,2);
+
+  CHECKLDBSTB;                  (*check LDB and STB*)
+
+  CHECKNGI;
+
+  CHECKNEGEQUI;                 (*check all EQUI*)
+
+  UNITWRITE(OUTUNIT,CRLF,2);
+
+  CHECKSTRINGS;
+
+  CHECKPARAMS;
+
+
+  INITDIAG;
+
+
+  (*contained in the file DIAG1*)
+  LORLANDLNOT;
+  EQUINEQI;
+  GTRILESI;
+  GEQILEQI;
+  ADI;
+  SBI;
+  ABI;
+  MPI;
+  SQI;
+  MODI;
+  DVI;
+
+
+  (*contained in the file DIAG2*)
+  PROCS;
+  LDCLDMSTM;
+  INDEX;
+  MOV;
+  XJP;
+  NEWMRKRLS;
+  LPA;
+
+
+  (*contained in the file DIAG3*)
+  BOOLCOMP;
+  BYTECOMP;
+  WRDCOMP;
+  GTRLESSTRING;
+  EQUNEQSTRING;
+  GEQLEQSTRING;
+
+
+  (*contained in the file DIAG4*)
+  EQUPOWRNEQPOWR;
+  GEQPOWRLEQPOWR;
+  ADJSGSSRS;
+  INNUNI;
+  DIFINT;
+
+
+  (*contained in the files DIAG5*)
+  FLC;
+  MVRMVL;
+  SCN;
+  CSPEXIT;
+  TRS;
+  IDS;
+
+
+  (*contained in the file DIAG0*)
+  CXP(6502,2001);
+  VARIOUSCSPS;
+
+
+  (*the rest of the diagnostics are not required for running the O.S.*)
+
+
+  (*contained in the file DIAG6*)
+  EQUREALNEQREAL;
+  GEQREALLEQREAL;
+  GTRREALLESREAL;
+  ADRSBR;
+  ABRNGR;
+  MPRSQR;
+  DVR;
+  RNDTNC;
+  POT;
+
+
+
+
+
+  PRINTLINE('TESTS COMPLETED');
+  print_number_of_errors;
+
+  FOR UNITNUM:=1 TO 1000 DO;       (*wait for terak funniness*)
+END.

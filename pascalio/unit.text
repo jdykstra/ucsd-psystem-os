@@ -1,0 +1,267 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+(*
+ * UCSD p-System Operating System
+ * Copyright (C) 2010 Peter Miller
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of the ucsd-psystem-os project nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *)
+
+(* UCSD PASCAL I.5 PASCAL I/O UNIT *)
+(*----------------------------------------------------------*)
+
+UNIT PASCALIO;
+INTERFACE
+
+  PROCEDURE FSEEK(VAR F: FIB; RECNUM: INTEGER);
+  PROCEDURE FREADREAL(VAR F: FIB; VAR X: REAL);
+  PROCEDURE FWRITEREAL(VAR F: FIB; X: REAL; W, D: INTEGER);
+
+IMPLEMENTATION
+
+  PROCEDURE FSEEK(*VAR F: FIB; RECNUM: INTEGER*);
+    LABEL 1;
+    VAR BYTE,BLOCK,N: INTEGER;
+  BEGIN SYSCOM^.IORSLT := INOERROR;
+    IF F.FISOPEN THEN
+      WITH F,FHEADER DO
+        BEGIN BLOCK := 0; BYTE := FBLKSIZE;
+          IF (RECNUM < 0) OR NOT FSOFTBUF OR
+                  ((DFKIND = TEXTFILE) AND (FRECSIZE = 1)) THEN
+            GOTO 1; (*NO SEEK ALLOWED*)
+          IF FRECSIZE < FBLKSIZE THEN
+            BEGIN N := FBLKSIZE DIV FRECSIZE;
+              WHILE RECNUM-N >= 0 DO
+                BEGIN RECNUM := RECNUM-N;
+                  BYTE := BYTE+N*FRECSIZE;
+                  WHILE BYTE > FBLKSIZE DO
+                    BEGIN BLOCK := BLOCK+1;
+                      BYTE := BYTE-FBLKSIZE
+                    END
+                END
+            END;
+          WHILE RECNUM > 0 DO
+            BEGIN RECNUM := RECNUM-1;
+              BYTE := BYTE+FRECSIZE;
+              WHILE BYTE > FBLKSIZE DO
+                BEGIN BLOCK := BLOCK+1;
+                  BYTE := BYTE-FBLKSIZE
+                END
+            END;
+          N := DLASTBLK-DFIRSTBLK;
+          IF (BLOCK > N) OR ((BLOCK = N) AND (BYTE >= DLASTBYTE)) THEN
+            BEGIN BLOCK := N; BYTE := DLASTBYTE END;
+          IF BLOCK <> FNXTBLK THEN
+            BEGIN
+              IF FBUFCHNGD THEN
+                BEGIN FBUFCHNGD := FALSE; FMODIFIED := TRUE;
+                  UNITWRITE(FUNIT,FBUFFER,FBLKSIZE,DFIRSTBLK+FNXTBLK-1);
+                  IF IORESULT <> ORD(INOERROR) THEN GOTO 1
+                END;
+              IF (BLOCK <= FMAXBLK) AND (BYTE <> FBLKSIZE) THEN
+                BEGIN
+                  UNITREAD(FUNIT,FBUFFER,FBLKSIZE,DFIRSTBLK+BLOCK-1);
+                  IF IORESULT <> ORD(INOERROR) THEN GOTO 1
+                END
+            END;
+          IF FNXTBLK > FMAXBLK THEN
+            BEGIN FMAXBLK := FNXTBLK; FMAXBYTE := FNXTBYTE END
+          ELSE
+            IF (FNXTBLK = FMAXBLK) AND (FNXTBYTE > FMAXBYTE) THEN
+              FMAXBYTE := FNXTBYTE;
+          FEOF := FALSE; FEOLN := FALSE; FREPTCNT := 0;
+          IF FSTATE <> FJANDW THEN FSTATE := FNEEDCHAR;
+          FNXTBLK := BLOCK; FNXTBYTE := BYTE
+        END
+    ELSE SYSCOM^.IORSLT := INOTOPEN;
+  1:
+  END (*FSEEK*) ;
+
+  PROCEDURE FREADREAL(*VAR F: FIB; VAR X: REAL*);
+    LABEL 1;
+    VAR CH: CHAR; NEG,XVALID: BOOLEAN; IPOT: INTEGER;
+  BEGIN
+    WITH F DO
+        BEGIN X := 0; NEG := FALSE; XVALID := FALSE;
+          IF FSTATE = FNEEDCHAR THEN FGET(F);
+          WHILE (FWINDOW^[0] = ' ') AND NOT FEOF DO FGET(F);
+          IF FEOF THEN GOTO 1;
+          CH := FWINDOW^[0];
+          IF (CH = '+') OR (CH = '-') THEN
+            BEGIN NEG := CH = '-'; FGET(F); CH := FWINDOW^[0] END;
+          WHILE (CH IN DIGITS) AND NOT FEOF DO
+            BEGIN XVALID := TRUE;
+              X := X*10 + (ORD(CH)-ORD('0'));
+              FGET(F); CH := FWINDOW^[0]
+            END;
+          IF FEOF THEN GOTO 1;
+          IPOT := -1;
+          IF CH = '.' THEN
+            BEGIN IPOT := 0;
+              REPEAT FGET(F); CH := FWINDOW^[0];
+                IF CH IN DIGITS THEN
+                  BEGIN XVALID := TRUE; IPOT := IPOT + 1;
+                    X := X + (ORD(CH)-ORD('0'))/PWROFTEN(IPOT)
+                  END
+              UNTIL FEOF OR NOT (CH IN DIGITS);
+              IF FEOF THEN GOTO 1
+            END;
+          IF ((CH = 'e') OR (CH = 'E')) AND (XVALID OR (IPOT < 0)) THEN
+            BEGIN
+              IF FSTATE = FJANDW THEN FGET(F)
+              ELSE FSTATE := FNEEDCHAR;
+              FREADINT(F,IPOT);
+              IF FEOF THEN GOTO 1;
+              IF NOT XVALID THEN X := 1; XVALID := TRUE;
+              IF IPOT < 0 THEN X := X/PWROFTEN(ABS(IPOT))
+              ELSE X := X*PWROFTEN(IPOT)
+            END;
+          IF XVALID THEN
+            IF NEG THEN X := -X
+            ELSE
+          ELSE SYSCOM^.IORSLT := IBADFORMAT
+        END;
+  1:
+  END (*FREADREAL*) ;
+
+  PROCEDURE FWRITEREAL(*X:REAL;  W, D: INTEGER*);
+  VAR J, TRUNCX, EXPX: INTEGER;
+      NORMX: REAL;  S: STRING[30];
+
+  BEGIN
+  (* Check W and D for validity *)
+  IF (W < 0) OR (D < 0) THEN  BEGIN W := 0;  D := 0 END;
+
+  (* Take abs(x), normalize it and calculate exponent *)
+  IF X < 0 THEN  BEGIN X := -X;  S[1] := '-' END
+           ELSE  S[1] := ' ';
+  EXPX := 0;  NORMX := X;
+  IF X >= PWROFTEN(0) THEN  (* divide down to size *)
+    WHILE NORMX >= PWROFTEN(1) DO
+      BEGIN EXPX := EXPX+1;  NORMX := X/PWROFTEN(EXPX) END
+  ELSE
+    IF X <> 0 THEN  (* multiply up to size *)
+      REPEAT
+        EXPX := EXPX-1;  NORMX := X*PWROFTEN(-EXPX)
+      UNTIL NORMX >= PWROFTEN(0);
+
+  (* Round number according to some very tricky rules *)
+  IF (D=0) OR (D+EXPX+1 > 6) THEN  (* scientific notation, or decimal places *)
+    NORMX := NORMX + 5/PWROFTEN(6)        (* overspecified *)
+  ELSE IF D+EXPX+1 >= 0 THEN
+    NORMX := NORMX + 5/PWROFTEN(D+EXPX+1);
+  (* if D+EXPX+1 < 0, then number is effectively 0.0 *)
+
+  (* If we just blew normalized stuff then fix it up *)
+  IF NORMX >= PWROFTEN(1) THEN
+    BEGIN  EXPX := EXPX+1;  NORMX := NORMX/PWROFTEN(1) END;
+
+  (* Put the digits into a string *)
+  FOR J := 3 TO 8 DO
+    BEGIN
+      TRUNCX := TRUNC(NORMX);
+      S[J] := CHR(TRUNCX+ORD('0'));
+      NORMX := (NORMX-TRUNCX)*PWROFTEN(1)
+    END;
+
+  (* Put number into proper form *)
+  IF (D=0) OR (EXPX >= 6) THEN  (* scientific notation *)
+    BEGIN
+      S[2] := S[3];
+      S[3] := '.';
+      J := 8;
+      IF EXPX <> 0 THEN
+        BEGIN
+          J := 9;
+          S[9] := 'E';
+          IF EXPX < 0 THEN
+            BEGIN J := 10;  S[10] := '-';  EXPX := -EXPX END;
+          IF EXPX > 9 THEN
+            BEGIN
+              J := J+1;
+              S[J] := CHR(EXPX DIV 10 + ORD('0'));
+            END;
+          J := J+1;
+          S[J] := CHR(EXPX MOD 10 + ORD('0'))
+        END;
+      S[0] := CHR(J);
+    END
+  ELSE  (* some kind of fixed point notation *)
+    IF EXPX >= 0 THEN
+      BEGIN
+        MOVELEFT(S[3], S[2], EXPX+1);
+        S[3+EXPX] := '.';
+        FILLCHAR(S[9], D-(5-EXPX), ' '); (* blank fill at end if precision *)
+        S[0] := CHR(3+D+EXPX);           (* was over-specified *)
+      END
+    ELSE
+      BEGIN
+        MOVERIGHT(S[3], S[3-EXPX], 6);  (* make room for leading zeroes *)
+        S[2] := '0';
+        S[3] := '.';
+        FILLCHAR(S[4], -EXPX-1, '0');  (* put in leading zeroes *)
+        FILLCHAR(S[9-EXPX], D-6+EXPX, ' ');(* put in blanks for over-precision*)
+        S[0] := CHR(3+D);
+      END;
+  IF W < LENGTH(S) THEN W := LENGTH(S);
+  FWRITESTRING( F, S, W );
+  END;  (*procedure write_real *)
+
+END (* PASCALIO *);

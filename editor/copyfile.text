@@ -1,0 +1,228 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+SEGMENT PROCEDURE COPYFILE;
+VAR
+  STARTPAGE,STOPPAGE,STARTOFFSET,STOPOFFSET,
+  LEFTPART,PAGE,NOTNULLS,THEREST,LMOVE: INTEGER;
+  DONE,OVFLW: BOOLEAN;
+  BUFR: PACKED ARRAY [0..1023] OF CHAR;
+  STARTMARK,STOPMARK: PACKED ARRAY [0..7] OF CHAR;
+  FN: STRING;
+  F: FILE;
+
+PROCEDURE ERRMARKER;
+BEGIN
+  ERROR('Improper marker specification.',NONFATAL);
+  EXIT(COPYFILE)
+END;
+
+PROCEDURE UNSPLITBUF;
+(* Stich the buffer back together again. *)
+BEGIN
+  MOVELEFT(EBUF^[THEREST],EBUF^[CURSOR],LMOVE);
+  READJUST(LEFTPART+1,CURSOR-(LEFTPART+1));
+  BUFCOUNT:=BUFCOUNT+CURSOR-(LEFTPART+1);
+  CURSOR:=LEFTPART+1; (* Cursor points to the beginning of the file *)
+END;
+
+PROCEDURE READERR;
+BEGIN
+  ERROR('Marker exceeds file bounds.',NONFATAL);
+  UNSPLITBUFF;
+  CENTERCURSOR(TRASH,MIDDLE,TRUE);
+  EXIT(COPYFILE)
+END;
+
+PROCEDURE SPLITBUF;
+(* Split the buffer at the Cursor.  Therest points to the right part, Lmove
+   is the length of the right part, Leftpart points to the end of the 'left
+   part', and Cursor remains unchanged. *)
+BEGIN
+  THEREST:=BUFSIZE-(BUFCOUNT-CURSOR);
+  LMOVE:=BUFCOUNT-CURSOR+1;
+  LEFTPART:=CURSOR-1;
+  MOVERIGHT(EBUF^[CURSOR],EBUF^[THEREST],LMOVE)
+END;
+
+PROCEDURE PARSEFN;
+VAR I,LPTR,RPTR,COMMA: INTEGER;
+    MARK: STRING;
+BEGIN
+  LPTR:=POS('[',FN);
+  IF LPTR=0 THEN
+    BEGIN (* whole file *)
+      STARTMARK:='        ';
+      STOPMARK:= '        '
+    END
+  ELSE
+    BEGIN
+      RPTR:=POS(']',FN);
+      IF (RPTR=0) OR (RPTR<LPTR) OR (RPTR<>LENGTH(FN)) THEN ERRMARKER;
+      MARK:=COPY(FN,LPTR+1,RPTR-LPTR-1); (* stuff between the brackets *)
+      FN:=COPY(FN,1,LPTR-1);
+      COMMA:=POS(',',MARK);
+      IF COMMA=0 THEN ERRMARKER;
+      I:=LENGTH(MARK)-COMMA; (* second marker ptr *)
+      MOVELEFT(MARK[1],STARTMARK,MIN(8,COMMA-1));
+      FILLCHAR(STARTMARK[COMMA-1],MAX(0,8-(COMMA-1)),' ');
+      MOVELEFT(MARK[COMMA+1],STOPMARK,MIN(I,8));
+      FILLCHAR(STOPMARK[I],MAX(0,8-I),' ')
+    END;
+  FOR I:=0 TO 7 DO STARTMARK[I]:=UCLC(STARTMARK[I]);
+  FOR I:=0 TO 7 DO STOPMARK [I]:=UCLC(STOPMARK[I]);
+  FOR I:=1 TO LENGTH(FN) DO FN[I]:=UCLC(FN[I]);
+  IF ((POS('.TEXT',FN)<>LENGTH(FN)-4) OR
+     (LENGTH(FN)<=4)) AND (FN[LENGTH(FN)]<>'.') THEN
+    FN:=CONCAT(FN,'.TEXT');
+  IF FN[LENGTH(FN)]='.' THEN DELETE(FN,LENGTH(FN),1);
+END;
+
+PROCEDURE STUFFIT(START,STOP:INTEGER);
+(* Put the contents of BUFR into EBUF.  OVFLW is set to true when there is
+   no more room in the buffer. *)
+VAR AMOUNT: INTEGER;
+BEGIN
+  IF START<=STOP THEN
+    BEGIN
+      AMOUNT:=STOP-START+1;
+      IF CURSOR+AMOUNT+250(*slop*)>=THEREST THEN
+        BEGIN
+          ERROR('Buffer overflow.',NONFATAL);
+          UNSPLITBUFF;
+          CENTERCURSOR(TRASH,MIDDLE,TRUE);
+          EXIT(COPYFILE)
+        END
+      ELSE
+        BEGIN
+          MOVELEFT(BUFR[START],EBUF^[CURSOR],AMOUNT);
+          CURSOR:=CURSOR+AMOUNT
+        END
+    END
+END;
+
+PROCEDURE GETNEXT;
+BEGIN
+  DONE:=BLOCKREAD(F,BUFR,2,PAGE+PAGE)<>2;
+  WRITE('.');
+  IF NOT DONE THEN NOTNULLS:=SCAN(-1024,<>CHR(0),BUFR[1023])+1024
+  ELSE NOTNULLS:=0;
+  PAGE:=PAGE+1;
+END;
+
+PROCEDURE CHKOVFLW;
+BEGIN
+  IF (STOPOFFSET>=NOTNULLS) AND (STOPPAGE<PAGE) THEN
+    BEGIN
+      STOPPAGE:=STOPPAGE+1;
+      STOPOFFSET:=STOPOFFSET-NOTNULLS;
+    END;
+END;
+
+PROCEDURE FINDMARKERS;
+(* Given STARTMARK and STOPMARK find out their page numbers and offsets *)
+VAR
+  PZ: HEADER;
+
+  PROCEDURE SEARCH(MNAME:NAME;VAR OFF,PNUM: INTEGER);
+  VAR
+    I: INTEGER;
+  BEGIN
+    I:=0;
+    WHILE (I<PZ.COUNT) AND (MNAME<>PZ.NAME[I]) DO I:=I+1;
+    IF MNAME<>PZ.NAME[I] THEN
+      BEGIN
+        ERROR('Marker not there.',NONFATAL);
+        UNSPLITBUFF;
+        EXIT(COPYFILE)
+      END;
+    OFF:=PZ.POFFSET[I];
+    PNUM:=PZ.PAGEN[I];
+    IF PNUM=0 THEN
+      BEGIN OFF:=OFF-1; PNUM:=1 END; (* Kludge to maintain compatibility *)
+  END;
+
+BEGIN(* findmarkers *)
+  STARTPAGE:=1;    STARTOFFSET:=0;   (* default values *)
+  STOPPAGE:=32767; STOPOFFSET:=32767;
+  IF (STARTMARK<>'        ') OR (STOPMARK<>'        ') THEN
+    BEGIN
+      IF BLOCKREAD(F,PZ,2,0)<>2 THEN READERR;
+      IF STARTMARK<>'        ' THEN SEARCH(STARTMARK,STARTOFFSET,STARTPAGE);
+      IF STOPMARK<>'        ' THEN SEARCH(STOPMARK,STOPOFFSET,STOPPAGE)
+    END
+END;
+
+BEGIN
+  PROMPTLINE:=' Copy: From what file[marker,marker]? ';
+  REPEAT
+    PROMPT;
+    READLN(FN);
+    IF LENGTH(FN)=0 THEN EXIT(COPYFILE);
+    PARSEFN;
+    RESET(F,FN);
+    PROMPTLINE:=' Copy: File not present. Filename? ';
+  UNTIL IORESULT=0;
+  PROMPTLINE:=' Copy'; PROMPT;
+  SPLITBUF;
+  FINDMARKERS;
+  PAGE:=STARTPAGE;
+  GETNEXT;
+  WHILE (STARTOFFSET>=NOTNULLS) AND NOT DONE DO
+    BEGIN
+      CHKOVFLW;
+      STARTOFFSET:=STARTOFFSET-NOTNULLS;
+      GETNEXT;
+    END;
+  IF (STOPPAGE<PAGE) AND (STOPOFFSET<NOTNULLS) THEN
+    STUFFIT(STARTOFFSET,MIN(NOTNULLS-1,STOPOFFSET-1))
+  ELSE
+    STUFFIT(STARTOFFSET,NOTNULLS-1);
+  WHILE ((STOPPAGE>=PAGE) OR (STOPOFFSET>=NOTNULLS)) AND NOT DONE DO
+    BEGIN
+      CHKOVFLW;
+      GETNEXT;
+      IF (STOPPAGE<PAGE) AND (STOPOFFSET<NOTNULLS) THEN
+        STUFFIT(0,MIN(NOTNULLS-1,STOPOFFSET-1))
+      ELSE
+        STUFFIT(0,NOTNULLS-1)
+    END;
+  IF IORESULT<>0 THEN ERROR('Disk Error.',NONFATAL);
+  UNSPLITBUF;
+  CENTERCURSOR(TRASH,MIDDLE,TRUE);
+  CLOSE(F);
+END;

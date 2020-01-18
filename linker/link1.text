@@ -1,0 +1,389 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+{
+*  Phase 1 opens host and library files and
+*  reads in seg tables.  All fields are verified
+*  and the hostfile/libfiles file list is built.
+*  The prototype final seg table is set up in
+*  seginfo[*] from the host file and the sep seg
+*  list is set up for searching in later phases.
+}
+
+procedure phase1;
+
+  var  { for use with byte flipping }
+         highbyte: 0..1;
+         int: record
+                case boolean of
+                  TRUE:  (val: integer);
+                  FALSE: (byte: packed array [0..1] of 0..255)
+              end;
+    {
+    *  Build file list opens input code files and reads segtbls.
+    *  The var hostfile is set up as head of linked list of file
+    *  info recs.  The order of these files determines how id's
+    *  will be searched for.  Note that libfiles points at the
+    *  list just past the host file front entry.
+    }
+
+    procedure buildfilelist;
+      label 1;
+      var f: 0..MAXFILE;
+          i: integer;
+          p, q: finfop;
+          fname: string[39];
+
+        {
+        *  Setupfile opens file and enters new finfo rec in
+        *  hostfile list.  Segtbl is read in and validated.
+        }
+
+        procedure setupfile(kind: filekind; title: string);
+          label 1;
+          var errs: integer;
+              s: segindex;
+              cp: filep;
+              fp: finfop;
+              alllinked: boolean;
+              goodkinds: set of segkinds;
+
+
+        begin { setupfile }
+          new(cp);               { create a file dynamically }
+          moveleft(code, cp^, sizeof(code));  { init new FIB }
+          reset(cp^, title);
+          if IORESULT <> 0 then
+            if title <> 'in workspace' then
+              begin
+                insert('.CODE', title, length(title)+1);
+                reset(cp^, title)
+              end;
+          if IORESULT <> 0 then
+            begin
+              release(cp); { discard FIB }
+              insert('No file ', title, 1);
+              error(title);
+              if kind <> USERHOST then
+                errcount := errcount-1
+            end
+          else
+            begin { file open ok }
+              if talkative then
+                writeln('Opening ', title);
+              new(fp);
+              fp^.next := hostfile;
+              fp^.code := cp;
+              fp^.fkind := kind;
+              if blockread(cp^, fp^.segtbl, 1, 0) <> 1 then
+                error('segtbl read err')
+              else
+                begin { now check segtbl values }
+                  if kind = USERHOST then { determine if file is byte-flipped }
+                    for s := 0 to MAXSEG do
+                    begin
+                      int.val := ord(fp^.segtbl.segkind[s]);
+                      flipped := (int.byte[highbyte] <> 0);
+                      if flipped then
+                        goto 1;
+                    end;
+              1:  if flipped then
+                    fliptable(fp^.segtbl);
+
+                  s := 0; alllinked := TRUE;
+                  errs := errcount;
+                  if kind = USERHOST then
+                    goodkinds := [LINKED,SEGPROC,SEPRTSEG,HOSTSEG,UNITSEG]
+                  else
+                    goodkinds := [LINKED,UNITSEG,SEPRTSEG];
+
+                  with fp^.segtbl do
+                    repeat
+                      int.val := ord(segkind[s]);
+                      if (int.byte[highbyte] <> 0) then
+                      begin
+                        error('bad byte sex'); exit(linker)
+                      end;
+                      alllinked := alllinked and (segkind[s] = LINKED);
+                      if (diskinfo[s].codeleng = 0)
+                      and (segkind[s] <> LINKED) then
+                        if (kind <> USERHOST)
+                        or (segkind[s] <> UNITSEG) then
+                          error('funny code seg');
+                      if (diskinfo[s].codeleng < 0)
+                      or (diskinfo[s].codeaddr < 0)
+                      or (diskinfo[s].codeaddr > 300) then
+                        error('bad diskinfo');
+                      if not (segkind[s] in goodkinds) then
+                        error('bad seg kind');
+                      if not alphabetic(segname[s]) then
+                        error('bad seg name');
+                      if errcount > errs then
+                        s := MAXSEG;
+                      s := s+1
+                    until s > MAXSEG;
+                  if alllinked and (kind = USERHOST) then
+                    begin
+                      write('All segs linked');
+                      exit(linker)
+                    end;
+                  if errcount = errs then
+                    hostfile := fp            { ok file...link in }
+                end
+            end
+        end { setupfile } ;
+
+    begin { buildfilelist }
+      if talkative then
+        begin
+          for i := 1 to 7 do
+            writeln;
+          writeln( HEADER )
+        end;
+      useworkfile := cmdstate <> SYSPROG;
+      with userinfo do
+        if useworkfile then
+          begin
+            if gotcode then
+              fname := concat(codevid, ':', codetid)
+            else
+              fname := 'in workspace';
+            setupfile(USERHOST, fname);
+            setupfile(SYSTEMLIB, '*SYSTEM.LIBRARY')
+          end
+        else
+          begin
+            write('Host file? ');
+            readln(fname);
+            if fname = '' then
+              if gotcode then
+                fname := concat(codevid, ':', codetid)
+              else
+                fname := 'in workspace';
+            setupfile(USERHOST, fname);
+            if errcount > 0 then
+              exit(linker); { no host! }
+            for f := 1 to MAXFILE do
+              begin
+                write('Lib file? ');
+                readln(fname);
+                if fname = '' then
+                  goto 1;
+                if fname = '*' then
+                  setupfile(SYSTEMLIB, '*SYSTEM.LIBRARY')
+                else
+                  setupfile(USERLIB, fname)
+              end;
+        1:
+            write('Map name? ');
+            readln(mapname);
+            if mapname <> '' then
+              if mapname[length(mapname)] = '.' then
+                delete(mapname, length(mapname), 1)
+              else
+                insert('.TEXT', mapname, length(mapname)+1)
+          end;
+
+      { now reverse list so host is }
+      { first and syslib is last    }
+
+      p := hostfile; hostfile := NIL;
+      repeat
+        q := p^.next;
+        p^.next := hostfile;
+        hostfile := p;
+        p := q
+      until p = NIL;
+      libfiles := hostfile^.next;
+    end { buildfilelist } ;
+
+    {
+    *  Buildseginfo initializes the seginfo table from
+    *  the host prototype seg table.  All legal states
+    *  are checked, and imported units found.  This
+    *  leaves a list of all segs to finally appear in
+    *  the output code file.
+    }
+
+    procedure buildseginfo;
+      label 1;
+      var s: segindex;
+          errs: integer;
+          sp: segp;
+    begin
+      with hostfile^.segtbl do
+        for s := 0 to MAXSEG do
+          if (segkind[s] = LINKED)
+          and (diskinfo[s].codeleng = 0) then
+            seginfo[s] := NIL   { not in use }
+          else
+            begin { do something with seg }
+              errs := errcount;
+              new(sp);
+              sp^.srcfile := hostfile;
+              sp^.srcseg := s;
+              sp^.symtab := NIL;
+              sp^.segkind := segkind[s];
+              case sp^.segkind of
+                SEGPROC,
+                LINKED:    ;  { nothing to check! }
+
+                HOSTSEG:   if s <> MASTERSEG then
+                             error('bad host seg')
+                           else
+                             if hostsp <> NIL then
+                               error('dup host seg')
+                             else
+                               hostsp := sp;
+
+                SEPRTSEG:  if s = MASTERSEG then
+                             sp^.next := NIL
+                           else
+                             begin { put into seplist }
+                               sp^.next := seplist;
+                               seplist := sp;
+                               sp := NIL
+                             end;
+
+                UNITSEG:   if diskinfo[s].codeleng = 0 then
+                             sp^.srcfile := unitsrch(libfiles,
+                                                    segname[s],
+                                                    sp^.srcseg)
+              end { cases } ;
+              if errs = errcount then
+                seginfo[s] := sp
+              else
+                seginfo[s] := NIL
+            end;
+
+      { now find first assignable seg }
+
+      for s := FIRSTSEG to MAXSEG do
+        if seginfo[s] = NIL then
+          goto 1;
+      s := MAXSEG1;
+    1:
+      nextseg := s;
+      if seginfo[MASTERSEG] = NIL then
+        error('weird host')
+    end { buildseginfo } ;
+
+    {
+    *  Buildseplist searches through libraries and adds onto
+    *  a global list of sep segs that are to be searched
+    *  for procs and globals.  They are initially built in
+    *  the reverse order, then reversed again so searches
+    *  will go in the order the files were specified.
+    }
+
+    procedure buildseplist;
+      var sp, p, q: segp;
+          fp: finfop;
+          s: segindex;
+    begin
+      fp := libfiles;
+      while fp <> NIL do
+        begin
+          for s := 0 to MAXSEG do
+            if fp^.segtbl.segkind[s] = SEPRTSEG then
+              begin
+                new(sp);
+                sp^.next := seplist;
+                sp^.srcfile := fp;
+                sp^.srcseg := s;
+                sp^.symtab := NIL;
+                sp^.segkind := SEPRTSEG;
+                sp^.next := seplist;
+                seplist := sp
+              end;
+          fp := fp^.next
+        end;
+
+      { now reverse the list to maintain original order }
+
+      p := seplist; seplist := NIL;
+      while p <> NIL do
+        begin
+          q := p^.next;
+          p^.next := seplist;
+          seplist := p;
+          p := q
+        end
+    end { buildseplist } ;
+
+begin { phase1 }
+
+  { initialize globals }
+
+  hostfile := NIL;
+  libfiles := NIL;
+  hostsp := NIL;
+  seplist := NIL;
+  reflitypes := [UNITREF, GLOBREF, PUBLREF,
+                 PRIVREF, CONSTREF,
+                 SEPPREF, SEPFREF];
+  errcount := 0;
+  nextbaselc := 3;
+  mapname := '';
+  talkative := not userinfo.slowterm;
+  mark(heapbase);
+  unitwrite(3, heapbase^, 35);
+
+  { determine byte sex of machine }
+
+  flipped := FALSE;
+  int.val := 1;
+  highbyte := ord( int.byte[0] = 1 );
+
+  { build list of input files }
+
+  buildfilelist;
+  if errcount > 0 then
+    exit(linker);
+
+  { init basic seg info table }
+
+  buildseginfo;
+  if errcount > 0 then
+    exit(linker);
+
+  { finally build sep seg list }
+
+  buildseplist;
+  if errcount > 0 then
+    exit(linker)
+end { phase1 } ;

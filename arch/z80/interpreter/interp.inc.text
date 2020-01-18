@@ -1,0 +1,535 @@
+;
+; UCSD PASCAL - Version I.5
+; Copyright (C) 1978, 1979 Regents of the University of California
+; All Rights Reserved
+;
+; Permission to use, copy, modify and distribute any part of UCSD
+; PASCAL solely authored by UC authors before June 1, 1979 for
+; educational, research and non-profit purposes, without fee, and
+; without a written agreement is hereby granted, provided that the
+; above copyright notice, this paragraph and the following three
+; paragraphs appear in all copies.
+;
+; Those desiring to incorporate UCSD PASCAL into commercial products or
+; use for commercial purposes should contact the Technology Transfer &
+; Intellectual Property Services, University of California, San Diego,
+; 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+; Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+;
+; IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+; FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+; INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+; THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+; DAMAGE.
+;
+; THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+; OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+; UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+; MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+; EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+; WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+; THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+; OTHER RIGHTS.
+;
+; Case Number: SD1991-807 (2006)
+; http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+;
+;;; Source: http://bitsavers.org/bits/UCSD_Pascal/ucsd_II.0/
+;;;     U120_Z80_P-CODE_SOURCE.raw.gz
+;;; Date: 1979-Feb-08
+
+;****************************************************************;
+;*                                                              *;
+;*      UCSD Pascal Interpreter for Zilog Z-80/Intel 8080A      *;
+;*                                                              *;
+;*      Written by Peter A. Lawrence and Joel J. McCormack      *;
+;*                                                              *;
+;*      Written during  Summer/Fall 1977                        *;
+;*      I.4   Released Mar. 1978                                *;
+;*      I.5   Released Sep. 1978                                *;
+;*      II.0  Released Feb. 1979                                *;
+;*                                                              *;
+;*      For  Institute for Information Systems                  *;
+;*           UC San Diego, La Jolla, CA                         *;
+;*                                                              *;
+;*      Copyright (c) 1978                                      *;
+;*      by the Regents of the University of California          *;
+;*                                                              *;
+;*      Permission to copy or distribute this software in       *;
+;*      hard or soft copy granted only by written license       *;
+;*      obtained from the Institute for Information Systems.    *;
+;*                                                              *;
+;****************************************************************;
+
+;    20-Jul-78  JJM     Div and mod bug fixed
+;    19-Aug-78  JJM     Transcendental functions added
+;    13-Sep-78  JJM     Set comparison bug fixed
+;    13-Sep-78  JJM     String comparison bug fixed
+;    16-Sep-78  JJM     Assembly procedure facilities added
+;    14-Oct-78  JJM     Getseg and releaseseg belatedly added
+;    28-Nov-78  JJM     Set comparison bug fixed again, ADJ fixed
+;    19-Jan-79  JJM     II.0 byte addressing modifications
+;     5-Feb-79  JJM     II.0 CPMIO direct disk, special char disenabling
+;     8-Feb-79  JJM     Log, ln bug fixed
+
+        .IF ~LSTINT
+         .NOLIST
+        .ELSE
+         .LIST
+        .ENDC
+
+;****************** MACRO DEFINITIONS *******************;
+
+        .MACRO  RETURN
+         JP     BACK
+        .ENDM
+
+        .MACRO  RESTORE
+         JP     BACK1
+        .ENDM
+
+        .MACRO  TSTA
+         AND    A
+        .ENDM
+
+        .MACRO  CLRA
+         XOR    A
+        .ENDM
+
+        .MACRO  CLRCF
+         AND    A
+        .ENDM
+
+        .IF Z80
+
+         .MACRO NEGA
+          NEG
+         .ENDM
+
+         .MACRO SAVIPC
+          LD    (IPCSAV),BC
+         .ENDM
+
+         .MACRO GETIPC
+          LD    BC,(IPCSAV)
+         .ENDM
+
+         .MACRO DJNZM
+          DJNZ  %1
+         .ENDM
+
+         .MACRO SUBHLDE
+          AND   A
+          SBC   HL,DE
+         .ENDM
+
+         .MACRO SUBHLBC
+          AND   A
+          SBC   HL,BC
+         .ENDM
+
+         .MACRO SELREL
+          SCF
+          SBC   HL,DE
+          LD    C,L
+          LD    B,H
+         .ENDM
+        .ENDC
+
+        .IF ~Z80
+
+         .MACRO NEGA
+          CPL
+          INC   A
+         .ENDM
+
+         .MACRO SAVIPC
+          LD    L,C
+          LD    H,B
+          LD    (IPCSAV),HL
+         .ENDM
+
+         .MACRO GETIPC
+          LD    HL,(IPCSAV)
+          LD    C,L
+          LD    B,H
+         .ENDM
+
+         .MACRO DJNZM
+          DEC   B
+          JP    NZ,%1
+         .ENDM
+
+         .MACRO SUBHLDE
+          LD    A,L
+          SUB   E
+          LD    L,A
+          LD    A,H
+          SBC   A,D
+          LD    H,A
+         .ENDM
+
+         .MACRO SUBHLBC
+          LD    A,L
+          SUB   C
+          LD    L,A
+          LD    A,H
+          SBC   A,B
+          LD    H,A
+         .ENDM
+
+         .MACRO SELREL
+          SCF
+          LD    A,L
+          SBC   A,E
+          LD    C,A
+          LD    A,H
+          SBC   A,D
+          LD    B,A
+         .ENDM
+        .ENDC
+
+
+
+
+;******************** TRANSFER TABLE ********************;
+
+        .ORG    ROM
+XFRTBL  .WORD   ABI     ; 80   128
+        .WORD   ABR
+        .WORD   ADI
+        .WORD   ADR
+        .WORD   LAND    ; 84   132
+        .WORD   DIF
+        .WORD   DVI
+        .WORD   DVR
+        .WORD   CHK     ; 88   136
+        .WORD   FLO
+        .WORD   FLT
+        .WORD   INN
+        .WORD   INT     ; 8C   140
+        .WORD   LOR
+        .WORD   MODI
+        .WORD   MPI
+        .WORD   MPR     ; 90   144
+        .WORD   NGI
+        .WORD   NGR
+        .WORD   NOT
+        .WORD   SRS     ; 94   148
+        .WORD   SBI
+        .WORD   SBR
+        .WORD   SGS
+        .WORD   SQI     ; 98   152
+        .WORD   SQR
+        .WORD   STO
+        .WORD   IXS
+        .WORD   UNI     ; 9C   156
+        .WORD   NOTIMP
+        .WORD   CSP
+        .WORD   LDCN
+        .WORD   ADJ     ; A0   160
+        .WORD   FJP
+        .WORD   INCR
+        .WORD   STIND
+        .WORD   IXA     ; A4   164
+        .WORD   LAO
+        .WORD   LSA
+        .WORD   NOTIMP
+        .WORD   MOV     ; A8   168
+        .WORD   LDO
+        .WORD   SAS
+        .WORD   SRO
+        .WORD   XJP     ; AC   172
+        .WORD   RNP
+        .WORD   CIP
+        .WORD   CEQU
+        .WORD   CGEQ    ; B0   176
+        .WORD   CGTR
+        .WORD   LDA
+        .WORD   LDC
+        .WORD   CLEQ    ; B4   180
+        .WORD   CLSS
+        .WORD   LOD
+        .WORD   CNEQ
+        .WORD   STR     ; B8   184
+        .WORD   UJP
+        .WORD   LDP
+        .WORD   STP
+        .WORD   LDM     ; BC   188
+        .WORD   STM
+        .WORD   LDB
+        .WORD   STB
+        .WORD   IXP     ; C0   192
+        .WORD   RBP
+        .WORD   CBP
+        .WORD   EQUI
+        .WORD   GEQI    ; C4   196
+        .WORD   GTRI
+        .WORD   LLA
+        .WORD   LDCI
+        .WORD   LEQI    ; C8   200
+        .WORD   LESI
+        .WORD   LDL
+        .WORD   NEQI
+        .WORD   STL     ; CC   204
+        .WORD   CXP
+        .WORD   CLP
+        .WORD   CGP
+        .WORD   LPA     ; D0   208
+        .WORD   NOTIMP
+        .WORD   NOTIMP
+        .WORD   EFJ
+        .WORD   NFJ     ; D4   212
+        .WORD   BPT
+        .WORD   ABORT
+        .WORD   BACK
+        .WORD   SLDL, SLDL, SLDL, SLDL, SLDL, SLDL, SLDL, SLDL  ; D8..DF
+        .WORD   SLDL, SLDL, SLDL, SLDL, SLDL, SLDL, SLDL, SLDL  ; E0..E7
+        .WORD   SLDO, SLDO, SLDO, SLDO, SLDO, SLDO, SLDO, SLDO  ; E8..EF
+        .WORD   SLDO, SLDO, SLDO, SLDO, SLDO, SLDO, SLDO, SLDO  ; F0..F7
+        .WORD   SIND0                                           ; F8
+        .WORD   SIND, SIND, SIND, SIND, SIND, SIND, SIND        ; F9..FF
+
+;********************************************
+;*      Fixed entry and call vectors        *
+;********************************************
+
+GOLOC   JP      BOOT            ; Jump to Pascal-level booter (entry point
+                                ;   for booters that only read in interp)
+
+        .IF ~NMS
+BIOSJP  .WORD   0               ; Vector to the BIOS jump table
+        .BLOCK  11.
+
+        .ELSE
+
+;Stuff for Northwest Micro disk densities
+BIOSJP  ; dummy entry
+FLGLF   .BYTE   0FFH
+FMTD0   .BYTE   0
+FMTD1   .BYTE   0
+        .BLOCK  10.            ; for expansion
+        .ENDC
+
+
+; Arithmetic operations jump table (not yet complete)
+        JP      MULT    ; HL := BC*DE
+        JP      DIVPOS  ;
+        JP      DIVD
+        JP      FPFADD
+        JP      FPFSUB
+        JP      FPFMUL
+        JP      FPFDIV
+        JP      FPFFLOAT
+        JP      FPFFIX
+        JP      FPFNEG
+        JP      FPFABS
+        JP      FPFSQR
+        JP      FPFINV
+        JP      FPFRND
+        JP      FPFPOT
+        .BLOCK  3
+
+
+
+;********* INTERPRETER CONSTANTS AND VARIBLES **********;
+
+; Constants
+NIL     .EQU    0001H           ; value of NIL pointer
+MAXSEG  .EQU    0FH             ; max segment #
+MSCWSIZE .EQU   0CH             ; size of a mark stack control word
+DISP0   .EQU    0AH             ; Offset from MSSTAT of variable with offset
+                                ; of 0
+
+; Internal P-machine registers, widely used temporaries
+        .ALIGN  2
+NP      .WORD   0               ; top of heap pointer
+MPD0    .WORD   0               ; ^local var with offset of zero
+BASED0  .WORD   0               ; ^global var with offset of zero
+IPCSAV  .WORD   0               ; save IPC on complex ops, and for XEQERR
+FPERROR .WORD   0               ; fp error status
+RETADR  .WORD   0
+NEWSP   .WORD   0
+LTSTRNG .BYTE   01H             ; char to string conversion
+        .BYTE   0
+
+; Internal segment table, contains refcounts and addr of each seg
+        .ALIGN  2               ; table must be on a word boundary
+INTSEGT .BLOCK  <MAXSEG+1>*4
+
+; General use reusable temporaries
+WORD1   .WORD   0
+WORD2   .WORD   0
+WORD3   .WORD   0
+WORD4   .WORD   0
+BLOCK1  .BLOCK  08H
+BYTE1   .WORD   0
+
+; Transcendental fp temporaries
+TFPT    .BLOCK  26.
+
+; Procedure temporaries
+TPROC   .BLOCK  20.
+
+; IO temporaries
+TIO     .BLOCK  IOSIZE
+
+
+;************************ SYSCOM ************************;
+
+        .ALIGN   2
+SYSCOM  ; Interpreter and pascalsystem communication area
+IORSLT  .WORD   0
+XERRCD  .WORD   0
+SYSUNT  .WORD   04H
+BUGSTA  .WORD   0
+GDIRP   .WORD   NIL
+BOMBP   .WORD   0
+BASE    .WORD   0
+MP      .WORD   0
+JTAB    .WORD   0
+SEGP    .WORD   0
+MEMTOP  .WORD   MAXADR          ; we hope
+BOMIPC  .WORD   0
+HLTLINE .WORD   0
+BRKPTS  .BLOCK  2*4
+RETRIES .WORD   0
+        .BLOCK  2*9
+LOTIME  .WORD   0
+HITIME  .WORD   0
+MSCNFO  .WORD   0000H           ; has xy addressing, has lowercase
+CRTTYP  .WORD   0000H
+CRTCTL  ; output to CONSOLE:
+        .BYTE   00H             ; escape
+        .BYTE   0DH             ; [EM] - home
+        .BYTE   00H             ; [VT] - eraseeos
+        .BYTE   00H             ; [GS] - eraseeol
+        .BYTE   21H             ; [FS] - non-destructive forward space
+        .BYTE   00H             ; [US] - reverse line feed
+        .BYTE   08H             ; [BS] - backspace
+        .BYTE   05H             ; fillcount
+        .BLOCK  04H             ; expansion
+CRTNFO  .WORD   18H             ; height
+WIDTH   .WORD   50H             ; width
+        ; input from CONSOLE:
+        .BYTE   1FH             ; [US] - up
+        .BYTE   0AH             ; [LF] - down
+        .BYTE   08H             ; [BS] - left
+        .BYTE   1CH             ; [FS] - right
+SYEOF   .BYTE   03H             ; ^C
+FLUSH   .BYTE   06H             ; ^F
+BREAK   .BYTE   00H
+STOP    .BYTE   13H             ; ^S
+        .BYTE   08H             ; ^H - chardel
+        .BYTE   3FH             ; ? - badch
+        .BYTE   7FH             ; [del] - linedel
+        .BYTE   1BH             ; [esc] - altmode
+        .BLOCK  06H             ; expansion
+SEGTBL  .BLOCK  2*3*<MAXSEG+1>
+
+
+
+
+;********************** I - FETCH ***********************;
+
+BACK1   GETIPC
+        JP      BACK
+
+SLDCI   ; Short load constant word
+        RRA
+        LD      L,A
+        LD      H,00H
+        PUSH    HL
+
+BACK    LD      A,(BC)          ; get opcode
+        INC     BC              ; increment IPC
+        ADD     A,A
+        JP      NC,SLDCI        ; if bit 7 zero push constant
+        ; else decode op and jump to routine
+        LD      H,ROM/100H
+        LD      L,A             ; HL points to routine address in jump table
+        LD      E,(HL)          ; get address
+        INC     HL
+        LD      D,(HL)
+        EX      DE,HL
+        JP      (HL)            ; and go there
+
+
+
+
+;**************** RUN-TIME ERROR SUPPORT ****************;
+
+XEQERR  ; a run-time error has occured. pass some parameters
+        ;   through syscom, then do a CXP 0,2 (PROCEDURE execerror)
+        LD      H,00H           ; HL = error #
+        LD      (XERRCD),HL
+        LD      HL,-14.         ; size of execerror stack frame (MSCW+with temp)
+        ADD     HL,SP
+        LD      (BOMBP),HL      ; (BOMBP) := ^exerror MSCW
+        LD      HL,(IPCSAV)
+        LD      (BOMIPC),HL
+        LD      BC,CXP02
+        NOP                     ; leave here - handy for debugging
+        JP      BACK
+CXP02   .BYTE   77.+128., 0, 2
+
+INVNDX  LD      L,01H           ; Invalid index
+        JP      XEQERR
+NOPROC  LD      L,02H           ; Non-existent segment
+        JP      XEQERR
+NOEXIT  LD      L,03H           ; Exitting procedure never called
+        JP      XEQERR
+STKOVR  LD      HL,INTEND       ; stack overflow
+        LD      (NP),HL         ; prevent recursive overflow
+        LD      L,04H
+        JP      XEQERR
+INTOVR  LD      L,05H           ; Integer overflow
+        JP      XEQERR
+DIVZER  LD      L,06H           ; Divide by zero
+        JP      XEQERR
+BADMEM  LD      L,07H           ; Bad memory access (PDP-11 error only)
+        JP      XEQERR
+UBREAK  LD      L,08H           ; User break
+        JP      XEQERR
+SYIOER  LD      L,09H           ; System IO error
+        JP      XEQERR
+UIOERR  LD      L,0AH           ; User IO error
+        JP      XEQERR
+NOTIMP  SAVIPC                  ; Instruction not implemented
+        LD      L,0BH
+        JP      XEQERR
+FPIERR  LD      L,0CH           ; Floating point error
+        JP      XEQERR
+S2LONG  LD      L,0DH           ; String too long
+        JP      XEQERR
+HLT     SAVIPC                  ; Unconditional halt
+        LD      L,0EH
+        JP      XEQERR
+BPTHLT  LD      L,0FH           ; Conditional halt or breakpoint
+        JP      XEQERR
+
+
+BPT     ; Conditional halt or breakpoint
+        CALL    GBDE
+        EX      DE,HL           ; save line number
+        LD      (HLTLINE),HL
+        EX      DE,HL
+        SAVIPC
+        LD      A,(BUGSTA)
+        CP      3
+        JP      P,BPTHLT
+        ; not in stepping mode, so check for breakpoint
+        LD      HL,BRKPTS
+        LD      B,4
+$10     LD      A,E
+        CP      (HL)
+        INC     HL
+        JP      NZ,$20
+        LD      A,D
+        CP      (HL)
+        JP      Z,BPTHLT
+$20     INC     HL
+        DJNZM   $10
+        JP      BACK1
+
+; End-of-File INTERP

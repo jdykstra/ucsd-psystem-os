@@ -1,0 +1,753 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+(*
+ * Source: http://bitsavers.org/bits/UCSD_Pascal/ucsd_II.0/
+ *     U123.1_Z80_ASSEM_SOURCE.raw.gz
+ * Date: 1979-Mar-28
+ *)
+
+{$U-}
+{$R-}
+{$S+}
+{===============================================================}
+{                                                               }
+{               UCSD   ADAPTABLE   ASSEMBLER                    }
+{               ----   ---------   ---------                    }
+{       Patterned after The Waterloo Last Assembler (TLA)       }
+{       Core Authors:  William P. Franks and Dennis Volper      }
+{                                                               }
+{                                                               }
+{               Version :   Zilog Z80                           }
+{               Date    :   Dec.   14, 1978                     }
+{               Author  :   William P. Franks                   }
+{               Release :   II.0 [d.3]                          }
+{                                                               }
+{                                                               }
+{              Institute for Information Systems                }
+{                UC  San Diego, La Jolla,  CA                   }
+{                                                               }
+{                 Kenneth L. Bowles, Director                   }
+{                                                               }
+{                     Copyright (C) 1978,                       }
+{       Regents of the University of California, San Diego      }
+{                                                               }
+{===============================================================}
+PROGRAM SYSTEMLEVEL;
+TYPE    PHYLE=FILE;
+VAR     FILLER:ARRAY[0..6] OF INTEGER;
+        USERINFO:RECORD
+          WORKSRC,WORKCODE:^PHYLE;
+          ERRSYM,ERRBLK,ERRNUM:INTEGER;
+          SLOWTERM,STUPID:BOOLEAN;
+          ALTMODE:CHAR;
+          FILLER2:ARRAY[0..21] OF INTEGER; {change with care...allows more}
+          WORKTITLE,SYMTITLE:STRING[15]       {compile time space}
+        END;
+
+
+SEGMENT PROCEDURE TLA(III,JJJ:INTEGER);
+CONST  MAXMACRO       =5;      {Maximum nested level of macros}
+       MAJORVERSION   =1;      {Major version release #}
+       MTYPE          =5;      {Machine type Z80}
+       NUMKWORDS      =32;     {The number of key words in this assembler}
+       HASHRANGE      =128;    {The hash table size}
+       HASHTOP        =127;    {One less than HASHRANGE}
+       MACROSIZE      =9;      {The buffer size for a MACRO stored on heap}
+       BUFBLKS        =2;      {# of blocks for output buffer}
+       BUFLIMIT       =1023;   { (BUFBLKS*512) - 1}
+       MAXPROC        =10;     {Maximum # of PROCS per assembly}
+       PAGESIZE       =55;     {Lines printed per page}
+       CODESIZE       =20;     {testing values}
+       VIEWSTACK      =TRUE;   {Display stack & heap while assembling?}
+       DEBUG          =FALSE;  {for debugging Assembler}
+       RELEASENAME    ='II.0 [d.3]';
+
+{ Below constants are Assembler dependent}
+
+       NOP            =0;      {A one byte NOP}
+       ASMNAME        ='Z80';
+       BYTEFIT        =7;      {Bytes that fit on line: 7 Hex, 5 Octal}
+       WORDFIT        =4;      {Words that fit on line: 4 Hex, 3 Octal}
+       HIBYTEFIRST    =FALSE;  {First byte is the high-order byte?}
+       LISTHIFIRST    =FALSE;  {High byte comes first in printed listing?}
+       LCCHAR         ='$';    {Location counter character}
+       WORDADDRESSED  =FALSE;  {Word as opposed to byte addressed}
+       AFTERPLUS      =0;      {Char following plus that makes it auto-incr}
+       AFTERMINUS     =0;      {Char following minus that makes it auto-decr}
+       DEFRADIX       =10;     {Default radix}
+       LISTRADIX      =16;     {Printed listing radix}
+       HEXSWITCH      ='H';    {Char following number which resets radix}
+       DECSWITCH      ='.';
+       OCTSWITCH      =0;
+       BINSWITCH      ='B';
+       RELHI          =TRUE;   {Relative byte most significant passed PUTWORD}
+
+TYPE BITE=0..255;
+     PACKNAME=PACKED ARRAY[0..7] OF CHAR;
+     WORDSWAP=PACKED RECORD CASE INTEGER OF
+              0:(HWORD:INTEGER);
+              1:(HIBYTE,LOWBYTE:BITE);
+              2:(HEX1,HEX2,HEX3,HEX4:0..15);
+              3:(OCT2,OCT3,OCT4,OCT5,OCT6:0..7;
+                                     OCT1:0..1);
+              4:(BIN:PACKED ARRAY[0..15] OF 0..1)
+          END;
+     BYTESWAP=PACKED RECORD CASE INTEGER OF
+              0:(BWORD:INTEGER);
+              1:(BADBYTE,GOODBYTE:BITE);
+              2:(DEST,SOURCE:0..7;
+                 DUM1:0..1023);
+              3:(DUM2:0..15;
+                 RP:0..3;
+                 DUM3:0..1023)
+          END;
+
+(*$I asm1.text *)
+(*$I asm2.text *)
+(*$I asm3.text *)
+
+(*$I extra.z80.text *)
+
+PROCEDURE ZOP11;
+{ JR }
+BEGIN
+  IF DEBUG THEN WRITELN('Op11');
+  IF EXPRESS(TRUE) THEN
+    IF (RESULT.ATTRIBUTE=DEFCC) OR
+      ((RESULT.ATTRIBUTE=DEFREG) AND (RESULT.OFFSETORVALUE=1)) THEN
+      BEGIN
+        IF RESULT.OFFSETORVALUE>3 THEN
+          BEGIN
+            ERROR(83{illegal cc});
+            PUTBYTE(NOP);
+          END;
+        IF RESULT.ATTRIBUTE=DEFREG THEN RESULT.OFFSETORVALUE:=3;
+        CASE RESULT.OFFSETORVALUE OF
+          0:OPBYTE.GOODBYTE:=32; {NZ,e gives 20xx}
+          1:OPBYTE.GOODBYTE:=40; {Z,e gives 28xx}
+          2:OPBYTE.GOODBYTE:=48; {NC,e gives 30xx}
+          3:OPBYTE.GOODBYTE:=56  {C,e gives 38xx}
+        END;
+        IF EXPRESS(TRUE) THEN
+          BEGIN
+            RELOCATE.OFFSETORVALUE:=RELOCATE.OFFSETORVALUE - 2;
+            PUTRELWORD(OPBYTE.BWORD,TRUE,FALSE);
+          END
+        ELSE PUTBYTE(NOP);
+      END
+    ELSE
+      BEGIN
+        OPBYTE.GOODBYTE:=24; {e gives 18xx}
+        RELOCATE.OFFSETORVALUE:=RELOCATE.OFFSETORVALUE - 2;
+        PUTRELWORD(OPBYTE.BWORD,TRUE,FALSE);
+      END
+  ELSE PUTBYTE(NOP);
+END;
+
+PROCEDURE ZOP12;
+{ CALL }
+BEGIN
+  IF DEBUG THEN WRITELN('Op12');
+  OPBYTE.BWORD:=SYM^.VALUE;
+  IF EXPRESS(TRUE) THEN
+    IF RESULT.ATTRIBUTE=DEFCC THEN
+      BEGIN
+        OPBYTE.GOODBYTE:=OPBYTE.BADBYTE;
+        OPBYTE.DEST:=RESULT.OFFSETORVALUE;
+        PUTBYTE(OPBYTE.GOODBYTE);
+        IF EXPRESS(TRUE) THEN
+          PUTWORD(RESULT.OFFSETORVALUE)
+        ELSE PUTBYTE(NOP);
+      END
+    ELSE IF (RESULT.ATTRIBUTE=DEFREG) AND (RESULT.OFFSETORVALUE=1) THEN
+      BEGIN
+        OPBYTE.GOODBYTE:=OPBYTE.BADBYTE;
+        OPBYTE.DEST:=3;
+        PUTBYTE(OPBYTE.GOODBYTE);
+        IF EXPRESS(TRUE) THEN
+          PUTWORD(RESULT.OFFSETORVALUE)
+        ELSE PUTBYTE(NOP);
+      END
+    ELSE
+      BEGIN
+        PUTBYTE(OPBYTE.GOODBYTE);
+        PUTWORD(RESULT.OFFSETORVALUE);
+      END
+  ELSE PUTBYTE(NOP);
+END;
+
+PROCEDURE ZOP13;
+{ IN }
+VAR  A:BOOLEAN;
+     SAVE:INTEGER;
+BEGIN
+  IF DEBUG THEN WRITELN('Op13');
+  OPBYTE.BWORD:=SYM^.VALUE;
+  LEX;
+  IF SYM^.ATTRIBUTE<>DEFREG THEN
+    OPERROR
+  ELSE
+    BEGIN
+      SAVE:=SYM^.VALUE;
+      A:=(SYM^.NAME='A       ');
+      LEX;
+      IF LEXTOKEN<>COMMA THEN ERROR(78);
+      LEX;
+      IF LEXTOKEN<>OPENPAREN THEN ERROR(80{( expected});
+      IF EXPRESS(TRUE) THEN
+        IF RESULT.ATTRIBUTE=DEFREG THEN
+          BEGIN
+            IF RESULT.OFFSETORVALUE=1 {register C} THEN
+              BEGIN
+                PUTBYTE(OPBYTE.BADBYTE);
+                OPBYTE.GOODBYTE:=64; {r,(C) gives 01xxx000=40}
+                OPBYTE.DEST:=SAVE;
+                PUTBYTE(OPBYTE.GOODBYTE);
+              END
+            ELSE
+              BEGIN
+                ERROR(84{C expected});
+                PUTBYTE(NOP);
+              END;
+          END
+        ELSE IF A THEN
+          BEGIN
+            PUTBYTE(OPBYTE.GOODBYTE);
+            IF CHECKOPERAND(FALSE,TRUE,TRUE,-128,255) THEN
+              BEGIN
+                OPBYTE.GOODBYTE:=RESULT.OFFSETORVALUE;
+                PUTBYTE(OPBYTE.GOODBYTE);
+              END;
+          END
+        ELSE OPERROR;
+      IF SPCIALSTKINDEX=-1 THEN
+        ERROR(77)
+       ELSE SPCIALSTKINDEX:=SPCIALSTKINDEX-1;
+    END;
+END;
+
+PROCEDURE ZOP14;
+{ OUT }
+BEGIN
+  IF DEBUG THEN WRITELN('Op14');
+  OPBYTE.BWORD:=SYM^.VALUE;
+  LEX;
+  IF LEXTOKEN<>OPENPAREN THEN ERROR(80{( expected});
+  IF EXPRESS(TRUE) THEN
+    IF RESULT.ATTRIBUTE=DEFREG THEN
+      BEGIN
+        IF RESULT.OFFSETORVALUE<>1 THEN ERROR(84{C expected});
+        PUTBYTE(OPBYTE.BADBYTE);
+        IF SPCIALSTKINDEX=-1 THEN
+          ERROR(77)
+        ELSE SPCIALSTKINDEX:=SPCIALSTKINDEX-1;
+        LEX;
+        IF SYM^.ATTRIBUTE=DEFREG THEN
+          BEGIN
+            OPBYTE.GOODBYTE:=65; {(C),r gives 01xxx001=41}
+            OPBYTE.DEST:=SYM^.VALUE;
+            PUTBYTE(OPBYTE.GOODBYTE);
+          END
+        ELSE
+          BEGIN
+            ERROR(85{r expected});
+            PUTBYTE(NOP);
+          END;
+        LEX;
+      END
+    ELSE IF CHECKOPERAND(FALSE,TRUE,TRUE,-128,255) THEN
+      BEGIN
+        IF SPCIALSTKINDEX=-1 THEN
+          ERROR(77)
+        ELSE SPCIALSTKINDEX:=SPCIALSTKINDEX-1;
+        PUTBYTE(OPBYTE.GOODBYTE);
+        OPBYTE.GOODBYTE:=RESULT.OFFSETORVALUE;
+        PUTBYTE(OPBYTE.GOODBYTE);
+        LEX;
+        IF SYM^.NAME<>'A       ' THEN ERROR(86{A expected});
+        LEX;
+      END
+    ELSE PUTBYTE(NOP)
+  ELSE PUTBYTE(NOP);
+END;
+
+PROCEDURE ZOP15;
+{ EXX DAA CPL CCF SCF NOP HALT DI EI RLCA RLA RRCA RRA }
+BEGIN
+  IF DEBUG THEN WRITELN('Op15');
+  PUTBYTE(SYM^.VALUE);
+  LEX;
+END;
+
+PROCEDURE ZOP16;
+{ IM }
+BEGIN
+  IF DEBUG THEN WRITELN('Op16');
+  PUTBYTE(SYM^.VALUE);
+  IF EXPRESS(TRUE) THEN
+    IF CHECKOPERAND(TRUE,TRUE,TRUE,0,2) THEN
+      CASE RESULT.OFFSETORVALUE OF
+        0:PUTBYTE(70); {46}
+        1:PUTBYTE(86); {56}
+        2:PUTBYTE(94)  {5E}
+      END
+    ELSE PUTBYTE(NOP)
+  ELSE PUTBYTE(NOP);
+END;
+
+PROCEDURE ZOP17;
+{ RST }
+BEGIN
+  IF DEBUG THEN WRITELN('Op17');
+  OPBYTE.GOODBYTE:=SYM^.VALUE;
+  IF EXPRESS(TRUE) THEN
+    BEGIN
+      RESULT.OFFSETORVALUE:=RESULT.OFFSETORVALUE DIV 8;
+      IF CHECKOPERAND(TRUE,TRUE,TRUE,0,7) THEN
+        OPBYTE.DEST:=RESULT.OFFSETORVALUE;
+      PUTBYTE(OPBYTE.GOODBYTE);
+    END
+  ELSE PUTBYTE(NOP);
+END;
+
+PROCEDURE ZOP18;
+{ LDI LDIR LDD LDDR CPI CPIR CPD CPDR NEG RLD RRD
+  RETI RETN INI INIR IND INDR OUTI OTIR OUTD OTDR }
+BEGIN
+  IF DEBUG THEN WRITELN('Op18');
+  OPBYTE.BWORD:=SYM^.VALUE;
+  PUTBYTE(OPBYTE.BADBYTE);
+  PUTBYTE(OPBYTE.GOODBYTE);
+  LEX;
+END;
+
+PROCEDURE ZOP19;
+{ LD }
+
+PROCEDURE OP19OPEN;
+VAR  N1:INTEGER;
+
+PROCEDURE OPENNN;
+BEGIN
+  EXPRSSADVANCE:=FALSE;
+  IF EXPRESS(TRUE) THEN
+    BEGIN
+      IF SPCIALSTKINDEX=-1 THEN
+        ERROR(77)
+      ELSE SPCIALSTKINDEX:=SPCIALSTKINDEX-1;
+      LEX;
+      IF LEXTOKEN=TIDENTIFIER THEN
+        BEGIN
+          IF SYM^.ATTRIBUTE=DEFABS THEN
+            BEGIN
+              PUTBYTE(SYM^.VALUE);
+              PUTBYTE(34); {(nn),IX gives 22}
+              PUTWORD(RESULT.OFFSETORVALUE);
+            END
+          ELSE IF SYM^.NAME='HL      ' THEN
+            BEGIN
+              PUTBYTE(34); {(nn),HL gives 22}
+              PUTWORD(RESULT.OFFSETORVALUE);
+            END
+          ELSE IF (SYM^.ATTRIBUTE=DEFRP) AND (SYM^.NAME<>'AF      ') THEN
+            BEGIN
+              PUTBYTE(237); {(nn),rp gives ED}
+              OPBYTE.GOODBYTE:=67; {01xx0011=43}
+              OPBYTE.RP:=SYM^.VALUE;
+              PUTBYTE(OPBYTE.GOODBYTE);
+              PUTWORD(RESULT.OFFSETORVALUE);
+            END
+          ELSE IF SYM^.NAME='A       ' THEN
+            BEGIN
+              PUTBYTE(50); {(nn),A gives 32}
+              PUTWORD(RESULT.OFFSETORVALUE);
+            END
+          ELSE OPERROR;
+        END
+      ELSE OPERROR;
+      LEX;
+    END
+  ELSE PUTBYTE(NOP);
+END;
+
+BEGIN { OP19OPEN }
+  LEX;
+  IF LEXTOKEN=TIDENTIFIER THEN
+    BEGIN
+      IF SYM^.ATTRIBUTE=DEFABS THEN
+        BEGIN
+          PUTBYTE(SYM^.VALUE);
+          LEX;
+          IF LEXTOKEN<>PLUS THEN ERROR(79);
+          IF EXPRESS(TRUE) THEN
+            IF CHECKOPERAND(FALSE,TRUE,TRUE,0,255) THEN
+              BEGIN
+                N1:=RESULT.OFFSETORVALUE;
+                IF SPCIALSTKINDEX=-1 THEN
+                  ERROR(77)
+                ELSE SPCIALSTKINDEX:=SPCIALSTKINDEX-1;
+                IF EXPRESS(TRUE) THEN
+                  IF RESULT.ATTRIBUTE=DEFREG THEN
+                    BEGIN
+                      OPBYTE.GOODBYTE:=112; {(IY+n),r gives 01110xxx=70}
+                      OPBYTE.SOURCE:=RESULT.OFFSETORVALUE;
+                      PUTBYTE(OPBYTE.GOODBYTE);
+                      PUTBYTE(N1);
+                    END
+                  ELSE IF CHECKOPERAND(TRUE,TRUE,TRUE,-128,255) THEN
+                    BEGIN
+                      PUTBYTE(54); {(IX+n),n gives 36}
+                      PUTBYTE(N1);
+                      OPBYTE.GOODBYTE:=RESULT.OFFSETORVALUE;
+                      PUTBYTE(OPBYTE.GOODBYTE);
+                    END
+                  ELSE PUTBYTE(NOP)
+                ELSE PUTBYTE(NOP);
+              END
+            ELSE PUTBYTE(NOP)
+          ELSE PUTBYTE(NOP);
+        END
+      ELSE IF SYM^.NAME='HL      ' THEN
+        BEGIN
+          LEX;
+          IF LEXTOKEN<>CLOSEPAREN THEN ERROR(77);
+          LEX;
+          IF LEXTOKEN<>COMMA THEN ERROR(78);
+          IF EXPRESS(TRUE) THEN
+            IF RESULT.ATTRIBUTE=DEFREG THEN
+              BEGIN
+                OPBYTE.GOODBYTE:=112; {(HL),r gives 01110xxx=70}
+                OPBYTE.SOURCE:=RESULT.OFFSETORVALUE;
+                PUTBYTE(OPBYTE.GOODBYTE);
+              END
+            ELSE IF CHECKOPERAND(TRUE,TRUE,TRUE,-128,255) THEN
+              BEGIN
+                PUTBYTE(54); {(HL),n gives 36}
+                OPBYTE.GOODBYTE:=RESULT.OFFSETORVALUE;
+                PUTBYTE(OPBYTE.GOODBYTE);
+              END
+            ELSE PUTBYTE(NOP)
+          ELSE PUTBYTE(NOP);
+        END
+      ELSE IF (SYM^.NAME='BC      ') OR (SYM^.NAME='DE      ') THEN
+        BEGIN
+          IF SYM^.VALUE=0 THEN PUTBYTE(2) {(DE),A gives 12}
+          ELSE PUTBYTE(18); {(BC),A gives 02}
+          LEX;
+          IF LEXTOKEN<> CLOSEPAREN THEN ERROR(77);
+          LEX;
+          IF LEXTOKEN<>COMMA THEN ERROR(78);
+          LEX;
+          IF SYM^.NAME<>'A       ' THEN ERROR(86{A expected});
+          LEX;
+        END
+      ELSE OPENNN;
+    END
+  ELSE
+    OPENNN;
+END;
+
+PROCEDURE OP19REG;
+VAR  OPREG1:INTEGER;
+BEGIN
+  OPREG1:=SYM^.VALUE;
+  LEX;
+  IF LEXTOKEN<>COMMA THEN ERROR(78);
+  IF EXPRESS(TRUE) THEN
+    BEGIN
+      IF RESULT.ATTRIBUTE=DEFIR THEN
+        BEGIN
+          IF OPREG1<>7 THEN
+            OPERROR
+          ELSE
+            BEGIN
+              PUTBYTE(237); {A,I gives ED}
+              PUTBYTE(RESULT.OFFSETORVALUE + 16);
+            END;
+        END
+      ELSE IF RESULT.ATTRIBUTE=DEFREG THEN
+        BEGIN
+          OPBYTE.GOODBYTE:=64; {r1,r2 gives 01xxxyyy=40}
+          OPBYTE.DEST:=OPREG1;
+          OPBYTE.SOURCE:=RESULT.OFFSETORVALUE;
+          PUTBYTE(OPBYTE.GOODBYTE);
+        END
+      ELSE IF CHECKOPERAND(TRUE,TRUE,TRUE,-128,255) THEN
+        BEGIN
+          OPBYTE.GOODBYTE:=6; {r,n gives 00xxx110=6}
+          OPBYTE.DEST:=OPREG1;
+          PUTBYTE(OPBYTE.GOODBYTE);
+          OPBYTE.GOODBYTE:=RESULT.OFFSETORVALUE;
+          PUTBYTE(OPBYTE.GOODBYTE);
+        END
+    END
+  ELSE IF SPCIALSTKINDEX<>-1 THEN
+    BEGIN
+      IF SPECIALSTK[SPCIALSTKINDEX]<>OPENPAREN THEN
+        ERROR(80{( expected});
+      SPCIALSTKINDEX:=SPCIALSTKINDEX-1;
+      LEX;
+      IF (LEXTOKEN=TIDENTIFIER) AND (SYM^.ATTRIBUTE=DEFABS) THEN
+        BEGIN
+          PUTBYTE(SYM^.VALUE);
+          LEX;
+          IF LEXTOKEN<>PLUS THEN ERROR(79);
+          IF EXPRESS(TRUE) THEN
+            IF CHECKOPERAND(FALSE,TRUE,TRUE,0,255) THEN
+              BEGIN
+                OPBYTE.GOODBYTE:=70; {r,(IX+n) gives 01xxx110=46}
+                OPBYTE.DEST:=OPREG1;
+                PUTBYTE(OPBYTE.GOODBYTE);
+                PUTBYTE(RESULT.OFFSETORVALUE);
+              END;
+          IF SPCIALSTKINDEX=-1 THEN
+            ERROR(77)
+          ELSE SPCIALSTKINDEX:=SPCIALSTKINDEX-1;
+        END
+      ELSE IF (LEXTOKEN=TIDENTIFIER) AND (SYM^.ATTRIBUTE=DEFRP) THEN
+        BEGIN
+          IF SYM^.VALUE=0 THEN
+            IF OPREG1<>7 THEN OPERROR
+              ELSE PUTBYTE(10) {A,(BC) gives 0A}
+          ELSE IF SYM^.VALUE=1 THEN
+            IF OPREG1<>7 THEN OPERROR
+              ELSE PUTBYTE(26) {A,(DE) gives 1A}
+          ELSE IF SYM^.VALUE=2 THEN
+            BEGIN
+              OPBYTE.GOODBYTE:=70; {r,(HL) gives 01xxx110}
+              OPBYTE.DEST:=OPREG1;
+              PUTBYTE(OPBYTE.GOODBYTE);
+            END
+          ELSE PUTBYTE(NOP);
+          LEX;
+          IF LEXTOKEN<>CLOSEPAREN THEN ERROR(77);
+          LEX;
+        END
+      ELSE IF OPREG1=7 THEN
+        BEGIN
+          EXPRSSADVANCE:=FALSE;
+          PUTBYTE(58); {A,(nn) gives 3A}
+          IF EXPRESS(TRUE) THEN
+            PUTWORD(RESULT.OFFSETORVALUE);
+          IF SPCIALSTKINDEX=-1 THEN
+            ERROR(77)
+          ELSE SPCIALSTKINDEX:=SPCIALSTKINDEX-1;
+        END
+     ELSE
+       BEGIN
+         OPERROR;
+         LEX;
+       END
+    END;
+END;
+
+PROCEDURE OP19RP;
+VAR  OPRP1:INTEGER;
+     EXTRASYM:SYMTABLEPTR;
+BEGIN
+  OPRP1:=SYM^.VALUE;
+  EXTRASYM:=SYM;
+  LEX;
+  IF LEXTOKEN<>COMMA THEN ERROR(78);
+  LEX;
+  IF LEXTOKEN=OPENPAREN THEN
+    BEGIN
+      IF EXPRESS(TRUE) THEN
+        IF EXTRASYM^.NAME='HL      ' THEN
+          BEGIN
+            PUTBYTE(42); {HL,(nn) gives 2A}
+            PUTWORD(RESULT.OFFSETORVALUE);
+            IF SPCIALSTKINDEX=-1 THEN
+              ERROR(77)
+            ELSE SPCIALSTKINDEX:=SPCIALSTKINDEX-1;
+          END
+        ELSE
+          BEGIN
+            PUTBYTE(237); {rp,(nn) gives ED}
+            OPBYTE.GOODBYTE:=75; {01xx1011=4B}
+            OPBYTE.RP:=OPRP1;
+            PUTBYTE(OPBYTE.GOODBYTE);
+            PUTWORD(RESULT.OFFSETORVALUE);
+            IF SPCIALSTKINDEX=-1 THEN
+              ERROR(77)
+            ELSE SPCIALSTKINDEX:=SPCIALSTKINDEX-1;
+          END
+      ELSE PUTBYTE(NOP);
+    END
+  ELSE IF SYM^.ATTRIBUTE=DEFABS THEN
+    BEGIN
+      IF EXTRASYM^.NAME='SP      ' THEN
+        BEGIN
+          PUTBYTE(SYM^.VALUE);
+          PUTBYTE(249); {SP,HL gives F9}
+        END
+      ELSE OPERROR;
+      LEX;
+    END
+  ELSE IF (SYM^.NAME='HL      ') AND (LEXTOKEN=TIDENTIFIER) THEN
+    BEGIN
+      IF EXTRASYM^.NAME='SP      ' THEN
+        PUTBYTE(249) {SP,HL gives F9}
+      ELSE OPERROR;
+      LEX;
+    END
+  ELSE
+    BEGIN
+      EXPRSSADVANCE:=FALSE;
+      IF EXPRESS(TRUE) THEN
+        BEGIN
+          OPBYTE.GOODBYTE:=1; {rp,nn gives 00xx0001}
+          OPBYTE.RP:=OPRP1;
+          PUTBYTE(OPBYTE.GOODBYTE);
+          PUTWORD(RESULT.OFFSETORVALUE);
+        END
+      ELSE PUTBYTE(NOP);
+    END;
+END;
+
+PROCEDURE OP19ABS;
+BEGIN
+  PUTBYTE(SYM^.VALUE);
+  LEX;
+  IF LEXTOKEN<>COMMA THEN ERROR(78);
+  IF EXPRESS(TRUE) THEN
+    BEGIN
+      PUTBYTE(33); {IX,nn gives 21}
+      PUTWORD(RESULT.OFFSETORVALUE);
+    END
+  ELSE IF SPCIALSTKINDEX<>-1 THEN
+    BEGIN
+      IF SPECIALSTK[SPCIALSTKINDEX]<>OPENPAREN THEN
+        ERROR(80{( expected});
+      SPCIALSTKINDEX:=SPCIALSTKINDEX-1;
+      IF EXPRESS(TRUE) THEN
+        BEGIN
+          PUTBYTE(42); {IX,(nn) gives 2A}
+          PUTWORD(RESULT.OFFSETORVALUE);
+          IF SPCIALSTKINDEX=-1 THEN
+            ERROR(77)
+          ELSE SPCIALSTKINDEX:=SPCIALSTKINDEX-1;
+        END
+      ELSE PUTBYTE(NOP);
+    END;
+END;
+
+BEGIN {ZOP19}
+  IF DEBUG THEN WRITELN('Op19');
+  LEX;
+  IF LEXTOKEN=OPENPAREN THEN
+    OP19OPEN
+  ELSE IF LEXTOKEN=TIDENTIFIER THEN
+    BEGIN
+      IF SYM^.ATTRIBUTE=DEFREG THEN
+        OP19REG
+      ELSE IF (SYM^.ATTRIBUTE=DEFRP) AND (SYM^.NAME<>'AF      ') THEN
+        OP19RP
+      ELSE IF SYM^.ATTRIBUTE=DEFABS THEN
+        OP19ABS
+      ELSE IF SYM^.ATTRIBUTE=DEFIR THEN
+        BEGIN
+          PUTBYTE(237); {I,A gives ED}
+          PUTBYTE(SYM^.VALUE);
+          LEX;
+          IF LEXTOKEN<>COMMA THEN ERROR(78);
+          LEX;
+          IF SYM^.NAME<>'A       ' THEN ERROR(86{A expected});
+          LEX;
+        END
+      ELSE OPERROR;
+    END
+  ELSE OPERROR;
+END;
+
+PROCEDURE ZOP20;
+{ RET }
+BEGIN
+  IF DEBUG THEN WRITELN('Op20');
+  OPBYTE.BWORD:=SYM^.VALUE;
+  LEX;
+  IF LEXTOKEN<>ENDLINE THEN
+    IF SYM^.ATTRIBUTE=DEFCC THEN
+      BEGIN
+        OPBYTE.GOODBYTE:=OPBYTE.BADBYTE;
+        OPBYTE.DEST:=SYM^.VALUE;
+        PUTBYTE(OPBYTE.GOODBYTE);
+        LEX;
+      END
+    ELSE IF (SYM^.ATTRIBUTE=DEFREG) AND (SYM^.VALUE=1) THEN
+      BEGIN
+        OPBYTE.GOODBYTE:=OPBYTE.BADBYTE;
+        OPBYTE.DEST:=3;
+        PUTBYTE(OPBYTE.GOODBYTE);
+        LEX;
+      END
+    ELSE OPERROR
+  ELSE
+    PUTBYTE(OPBYTE.GOODBYTE);
+END;
+
+BEGIN  {instrclass}
+  CASE SYM^.ATTRIBUTE OF
+     OPS1:ZOP1;
+     OPS2:ZOP2;
+     OPS3:ZOP3;
+     OPS4:ZOP4;
+     OPS5:ZOP5;
+     OPS6:ZOP6;
+     OPS7:ZOP7;
+     OPS8:ZOP8;
+     OPS9:ZOP9;
+    OPS10:ZOP10;
+    OPS11:ZOP11;
+    OPS12:ZOP12;
+    OPS13:ZOP13;
+    OPS14:ZOP14;
+    OPS15:ZOP15;
+    OPS16:ZOP16;
+    OPS17:ZOP17;
+    OPS18:ZOP18;
+    OPS19:ZOP19;
+    OPS20:ZOP20
+  END;
+END;
+
+(*$I asm4.text *)
+(*$I asm5.text *)
+(*$I asm6.text *)
+
+BEGIN {Dummy outer block} END.

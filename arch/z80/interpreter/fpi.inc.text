@@ -1,0 +1,393 @@
+;
+; UCSD PASCAL - Version I.5
+; Copyright (C) 1978, 1979 Regents of the University of California
+; All Rights Reserved
+;
+; Permission to use, copy, modify and distribute any part of UCSD
+; PASCAL solely authored by UC authors before June 1, 1979 for
+; educational, research and non-profit purposes, without fee, and
+; without a written agreement is hereby granted, provided that the
+; above copyright notice, this paragraph and the following three
+; paragraphs appear in all copies.
+;
+; Those desiring to incorporate UCSD PASCAL into commercial products or
+; use for commercial purposes should contact the Technology Transfer &
+; Intellectual Property Services, University of California, San Diego,
+; 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+; Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+;
+; IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+; FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+; INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+; THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+; DAMAGE.
+;
+; THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+; OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+; UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+; MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+; EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+; WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+; THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+; OTHER RIGHTS.
+;
+; Case Number: SD1991-807 (2006)
+; http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+;
+;;; Source: http://bitsavers.org/bits/UCSD_Pascal/ucsd_II.0/
+;;;     U120_Z80_P-CODE_SOURCE.raw.gz
+;;; Date: 1978-Oct-19
+
+        .IF ~LSTFP
+         .NOLIST
+        .ELSE
+         .LIST
+        .ENDC
+
+;Copyright (c) 1978
+;  by the Regents of the University of California, San Diego
+
+; Beginning of file FPI
+
+; ************ Macros...
+
+        .MACRO   FPMPUSH         ; push the fp # residing at addr given
+         LD     HL,(%1 + 2)
+         PUSH   HL
+         LD     HL,(%1)
+         PUSH   HL
+        .ENDM
+
+        .MACRO   FPMPOP          ; pop the fp tos into addr given
+         POP    HL
+         LD     (%1),HL
+         POP    HL
+         LD     (%1 + 2),HL
+        .ENDM
+
+        .MACRO   FPMSAVE        ; save to fp tos into addr given
+         POP    DE              ;   leaves fp on tos, and in LHED
+         POP    HL
+         LD     (%1 + 2),HL
+         EX     DE,HL
+         LD     (%1),HL
+         PUSH   DE
+         PUSH   HL
+        .ENDM
+
+         ; adjust stack which contains a ret addr
+         ; and one fp.  leave fp in LHED.  If addr
+         ; specified put arg into it.  If "junk"
+         ; specified (only legal if addr given)
+         ; then don't leave fp on stack.
+         .MACRO   FPMADJ        ; Adjust stack, which contains a ret. addr.
+         .IF "%1" = ""          ;   and one fp.  Leave fp in LHED.  If addr.
+          POP   BC              ;   passed to macro stick fp in it, too.  If
+          POP   HL              ;   "junk" passed (only legal is addr. is
+          POP   DE              ;   given) then don't leave fp as tos, but
+          PUSH  BC              ;   toss it away.
+          PUSH  DE
+          PUSH  HL
+         .ELSE
+          POP   BC
+          POP   DE
+          POP   HL
+          PUSH  BC
+          LD    (%1 + 2),HL
+          EX    DE,HL
+          LD    (%1),HL
+          .IF "%2" <> "JUNK"
+           PUSH DE
+           PUSH HL
+          .ENDC
+         .ENDC
+        .ENDM
+
+        .MACRO   FPMDUP          ; duplicate tos
+         .IF "%1" = "LHED"
+          PUSH  DE
+          PUSH  HL
+         .ENDC
+         .IF "%1" = "EDCB"
+          PUSH  DE
+          PUSH  HL
+         .ENDC
+         .IF "%1" = ""
+          POP   HL
+          POP   DE
+          PUSH  DE
+          PUSH  HL
+          PUSH  DE
+          PUSH  HL
+         .ENDC
+        .ENDM
+
+        .MACRO   FPMFRET        ; the complement to FPMADJ.  leaves
+         POP    DE              ; function result on stack and in EDCB,
+         POP    BC              ; and returns from function
+         POP    HL
+         PUSH   BC
+         PUSH   DE
+         JP     (HL)
+        .ENDM
+
+
+
+;***** Floating point simple callable routines
+
+FPFNEG  ; -x
+        POP     HL              ; ret addr
+        POP     DE
+        POP     BC
+        LD      A,D             ; get sign
+        XOR     80H             ; flip it
+        LD      D,A
+        PUSH    BC
+        PUSH    DE
+        JP      (HL)            ; and get out of here (very negative vibes)
+
+FPFABS  ; abs(x)
+        POP     HL              ; ret addr
+        POP     DE
+        POP     BC
+        LD      A,D
+        AND     7FH             ; clear sign
+        LD      D,A
+        PUSH    BC
+        PUSH    DE
+        JP      (HL)            ; we are absolutely done
+
+FPFSQR  ; sqr(x: real): real
+        FPMADJ
+        FPMDUP  LHED
+        CALL    FPFMUL
+        FPMFRET
+
+
+FPFRND  ; round(x: real): integer
+        FPMADJ
+        LD      A,H             ; get sign info, so know to add 0.5
+        AND     80H             ; or -0.5
+        LD      H,A             ; construct high mantissa
+        LD      L,80H           ; set up exp
+        LD      DE,0000H        ; set up low order mantissa
+        PUSH    DE
+        PUSH    HL
+        CALL    FPFADD
+        CALL    FPFFIX
+        POP     DE              ; can't hang around here too long
+        POP     HL
+        PUSH    DE
+        JP      (HL)
+
+FPFINV  ; computes 1/x
+        POP     HL              ; ret addr.
+        POP     DE
+        POP     BC
+        PUSH    HL
+        LD      HL,0            ; low mantissa of 1.0
+        PUSH    HL
+        LD      HL,0081H        ; high mantissa, sign, and exp
+        PUSH    HL
+        PUSH    BC
+        PUSH    DE
+        CALL    FPFDIV
+        FPMFRET                 ; eyb-eyb
+
+FPFPOT  ; pwroften(i:integer): real
+        ; returns 10 ^ i, 0 <= i <= 38
+        POP     DE              ; ret addr
+        POP     HL              ; HL := power
+        PUSH    DE
+        LD      E,L             ; save a sec
+        LD      D,H
+        LD      BC,-39          ; check validity of power
+        ADD     HL,BC
+        JP      C,$99
+        EX      DE,HL           ; multiply power by 4
+        ADD     HL,HL
+        ADD     HL,HL
+        LD      DE,TENTBL+3     ; point HL at highest byte of right number
+        ADD     HL,DE
+        LD      B,(HL)          ; and put fp in EDCB
+        DEC     HL
+        LD      C,(HL)
+        DEC     HL
+        LD      D,(HL)
+        DEC     HL
+        LD      E,(HL)
+        POP     HL              ; get out ret addr back
+        PUSH    BC
+        PUSH    DE
+        JP      (HL)
+$99     POP     HL              ;Mexican <obviously>
+        LD      DE,0000
+        PUSH    DE
+        PUSH    DE
+        LD      A,1
+        LD      (FPERROR),A
+        JP      (HL)
+
+TENTBL  ; power of ten table...typed in by hand.
+        ; 1E0..1E9
+        .BYTE    81H,  00H,  00H,  00H,     84H,  20H,  00H,  00H
+        .BYTE    87H,  48H,  00H,  00H,     8AH,  7AH,  00H,  00H
+        .BYTE    8EH,  1CH,  40H,  00H,     91H,  43H,  50H,  00H
+        .BYTE    94H,  74H,  24H,  00H,     98H,  18H,  96H,  80H
+        .BYTE    9BH,  3EH, 0BCH,  20H,     9EH,  6EH,  6BH,  28H
+        ; 1E10..1E19
+        .BYTE   0A2H,  15H,  02H, 0F9H,    0A5H,  3AH,  43H, 0B7H
+        .BYTE   0A8H,  68H, 0D4H, 0A5H,    0ACH,  11H,  84H, 0E7H
+        .BYTE   0AFH,  35H, 0E6H,  21H,    0B2H,  63H,  5FH, 0A9H
+        .BYTE   0B6H,  0EH,  1BH, 0CAH,    0B9H,  31H, 0A2H, 0BDH
+        .BYTE   0BCH,  5EH,  0BH,  6CH,    0C0H,  0AH, 0C7H,  24H
+        ; 1E20..1E29
+        .BYTE   0C3H,  2DH,  78H, 0EDH,    0C6H,  58H, 0D7H,  28H
+        .BYTE   0CAH,  07H,  86H,  79H,    0CDH,  29H,  68H,  17H
+        .BYTE   0D0H,  53H, 0C2H,  1DH,    0D4H,  04H,  59H,  52H
+        .BYTE   0D7H,  25H,  6FH, 0A7H,    0DAH,  4EH, 0CBH,  91H
+        .BYTE   0DEH,  01H,  3FH,  3BH,    0E1H,  21H,  8FH,  0AH
+        ; 1E30..1E38
+        .BYTE   0E4H,  49H, 0F2H, 0CDH,    0E7H,  7CH,  6FH,  80H
+        .BYTE   0EBH,  1DH, 0C5H, 0B0H,    0EEH,  45H,  37H,  1CH
+        .BYTE   0F1H,  76H,  84H, 0E3H,    0F5H,  1AH,  13H,  0EH
+        .BYTE   0F8H,  40H,  97H, 0D2H,    0FBH,  70H, 0BDH, 0C7H
+        .BYTE   0FFH,  16H,  76H, 09CH
+
+
+
+; ********* Low level support routines used by the fp instructions
+
+FPLBEG  ; used by instructions before routine called...
+        SAVIPC                  ; save the ipc...
+FPLCBEG ; (entry point for CSP routines)
+        CLRA                    ; ...and clear error flag
+        LD      (FPERROR),A
+        RET
+
+FPLCHK  ; exit point for all fp instructions and CSP's
+        LD      A,(FPERROR)
+        TSTA
+        JP      Z,BACK1
+        JP      FPIERR
+
+
+;********** Simple fp instructions and standard procedures
+
+FLT     ; float the top of stack
+        CALL    FPLBEG          ; don't care about FPERROR, but need to savipc
+        CALL    FPFFLOAT
+        JP      BACK1
+
+FLO     ; float the integer under the real on top of stack
+REAL1   .EQU    WORD1
+REAL2   .EQU    WORD2
+        CALL    FPLBEG
+        POP     HL
+        LD      (REAL1),HL
+        POP     HL
+        LD      (REAL2),HL
+        CALL    FPFFLOAT
+        LD      HL,(REAL2)
+        PUSH    HL
+        LD      HL,(REAL1)
+        PUSH    HL
+        JP      BACK1
+
+ABR     ; Real absolute value
+        CALL    FPLBEG
+        CALL    FPFABS
+        JP      BACK1
+
+ADR     ; Add reals
+        CALL    FPLBEG          ; saves ipc and sets FPERROR to false
+        CALL    FPFADD
+        JP      FPLCHK          ; checks FPERROR and bombs if necessary
+
+SBR     ; Subtract reals
+        CALL    FPLBEG
+        CALL    FPFSUB
+        JP      FPLCHK
+
+MPR     ; Multiply reals
+        CALL    FPLBEG
+        CALL    FPFMUL
+        JP      FPLCHK
+
+SQR     ; Square reals
+        CALL    FPLBEG
+        CALL    FPFSQR
+        JP      FPLCHK
+
+DVR     ; Divide reals
+        CALL    FPLBEG
+        CALL    FPFDIV
+        JP      FPLCHK
+
+NGR     ; Negate real
+        CALL    FPLBEG
+        CALL    FPFNEG
+        JP      BACK1
+
+
+TNC     ; truncate real and convert to integer
+        CALL    FPLCBEG         ; csp fp set...doesn't do a savipc
+        CALL    FPFFIX
+        JP      FPLCHK
+
+RND     ; round real
+        CALL    FPLCBEG
+        CALL    FPFRND
+        JP      FPLCHK
+
+POT     CALL    FPLCBEG
+        CALL    FPFPOT
+        JP      FPLCHK
+
+
+REALC   ; compare the real numbers on the top of stack
+        POP     HL
+        LD      (RETADR),HL
+        POP     BC
+        POP     HL
+        POP     DE
+        PUSH    DE
+        ; Compare signs
+        LD      A,D
+        AND     80H
+        LD      D,A
+        LD      A,B
+        AND     80H
+        CP      D
+        JP      NZ,$30
+        TSTA
+        JP      Z,$10
+        ; comparing negative numbers, so switch before comparing
+        LD      E,C
+        LD      D,B
+        POP     BC
+        EX      (SP),HL
+        JP      $20
+$10     POP     DE
+$20     ; check exps
+        LD      A,E
+        CP      C
+        JP      NZ,$40
+        ; high mantissa bytes
+        LD      A,D
+        CP      B
+        JP      NZ,$40
+        ; low two bytes
+        POP     DE
+        LD      A,E
+        CP      L
+        JP      NZ,$50
+        LD      A,D
+        CP      H
+        JP      $50
+$30     POP     HL
+$40     POP     HL
+$50     LD      HL,(RETADR)
+        JP      (HL)
+
+; End of file FPI

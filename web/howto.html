@@ -1,0 +1,167 @@
+.\"
+.\" UCSD p-System Operating System
+.\" Copyright (C) 2011 Peter Miller
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions are met:
+.\"
+.\"   * Redistributions of source code must retain the above copyright notice,
+.\"     this list of conditions and the following disclaimer.
+.\"   * Redistributions in binary form must reproduce the above copyright
+.\"     notice, this list of conditions and the following disclaimer in the
+.\"     documentation and/or other materials provided with the distribution.
+.\"   * Neither the name of the ucsd-psystem-os project nor the names of its
+.\"     contributors may be used to endorse or promote products derived from
+.\"     this software without specific prior written permission.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+.\" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+.\" ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+.\" BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+.\" CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+.\" SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+.\" INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+.\" CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+.\" ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+.\" POSSIBILITY OF SUCH DAMAGE.
+.\"
+.ad l
+.hy 0
+.so version.so
+.nf
+<html><head>
+<link rel="icon" href="favicon.ico" type="image/x-icon">
+<link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
+<title>ucsd-psystem-os \*(v) Howto</title></head>
+<body bgcolor=white><h1 align="center" >
+<img src="icon64.png" align=left>
+<img src="icon64.png" align=right>
+ucsd-psystem-os \*(v)<br>
+How To Use It</h1>
+This page explains how to get your shiny new UCSD Pascal system working.
+
+<h2> Software </h2>
+You need to get copies of the following software
+<ul>
+<li> <a href="http://ucsd-psystem-xc.sourceforge.net/"
+                    >ucsd-psystem-xc</a> cross compiler
+<li> <a href="http://ucsd-psystem-fs.sourceforge.net/"
+                    >ucsd-psystem-fs</a> file system tools
+<li> <a href="http://ucsd-psystem-vm.sourceforge.net/"
+                    >ucsd-psystem-vm</a> virtual machine (p-machine)
+</ul>
+and then you need to build and install each of them, in that order.
+<p>
+Alternatively, if you are using Ubuntu Linux, you can get pre-built
+packages from <a href="http://launchpad.com/" >LaunchPad</a>,
+using a PPA:
+<blockquote>
+<pre>
+sudo add-apt-repository ppa:pmiller-opensource/ppa
+sudo apt-get update
+</pre>
+</blockquote>
+and then you simply install them as usual:
+<blockquote>
+<pre>
+sudo apt-get install ucsd-psystem-xc ucsd-psystem-fs ucsd-psystem-vm
+</pre>
+</blockquote>
+<h2> Build the UCSD Pascal operating System </h2>
+See the <a href="building.html" >building</a> web page.
+<p>
+Alternatively,
+you can download pre-built disk images from this web site:
+<ul>
+<li> <a href="disk-image/system.vol" ><tt>system.vol</tt></a>
+     The cross compiled system disk image.
+<li> <a href="disk-image/utility.vol" ><tt>utility.vol</tt></a>
+     The cross compiled utilities disk image.
+</ul>
+using these commands:
+<blockquote>
+<pre>
+wget http://miller.emu.id.au/pmiller/ucsd-psystem-os/disk-image/system.vol
+wget http://miller.emu.id.au/pmiller/ucsd-psystem-os/disk-image/utility.vol
+</pre>
+</blockquote>
+
+<h2> Work Area </h2>
+We are going to use a simple work area for the rest of this demonstration.
+Change directory into your new work area.
+<blockquote>
+<pre>
+mkdir work
+cd work
+</pre>
+</blockquote>
+In this work area, create a file called &ldquo;<tt>hello.text</tt>&rdquo;
+(note the four-letter file extension)
+with the following contents:
+<blockquote>
+<pre>
+program hello;
+begin
+  writeln('Hellow, World!')
+end.
+</pre>
+</blockquote>
+
+<h3> Cross Compiler </h3>
+
+You can compile the program using the cross compiler:
+<blockquote>
+<pre>
+ucsdpsys_compile hello.text
+</pre>
+</blockquote>
+To execute it, start the virtual machine,
+and automagically turn the current directory
+into a disk image:
+<blockquote>
+<pre>
+ucsdpsys -w . -f ../system.vol -N
+</pre>
+</blockquote>
+You will now see the familiar UCSD Pascal prompt:
+<blockquote>
+<pre>
+Command: E(dit, R(un, F(ile, C(omp, L(ink, X(ecute, A(ssem, D(ebug,? [II.0]
+
+Welcome  SYSTEM,  to
+
+U.C.S.D.  Pascal  System  II.0
+http://miller.emu.id.au/pmiller/ucsd-psystem-os/ version \*(V)
+
+Current date is  26-Jan-11
+</pre>
+</blockquote>
+we then have to change director into the WORK disk, because it
+has been build to contain the files in the current directory:
+<blockquote><tt>F P WORK: </tt><i>return</i><tt> Q</tt></blockquote>
+Now you can run the cross compiled program like so:
+<blockquote><tt>X HELLO </tt><i>return</i></blockquote>
+And you will see the display:
+<blockquote>
+<pre>
+Command: E(dit, R(un, F(ile, C(omp, L(ink, X(ecute, A(ssem, D(ebug,? [II.0]
+Hello, World!
+</pre>
+</blockquote>
+
+<h3> Native Compiler </h3>
+Alternatively, use the UCSD native compiler:
+<blockquote>
+<tt>C HELLO </tt><i>return</i><br><tt>HELLO </tt><i>return</i>
+</blockquote>
+and execute it the same way as you executed the cross compiled version.
+
+<h3> Get Me Out Of Here </h3>
+To quit the system, use <tt>H</tt> for halt.
+<p>
+You will notice that the current directory has been updated with the changes
+made to the <tt>WORK:</tt> volume while it was being used
+(that's what the &ldquo;ucsdpsys \-w .&rdquo; option was for).
+
+</body></html>

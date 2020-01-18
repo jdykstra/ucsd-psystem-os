@@ -1,0 +1,222 @@
+;
+; UCSD PASCAL - Version II.0
+; Copyright (C) 1978, 1979 Regents of the University of California
+; All Rights Reserved
+;
+; Permission to use, copy, modify and distribute any part of UCSD
+; PASCAL solely authored by UC authors before June 1, 1979 for
+; educational, research and non-profit purposes, without fee, and
+; without a written agreement is hereby granted, provided that the
+; above copyright notice, this paragraph and the following three
+; paragraphs appear in all copies.
+;
+; Those desiring to incorporate UCSD PASCAL into commercial products or
+; use for commercial purposes should contact the Technology Transfer &
+; Intellectual Property Services, University of California, San Diego,
+; 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+; Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+;
+; IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+; FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+; INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+; THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+; DAMAGE.
+;
+; THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+; OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+; UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+; MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+; EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+; WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+; THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+; OTHER RIGHTS.
+;
+; Case Number: SD1991-807 (2006)
+; http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+;
+;;; Source: http://bitsavers.org/bits/UCSD_Pascal/ucsd_II.0/
+;;;     U121.2_LSI-11_P-CODE_SOURCE.raw.gz
+;;; Desciption: DL11 transmit/recieve driver (this contains seperate
+;;;     xmit and recieve drivers).
+;;; Date: 1978
+        .TITLE  DL-11 INPUT HANDLER
+        ;
+        ; COPYRIGHT (C) 1978 REGENTS OF THE UNIVERSTIY OF CALIFORNIA.
+        ; PERMISSION TO COPY OR DISTRIBUTE THIS SOFTWARE OR DOCUMEN-
+        ; TATION IN HARD COPY OR SOFT COPY GRANTED ONLY BY WRITTEN LICENSE
+        ; OBTAINED FROM THE INSTITUTE OF INFORMATION SYSTEMS.  ALL RIGHTS
+        ; RESERVED.  NO PART OF THIS PUBLICATION MAY BE REPRODUCED, STORED
+        ; IN A RETRIEVAL SYSTEM ( E.G., IN MEMORY, DISK, OR CORE) OR BE
+        ; TRANSMITTED BY ANY MEANS, ELECTRONIC, MECHANICAL, PHOTOCOPY,
+        ; RECORDING, OR OTHERWISE, WITHOUT PRIOR WRITTEN PERMISSION FROM THE
+        ; PUBLISHER.
+        ;
+        ;
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                                                                   ;
+;                       SYSTEM TABLE CONTENTS                       ;
+;                                                                   ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+        .ASECT
+.=120
+        DLRINT          ; READ LOCATION IN VECTOR
+        200
+        DLXINT          ; TRANSMIT LOCATION IN VECTOR
+        200
+
+        .CSECT  TABLES
+        .BLKW   128.    ; OPERATOR XFER TABLE
+        .REPT   8.
+        .BLKW   3
+        .ENDR
+        .WORD   INBIT!OUTBIT,DLSTRT,DLABRT
+        .PAGE
+        .CSECT  DLDRVR
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                                                                   ;
+;              DL-11 INPUT, OUTPUT HANDLER                          ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+
+;       THESE APPLY TO BOTH READ AND TRANSMIT HANDLERS
+DLRUNT: .WORD   0               ; DRIVER STATUS WORDS
+DLXUNT: .WORD   0
+DLRBFA: .WORD                   ; USER BUFFER ADDRESSES
+DLXBFA: .WORD
+DLRLNG: .WORD                   ; USER BUFFER LENGTHS
+DLXLNG: .WORD
+DLRCSR: .WORD   177520          ; READ CONTROL STATUS REGISTER
+DLRBUF: .WORD   177522          ; SERIAL PORT READ BUFFER
+DLXCSR: .WORD   177524          ; TRANSMIT CONTROL STATUS REGISTER
+DLXBUF: .WORD   177526          ; SERIAL PORT TRANSMIT BUFFER
+DLOFST  = 4                     ; STACK OFFSET AFTER ENTERING DRIVER
+
+DLSTRT: TST     (R3)+           ; CHECK FOR READ OR WRITE OP
+        BNE     DLRSTR          ; IF READ OP THEN JMP TO READ HANDLER
+DLXSTR: TST     DLXUNT          ; SEE IF AN IO ALREADY IN PROGRESS
+        BNE     DLXSTR          ; IF SO LOOP UNTIL THE IO IS COMPLETE
+        MTPS    #200            ; NO INTERRUPTS PLEASE
+        MOV     R1,DLXUNT       ; MARK HANDLER AS BUSY
+        BIS     #BSYBIT,(R1)    ; MARK LOGICAL UNIT AS BUSY
+        CLR     (SP)            ; SET UP RETURN STUFF ON STACK...PR-0 PS
+        MOV     R3,-(SP)        ; NOW THE RETURN ADDRESS
+        MOV     <UBUFFR+DLOFST>(SP),DLXBFA      ; GRAB USER BUFFER ADDR
+        MOV     <URLENG+DLOFST>(SP),DLXLNG      ; AND REQUESTED IO LENGTH
+DLXINT: BIC     #100,@DLXCSR    ; DISABLE INTERRUPTS
+        TST     DLXUNT          ; ANY IO'S IN PROGRESS
+        BEQ     DLEXIT          ; IF NOT JUST FORGET IT
+        TST     DLXLNG          ; ANY CHARS LEFT TO BE SENT?
+        BEQ     DLXQT           ; IF NOT THEN FINISH UP IO
+        MOVB    @DLXBFA,@DLXBUF ; SEND CHAR TO DL
+        BIS     #100,@DLXCSR    ; ALLOW INTERRUPT
+        INC     DLXBFA          ; BUMP BUFFER POINTER TO NEXT CHAR
+        DEC     DLXLNG          ; ALSO REFLECT ONE FEWER CHAR TO SEND
+        JMP     @#INTRTN        ; THIS STRUCTURE IMPLIES AN IO IS NOT
+                                ; DONE UNTIL THE LAST INTERRUPT IS RECEIVED
+
+DLXQT:  BIC     #BSYBIT,@DLXUNT ; CLEAR BUSY BIT IN IO UNIT TABLE
+        CLR     DLXUNT          ; MARK HANDLER AS NOT BUSY NOW
+DLEXIT: JMP     @#INTRTN        ; BACK TO WHEREVER
+
+;       THESE APPLY ONLY TO THE READ HANDLER
+BUFSIZ  = 216                   ; CIRCULAR BUFFER SIZE IS 142
+CIRBUF: .BLKB   BUFSIZ          ; CIRCULAR I/0 BUFFER
+DLHEAD: .WORD   CIRBUF          ; NEXT OUT CHAR AVAILABLE IN CIRBUF
+DLTAIL: .WORD   CIRBUF          ; NEXT AVAILABLE OPENING IN CIRBUF
+CHARS:  .WORD   0               ; NUMBER OF CHARS PRESENT IN CIRBUF
+ERRFLG: .WORD   0               ; TEMP STORAGE OF ERROR TYPE IN FLAG
+OVFERR  = 17                    ; RING BUFFER OVERFLOW ERROR
+DLERR   = 4                     ; UNDEFINED HARDWARE ERROR AT DL
+
+DLRSTR: TST     DLRUNT          ; SEE IF AN IO ALREADY IN PROGRESS
+        BNE     DLRSTR          ; IF SO LOOP UNTIL THE IO IS COMPLETE
+        MTPS    #200            ; NO INTERRUPTS PLEASE
+        MOV     R1,DLRUNT       ; MARK HANDLER AS BUSY
+        BIS     #BSYBIT,(R1)    ; MARK LOGICAL UNIT AS BUSY
+        CLR     (SP)            ; SET UP RETURN STUFF ON STACK...PR-0 PS
+        MOV     R3,-(SP)        ; NOW THE RETURN ADDRESS
+        MOV     <UBUFFR+DLOFST>(SP),DLRBFA      ; GRAB USER BUFFER ADDR
+        MOV     <URLENG+DLOFST>(SP),DLRLNG      ; AND REQUESTED IO LENGTH
+        BEQ     DLRQT           ; IF ZERO LENGTH READ FORGET IT
+        TST     CHARS           ; CHECK FOR AVAILABLE CHARS
+        BNE     GET             ; IF ANY THEN GET THEM
+        JMP     @#INTRTN        ; ELSE RETURN AND WAIT FOR INTERUPT
+
+DLRINT: MOV     R0,-(SP)        ; STASH REGISTER
+        .IF     DF,TERAK        ; IF A TERAK THEN
+        MOV     @DLRCSR,R0      ; GET ERROR BITS
+        BMI     DLRERR          ; IF ERROR AT DL THEN QUIT
+        MOVB    @DLRBUF,@DLTAIL ; GRAB CHAR FROM BUFFER
+        .IFF
+        MOV     @DLRBUF,R0      ; ELSE GRAB CHAR FROM DL
+        BMI     DLRERR          ; IF ERROR BIT ON THEN EXIT
+        MOVB    R0,@DLTAIL      ; ELSE STORE CHAR IN CIRBUF
+        .ENDC
+        BICB    #200,@DLTAIL    ; CLEAR RANDOM BIT
+        INC     CHARS           ; SHOW ONE MORE CHAR IN CIRBUF
+        CMP     CHARS,#BUFSIZ   ; CHECK FOR TOO MANY CHARS IN CIRBUF
+        BEQ     OFLWER          ; IF CHARS GREATER THEN OVERFLOW ERROR
+        INC     DLTAIL          ; ADVANCE POINTER TO CIRBUF
+        CMP     DLTAIL,#CIRBUF+BUFSIZ   ; CHK FOR END OF CIRBUF
+        BNE     1$              ; IF NOT THEN FORGET IT
+        MOV     #CIRBUF,DLTAIL  ; ELSE RESET DLTAIL
+1$:     MOV     (SP)+,R0        ; RESTORE REGISTER
+GET:    TST     DLRUNT          ; CHECK FOR ANY I/O'S
+        BEQ     ENDIT           ; IF NONE THEN FORGET IT
+        MOVB    @DLHEAD,@DLRBFA ; STUFF CHAR INTO USER BUF
+        INC     DLHEAD          ; ADVANCE POINTER TO CIRBUF
+        CMP     DLHEAD,#CIRBUF+BUFSIZ   ; END OF CIRBUF?
+        BNE     2$              ; IF NOT FORGET IT
+        MOV     #CIRBUF,DLHEAD  ; ELSE RESET TO CIRBUF START
+2$:     DEC     CHARS           ; REDUCE # CHARS
+        DEC     DLRLNG          ; SHOW ONE LESS SPACE TO FILL
+        BEQ     DLRQT           ; IF NO MORE NEEDED THEN LEAVE
+        INC     DLRBFA          ; ADVANCE POINTER TO USER BUFFER
+        MTPS    #0              ; ALLOW INTERUPT
+        MTPS    #200            ; REGAIN CONTROL
+        TST     CHARS           ; SEE IF MORE CHARS AVAILABLE
+        BNE     GET             ; ELSE CONTINUE TO FILL USER BUFFER
+ENDIT:  JMP     @#INTRTN        ; BACK TO WHEREEVER
+
+DLRERR: MOVB    #DLERR,ERRFLG   ; MOV ERROR NUMBER TO ERROR FLAG WORD
+        TSTB    @DLRBUF         ; READ FROM RBUF TO CLEAR DL
+        BR      ERROR           ; SKIP OVER OTHER ERROR TYPE
+OFLWER: DEC     CHARS           ; CAN'T BE MORE THAN 129 CHARS
+        MOVB    #OVFERR,ERRFLG  ; MOV ERROR TYPE TO ERROR FLAG WORD
+ERROR:  MOV     (SP)+,R0        ; RESTORE REGISTER
+        TST     DLRUNT          ; CHECK IF I/O PENDING
+        BEQ     ENDIT           ; IF NOT THEN END INTERUPT
+DLRQT:  MOVB    ERRFLG,@DLRUNT  ; MOVE ANY ERRORS TO IORESULT
+        CLR     ERRFLG          ; NOW SHOW NO ERROR
+        BIC     #BSYBIT,@DLRUNT ; CLEAR BUSY BIT IN IO UNIT TABLE
+        CLR     DLRUNT          ; MARK HANDLER AS NOT BUSY
+        JMP     @#INTRTN        ; BACK TO WHEREVER
+
+DLABRT: MTPS    #200            ; DISABLE INTERUPTS
+        MOV     #CIRBUF,DLHEAD  ; RESET CIRCULAR BUFFER POINTERS
+        MOV     DLHEAD,DLTAIL
+        CLR     CHARS           ; ZERO CHAR COUNT IN CIRBUF
+        TST     DLRUNT          ; CHECK IF I/0 IN PROGRESS
+        BEQ     1$              ; IF NOT THEN FORGET IT
+        BIC     #BSYBIT,@DLRUNT ; CLEAR BSYBIT IN UNIT I/O TABLE
+        CLR     DLRUNT          ; MARK HANDLER AS NOT BUSY NOW
+1$:     TST     DLXUNT          ; CHECK IF I/O IN PROGRESS
+        BEQ     2$              ; IF NOT THEN FORGET IT
+        BIC     #BSYBIT,@DLXUNT ; CLEAR BSYBIT IN UNIT I/O TABLE
+        CLR     DLXUNT          ; MARK HANDLER AS NOT BUSY NOW
+2$:     MOV     @#4,-(SP)       ; SAVE OLD TRAP ADDRESS
+        MOV     #OFFLNE,@#4     ; LOAD A TEMP TRAP ADDRESS
+        BIS     #100,@DLRCSR    ; ENABLE INTERUPTS (WHICH ACCESSES DL ADDRESS)
+        BR      ABTOUT          ; IF NORMAL RETURN FROM OP THEN QUIT
+
+;       THIS CODE IS EXECUTED WHEN A DL IS NOT ON LINE
+OFFLNE: MOV     #11,R5          ; VOLUME NOT ON LINE ERROR
+        CMP     (SP)+,(SP)+     ; POP PS&PC FROM TRAP OFF STACK
+
+ABTOUT: MOV     (SP)+,@#4       ; RELOAD ORIGINAL TRAP ADDRESS
+        MTPS    #0              ; ALLOW INTERUPTS
+        RTS     PC

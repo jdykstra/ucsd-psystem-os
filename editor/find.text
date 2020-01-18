@@ -1,0 +1,386 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+PROCEDURE FIND;
+VAR
+  THERE,FOUND,LASTPATTERN: BOOLEAN;
+  TRASH,COULDBE,PLENGTH,START,STOP,NEXTSTART: INTEGER;
+  NEXT,PTR: PTRTYPE;
+  MODE: (LITERAL,TOKEN);
+  I: INTEGER;
+  DELIMITER: CHAR;
+  JUSTIN: BOOLEAN;
+  POSSIBLE,PAT: PTYPE;
+  USEOLD,VERIFY: BOOLEAN;
+
+PROCEDURE NEXTCH;
+BEGIN
+  CH:=GETCH;
+  IF CH=CHR(ESC) THEN
+      BEGIN
+        IF NOT JUSTIN THEN REDISPLAY;
+        SHOWCURSOR; NEXTCOMMAND;
+        EXIT(FIND);
+      END;
+  IF (CH=CHR(EOL)) AND JUSTIN THEN
+    BEGIN
+      JUSTIN:=FALSE;
+      BLANKCRT(1)
+    END
+  ELSE
+    WRITE(CH);
+END;
+
+PROCEDURE SKIP;
+BEGIN
+  WHILE CH IN [CHR(SP),CHR(HT),CHR(EOL)] DO NEXTCH
+END;
+
+PROCEDURE OPTIONS;
+BEGIN
+  REPEAT
+    CH:=UCLC(CH);
+    IF CH='L' THEN
+      BEGIN MODE:=LITERAL; NEXTCH END
+    ELSE
+      IF CH='V' THEN
+        BEGIN VERIFY:=TRUE; NEXTCH END
+      ELSE
+        IF CH='T' THEN
+          BEGIN MODE:=TOKEN; NEXTCH END;
+    CH:=UCLC(CH);
+  UNTIL NOT ((CH='V') OR (CH='T') OR (CH='L'));
+  SKIP;
+  IF (CH='S') OR (CH='s') THEN USEOLD:=TRUE;
+END;
+
+PROCEDURE PARSESTRING(VAR PATTERN: PTYPE; VAR PLENGTH: INTEGER);
+VAR I,J: INTEGER;
+BEGIN
+  SKIP;
+  IF CH IN ['A'..'Z','a'..'z','0'..'9',CHR(BS)] THEN
+    BEGIN
+      ERROR('Invalid delimiter.',NONFATAL);
+      IF NOT JUSTIN THEN REDISPLAY;
+      NEXTCOMMAND;
+      EXIT(FIND);
+    END;
+  DELIMITER:=CH;
+  I:=0;
+  REPEAT
+    NEXTCH;
+    IF CH=CHR(BS) THEN
+      BEGIN
+        IF (PATTERN[I]<>CHR(EOL)) AND (I>0) THEN (* Don't go overboard! *)
+          BEGIN
+            WRITE(' ',CHR(BS));
+            I:=I-1
+          END
+        ELSE CONTROL(RIGHTCURSOR); (* Make up for the <BS> NEXTCH wrote out *)
+      END
+    ELSE
+      BEGIN
+        PATTERN[I]:=CH;
+        I:=I+1
+      END;
+  UNTIL (CH=DELIMITER) OR (I>=MAXSTRING);
+  IF I>=MAXCHAR THEN
+    BEGIN
+      ERROR('Your pattern is too long',NONFATAL);
+      IF NOT JUSTIN THEN REDISPLAY;
+      NEXTCOMMAND; EXIT(FIND)
+    END;
+  PLENGTH:=I-1;
+END (* PARSESTRING *);
+
+FUNCTION OK(PTR: PTRTYPE): BOOLEAN;
+(* Compare PAT against the buffer *)
+VAR I: INTEGER;
+BEGIN
+  I:=0;
+  WHILE (I<PLENGTH) AND (EBUF^[PTR+I]=PAT[I]) DO I:=I+1;
+  OK:= I=PLENGTH;
+END;
+
+PROCEDURE SKIPKIND3(VAR CURSOR: PTRTYPE);
+BEGIN
+  (* Skip over kind3 characters in the ebuf.  Update the cursor
+     to the first non-kind3 character                           *)
+  WHILE EBUF^[CURSOR] IN [CHR(SP),CHR(HT),CHR(DLE),CHR(EOL)] DO
+    IF EBUF^[CURSOR]=CHR(DLE) THEN CURSOR:=CURSOR+2
+    ELSE CURSOR:=CURSOR+1;
+END;
+
+PROCEDURE SCANBACKWARD;
+LABEL 1;
+VAR
+  LOC: PTRTYPE;
+  CHTHERE: BOOLEAN;
+BEGIN
+  CHTHERE:=TRUE;
+  THERE:=FALSE;
+  FILLCHAR(PAT[0],SIZEOF(PAT),' ');
+  MOVELEFT(TARGET[START],PAT[0],PLENGTH);
+  WHILE CHTHERE AND NOT THERE DO
+    BEGIN
+      1: IF PTR>=PLENGTH THEN (* Possibly there *)
+        LOC:=SCAN(-PTR,=PAT[0],EBUF^[PTR])
+      ELSE
+        LOC:=-PTR;
+      IF LOC=-PTR THEN (* Not there! *)
+        BEGIN
+          CHTHERE:=FALSE; THERE:=FALSE
+        END
+      ELSE
+        BEGIN
+          PTR:=PTR+LOC; NEXT:=PTR-1;
+          IF EBUF^[PTR-1]=CHR(DLE) THEN BEGIN PTR:=NEXT; GOTO 1 END;
+          IF OK(PTR) THEN THERE:=TRUE ELSE PTR:=NEXT
+        END
+    END;
+END;
+
+PROCEDURE SCANFORWARD;
+LABEL 1;
+VAR
+  MAXSCAN,LOC: INTEGER;
+  CHTHERE: BOOLEAN;
+BEGIN
+  CHTHERE:=TRUE;
+  THERE:=FALSE;
+  FILLCHAR(PAT[0],SIZEOF(PAT),' ');
+  MOVELEFT(TARGET[START],PAT[0],PLENGTH);
+  WHILE CHTHERE AND NOT THERE DO
+   BEGIN
+    1: MAXSCAN:=(BUFCOUNT-PLENGTH)-PTR+1;
+    IF MAXSCAN>0 THEN (* still stuff to scan *)
+      LOC:=SCAN(MAXSCAN,=PAT[0],EBUF^[PTR])
+    ELSE
+      LOC:=MAXSCAN; (* Dummy up 'not found' condition *)
+    IF LOC=MAXSCAN THEN
+      BEGIN CHTHERE:=FALSE; THERE:=FALSE END
+    ELSE
+      BEGIN
+        PTR:=LOC+PTR; NEXT:=PTR+1;
+        IF EBUF^[PTR-1]=CHR(DLE) THEN BEGIN PTR:=NEXT; GOTO 1 END;
+        IF OK(PTR) THEN THERE:=TRUE ELSE PTR:=NEXT
+      END
+   END;
+END;
+
+PROCEDURE GOFORIT;
+
+PROCEDURE NEXTLINE;
+(* Given NEXTSTART, calculate the START and STOP for the next line *)
+BEGIN
+  LASTPATTERN:=FALSE;
+  START:=NEXTSTART;
+  STOP:=MIN(TLENGTH-1,START+SCAN(TLENGTH-START,=CHR(EOL),TARGET[START]));
+  IF STOP=TLENGTH-1 THEN BEGIN STOP:=MAX(STOP,0); LASTPATTERN:=TRUE END;
+  NEXTSTART:=STOP+1;
+END;
+
+PROCEDURE NEXTTOKEN;
+(* Given NEXTSTART, calculate START and STOP *)
+BEGIN
+  LASTPATTERN:=FALSE;
+  START:=NEXTSTART;
+  (* Skip over leading kind3 characters *)
+  WHILE (TARGET[START] IN [CHR(SP),CHR(EOL),CHR(HT)]) AND (START<TLENGTH-1) DO
+    START:=START+1;
+  STOP:=START;
+  (* Get the next token *)
+  WHILE (KIND[TARGET[START]]=KIND[TARGET[STOP+1]]) AND (STOP<TLENGTH-1) DO
+    STOP:=STOP+1;
+  STOP:=MIN(STOP,TLENGTH-1);
+  (* To accurately test for the last token, scan off the trailing kind3
+     characters *)
+  NEXTSTART:=STOP+1;
+  WHILE (TARGET[NEXTSTART] IN [CHR(EOL),CHR(SP),CHR(HT)]) AND
+        (NEXTSTART<TLENGTH) DO NEXTSTART:=NEXTSTART+1;
+  IF NEXTSTART=TLENGTH THEN BEGIN STOP:=MAX(STOP,0); LASTPATTERN:=TRUE END;
+END;
+
+BEGIN(* goforit *)
+  FOUND:=FALSE;
+  NEXT:=PTR;
+  REPEAT
+    PTR:=NEXT; (* Set to next place to scan for *)
+    NEXTSTART:=0;  (* Fool NEXTLINE into giving us START and STOP for line 1 *)
+    IF MODE=LITERAL THEN NEXTLINE ELSE NEXTTOKEN;
+    PLENGTH:=STOP-START+1;
+    IF DIRECTION='>' THEN SCANFORWARD ELSE SCANBACKWARD;
+    IF THERE THEN
+      BEGIN
+        COULDBE:=PTR;
+        FOUND:=TRUE;
+        WHILE (NOT LASTPATTERN) AND FOUND DO
+          BEGIN
+            IF MODE=LITERAL THEN NEXTLINE ELSE NEXTTOKEN;
+            PTR:=PTR+PLENGTH;
+            SKIPKIND3(PTR); (* Go past the junk on the next line *)
+            PLENGTH:=STOP-START+1; (* For the new line *)
+            FILLCHAR(PAT[0],SIZEOF(PAT),' ');
+            MOVELEFT(TARGET[START],PAT[0],PLENGTH);
+            IF PTR+PLENGTH > BUFCOUNT THEN
+              FOUND:=FALSE
+            ELSE
+              IF NOT OK(PTR) THEN FOUND:=FALSE;
+          END;
+      END;
+    (* In token mode make sure the first and last characters
+       of the target are on 'token boundaries' *)
+    IF MODE=TOKEN THEN IF KIND[PAT[0]]=ORD('A') THEN IF FOUND THEN
+      BEGIN
+        IF ((COULDBE>2) AND (EBUF^[COULDBE-2]<>CHR(DLE))) OR
+           (COULDBE<=2) THEN (* whew! *)
+          IF KIND[EBUF^[COULDBE]]=KIND[EBUF^[COULDBE-1]] THEN
+            FOUND:=FALSE; (* False find... don't count it. *)
+        IF (PTR+PLENGTH<=BUFCOUNT-1) AND
+           (KIND[EBUF^[PTR+PLENGTH-1]]=KIND[EBUF^[PTR+PLENGTH]]) THEN
+          FOUND:=FALSE; (* Another false find *)
+     END;
+  UNTIL FOUND OR NOT THERE;
+END(* goforit *);
+
+PROCEDURE PUTPROMPT(LEFT,RIGHT:STRING; REPEATFACTOR:INTEGER; LORT:BOOLEAN);
+BEGIN
+  PROMPTLINE:=LEFT; PROMPT;
+  WRITE('[');
+  IF INFINITY THEN WRITE('/') ELSE WRITE(REPEATFACTOR);
+  WRITE(']: ');
+  IF LORT THEN IF MODE=TOKEN THEN WRITE('L(it') ELSE WRITE('T(ok');
+  WRITE(RIGHT)
+END;
+
+PROCEDURE REPLACEIT;
+LABEL 1;
+BEGIN
+  IF VERIFY THEN
+    BEGIN
+      CENTERCURSOR(TRASH,MIDDLE,NOT JUSTIN);
+      PUTPROMPT(' Replace','<esc> aborts, ''R'' replaces, '' '' doesn''t',
+                REPEATFACTOR-I+2,FALSE);
+      SHOWCURSOR;
+      CH:=GETCH;
+      IF CH=CHR(ESC) THEN
+        BEGIN
+          GETLEADING; CURSOR:=MAX(CURSOR,STUFFSTART);
+          NEXTCOMMAND; EXIT(FIND)
+        END;
+      IF (CH<>'R') AND (CH<>'r') THEN GOTO 1;
+    END;
+    (* Replace TARGET with SUBSTRING *)
+      IF SLENGTH>CURSOR-LASTPAT THEN
+        IF SLENGTH-(CURSOR-LASTPAT)+BUFCOUNT>BUFSIZE-200 THEN
+            BEGIN
+              ERROR('Buffer full.  Aborting Replace',NONFATAL);
+              GETLEADING; CURSOR:=MAX(CURSOR,STUFFSTART);
+              NEXTCOMMAND; EXIT(FIND);
+            END
+        ELSE
+          MOVERIGHT(EBUF^[CURSOR],EBUF^[LASTPAT+SLENGTH],BUFCOUNT-CURSOR)
+      ELSE
+        IF SLENGTH<CURSOR-LASTPAT THEN
+          MOVELEFT(EBUF^[CURSOR],EBUF^[LASTPAT+SLENGTH],BUFCOUNT-CURSOR);
+      MOVELEFT(SUBSTRING[0],EBUF^[LASTPAT],SLENGTH);
+      IF SLENGTH<>CURSOR-LASTPAT THEN
+        READJUST(LASTPAT,SLENGTH-(CURSOR-LASTPAT));
+      BUFCOUNT:=BUFCOUNT+SLENGTH-(CURSOR-LASTPAT);
+      CURSOR  :=CURSOR  +SLENGTH-(CURSOR-LASTPAT);
+      JUSTIN:=FALSE;
+1:END;
+
+BEGIN
+  JUSTIN:=TRUE;
+  USEOLD:=FALSE;
+  VERIFY:=FALSE;
+  IF PAGEZERO.TOKDEF THEN MODE:=TOKEN ELSE MODE:=LITERAL;
+  IF COMMAND=FINDC THEN
+    PUTPROMPT(' Find',' <target>  =>',REPEATFACTOR,TRUE)
+  ELSE
+    PUTPROMPT(' Replace',' V(fy <targ> <sub>  =>',REPEATFACTOR,TRUE);
+  NEEDPROMPT:=TRUE;
+  NEXTCH; SKIP;
+  OPTIONS;
+  IF NOT USEOLD THEN
+    BEGIN
+      PARSESTRING(TARGET,TLENGTH);
+      TDEFINED:=TRUE
+    END;
+  IF COMMAND=REPLACEC THEN
+    BEGIN
+      NEXTCH; SKIP;
+      USEOLD:=FALSE;
+      OPTIONS;
+      IF NOT USEOLD THEN
+        BEGIN
+          PARSESTRING(SUBSTRING,SLENGTH);
+          SDEFINED:=TRUE
+        END
+    END;
+  HOME;
+  CLEARLINE(0);
+  IF ((COMMAND=FINDC) AND TDEFINED)
+     OR ((COMMAND=REPLACEC) AND SDEFINED AND TDEFINED) THEN
+    BEGIN
+      I:=1;
+      FOUND:=TRUE;
+      PTR:=CURSOR;
+      WHILE ((I<=REPEATFACTOR) OR INFINITY) AND FOUND DO
+        BEGIN
+          GOFORIT; (* Find the target (handles token and literal mode) *)
+          I:=I+1;
+          IF FOUND THEN
+            BEGIN
+              CURSOR:=PTR+PLENGTH; LASTPAT:=COULDBE; (*Set up for next time*)
+              IF COMMAND=REPLACEC THEN REPLACEIT;
+              IF DIRECTION='<' THEN PTR:=COULDBE-1 ELSE PTR:=CURSOR;
+            END;
+        END;
+      IF NOT FOUND THEN
+        IF NOT( INFINITY AND (I>2) ) THEN
+          ERROR('Pattern not in the file',NONFATAL)
+    END
+  ELSE
+    ERROR('No old pattern.',NONFATAL);
+  CENTERCURSOR(TRASH,MIDDLE,NOT JUSTIN);
+  GETLEADING;
+  CURSOR:=MAX(STUFFSTART,CURSOR);
+  SHOWCURSOR;
+  NEXTCOMMAND
+END;

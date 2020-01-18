@@ -1,0 +1,516 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+{$S+,U-,R+
+
+
+        UCSD  PASCAL  SYSTEM
+          PROGRAM  LINKER
+
+          (VERSION I.5f)
+
+        Written summer '78 by
+        Roger T. Sumner, IIS
+
+          (Version II.0)
+          March 1, 1979
+
+    All hope abandon ye who enter here
+                        -Dante
+
+}
+
+program systemlevel;
+
+const
+    SYSPROG = 4;
+
+var
+    syscom: ^integer;
+    gfiles: array [0..5] of integer;
+    userinfo: record
+                filler: array [0..4] of integer;
+                slowterm, stupid: boolean;
+                altmode: char;
+                gotsym, gotcode: boolean;
+                workvid, symvid, codevid: string[7];
+                worktid, symtid, codetid: string[15]
+              end;
+    filler: array [0..4] of integer;
+    syvid, dkvid: string[7];
+    junk1, junk2: integer;
+    cmdstate: integer;
+
+{
+*  The linker is made up of three phases:
+*     Phase1 which open all input files, reads up seg tables
+*            from them and decides which segments are to be
+*            linked into the final code file.
+*     Phase2 reads the linker info for each segment that is
+*            going to be used, either to select sep procs from
+*            or copy with modifications into output code.
+*            The main symbol trees are built here, one for each
+*            code segment.
+*     Phase3 does the crunching of code segments into their
+*            final form by figuring out the procs that need to
+*            be linked in, resolves all references (PUBLREF,
+*            GLOBREF, etc), patches the code pointed to by their
+*            reflists, and writes the final code seg(s).
+}
+
+segment procedure linker(iii, jjj: integer);
+
+const
+    HEADER = 'Linker [II.0]';
+
+    MAXSEG = 15;        { max code seg # in code files }
+    MAXSEG1 = 16;       { MAXSEG+1, useful for loop vars }
+    MASTERSEG = 1;      { USERHOST segment number # }
+    FIRSTSEG =  7;      { first linker assignable seg # }
+    MAXFILE = 10;       { number of lib files we can use }
+    MAXLC = MAXINT;     { max compiler assigned address }
+    MAXIC = 20000;      { max number bytes of code per proc }
+    MAXPROC = 160;      { max legal procedure number }
+    MSDELTA = 12;       { mark stack size for pub/priv fixup }
+
+type
+
+    { subranges }
+    { --------- }
+
+    segrange = 0..MAXSEG;       { seg table subscript type }
+    segindex = 0..MAXSEG1;      { wish we had const expressions! }
+    lcrange = 1..MAXLC;         { base offsets a la P-code }
+    icrange = 0..MAXIC;         { legal length for proc/func code }
+    procrange = 1..MAXPROC;     { legit procedure numbers }
+
+    { miscellaneous }
+    { ------------- }
+
+    alpha = packed array [0..7] of char;
+    diskblock = packed array [0..511] of 0..255;
+    codefile = file;            { trick compiler to get ^file }
+    filep = ^codefile;
+    codep = ^diskblock;         { space management...non-PASCAL kludge }
+
+    { link info structures }
+    { ---- ---- ---------- }
+
+    placep = ^placerec;         { position in source seg }
+    placerec = record
+                 srcbase, destbase: integer;
+                 length: icrange
+               end { placerec } ;
+
+    refp = ^refnode;            { in-core version of ref lists }
+    refnode = record
+                next: refp;
+                refs: array [0..7] of integer;
+              end { refnode } ;
+
+    litypes = (EOFMARK,         { end-of-link-info marker }
+                   { ext ref types, designates      }
+                   { fields to be updated by linker }
+               UNITREF,         { refs to invisibly used units (archaic?) }
+               GLOBREF,         { refs to external global addrs }
+               PUBLREF,         { refs to BASE lev vars in host }
+               PRIVREF,         { refs to BASE vars, allocated by linker }
+               CONSTREF,        { refs to host BASE lev constant }
+                   { defining types, gives      }
+                   { linker values to fix refs  }
+               GLOBDEF,         { global addr location }
+               PUBLDEF,         { BASE var location }
+               CONSTDEF,        { BASE const definition }
+                   { proc/func info, assem }
+                   { to PASCAL and PASCAL  }
+                   { to PASCAL interface   }
+               EXTPROC,         { EXTERNAL proc to be linked into PASCAL }
+               EXTFUNC,         {    "     func "  "    "    "      "    }
+               SEPPROC,         { Separate proc definition record }
+               SEPFUNC,         {   "      func     "        "    }
+               SEPPREF,         { PASCAL ref to a sep proc }
+               SEPFREF);        {   "    ref to a sep func }
+
+    liset = set of litypes;
+    opformat = (WORD, BYTE, BIG);       { instruction operand field formats }
+
+    lientry = record    { format of link info records }
+                name: alpha;
+                case litype: litypes of
+                  SEPPREF,
+                  SEPFREF,
+                  UNITREF,
+                  GLOBREF,
+                  PUBLREF,
+                  PRIVREF,
+                  CONSTREF:
+                        (format: opformat;      { how to deal with the refs }
+                         nrefs: integer;        { words following with refs }
+                         nwords: lcrange;       { size of private or nparams }
+                         reflist: refp);        { list of refs after read in }
+                  EXTPROC,
+                  EXTFUNC,
+                  SEPPROC,
+                  SEPFUNC:
+                        (srcproc: procrange;    { the procnum in source seg }
+                         nparams: integer;      { words passed/expected }
+                         place: placep);        { position in source/dest seg }
+                  GLOBDEF:
+                        (homeproc: procrange;   { which proc it occurs in }
+                         icoffset: icrange);    { its byte offset in pcode }
+                  PUBLDEF:
+                        (baseoffset: lcrange);  { compiler assign word offset }
+                  CONSTDEF:
+                        (constval: integer);    { users defined value }
+                  EOFMARK:
+                        (nextlc: lcrange)       { private var alloc info }
+                end { lientry } ;
+
+    { symbol table items }
+    { ------ ----- ----- }
+
+    symp = ^symbol;
+    symbol = record
+               llink, rlink,            { binary subtrees for diff names }
+               slink: symp;             { same name, diff litypes }
+               entry: lientry           { actual id information }
+             end { symbol } ;
+
+    { segment information }
+    { ------- ----------- }
+
+    segkinds =(LINKED,          { no work needed, executable as is }
+               HOSTSEG,         { PASCAL host program outer block  }
+               SEGPROC,         { PASCAL segment procedure, not host }
+               UNITSEG,         { library unit occurance/reference }
+               SEPRTSEG);       { library separate proc/func TLA segment }
+
+    finfop = ^fileinforec;      { forward type dec }
+
+    segp = ^segrec;             { this structure provides access to all }
+    segrec = record             { info for segs to be linked to/from    }
+               srcfile: finfop;         { source file of segment }
+               srcseg: segrange;        { source file seg # }
+               symtab: symp;            { symbol table tree }
+               case segkind: segkinds of
+                 SEPRTSEG:
+                        (next: segp)    { used for library sep seg list }
+             end { segrec } ;
+
+    { host/lib file access info }
+    { ---- --- ---- ------ ---- }
+
+    I5segtbl = record   { first full "block" of all code files }
+                 diskinfo: array [segrange] of
+                             record
+                               codeleng, codeaddr: integer
+                             end { diskinfo } ;
+                 segname: array [segrange] of alpha;
+                 segkind: array [segrange] of segkinds
+               end { I5segtbl } ;
+
+    filekind = (USERHOST, USERLIB, SYSTEMLIB);
+
+    fileinforec = record
+                    next: finfop;       { link to next file thats open }
+                    code: filep;        { pointer to PASCAL file...sneaky! }
+                    fkind: filekind;    { used to validate the segkinds }
+                    segtbl: I5segtbl    { disk seg table w/ source info }
+                  end { fileinforec } ;
+
+
+var
+    hostfile,           { host file info ptr, its next = libfiles }
+    libfiles: finfop;   { list of lib files, user and system }
+
+    seplist: segp;      { list of sep segs to search through }
+    reflitypes: liset;  { those litypes with ref lists }
+
+    talkative,
+    useworkfile: boolean;
+
+    errcount: integer;
+    heapbase: ^integer;
+
+    hostsp: segp;                       { ptr to host prog outer block }
+    nextbaselc: lcrange;                { next base offset for private alloc }
+    seginfo: array [segrange] of segp;  { seg is available if NIL }
+    nextseg: segindex;                  { next slot in seginfo available }
+
+    mapname: string[39];
+
+    code: codefile;                     { output code file, *system.wrk.code   }
+                                        { also source of FIB for dynamic files }
+
+    flipped: boolean;                   { are files byte-flipped? }
+{
+*  Print an error message and bump
+*  the error counter.
+}
+
+procedure error(msg: string);
+  var ch: char;
+begin
+  writeln(msg);
+  repeat
+    writeln('Type <sp>(continue), <esc>(terminate)');
+    read(keyboard, ch);
+    if ch = userinfo.altmode then
+      exit(linker)
+  until ch = ' ';
+  errcount := errcount+1
+end { error } ;
+
+procedure byteswap(var word: integer);
+  var temp1,temp2: packed record
+              case boolean of
+                TRUE: (val: integer);
+                FALSE: (lowbyte: 0..255;
+                        highbyte: 0..255)
+            end;
+begin
+  temp1.val := word;
+  temp2.lowbyte := temp1.highbyte;
+  temp2.highbyte := temp1.lowbyte;
+  word := temp2.val;
+end;
+
+{
+*  Routines to access object code segments.  There
+*  is subtle business involving byte flipping with
+*  the 16-bit operations.
+}
+{$R-}
+
+function fetchbyte(cp: codep; offset: integer): integer;
+begin
+  fetchbyte := cp^[offset]
+end { fetchbyte } ;
+
+function fetchword(cp: codep; offset: integer): integer;
+  var i: integer;
+begin
+  moveleft(cp^[offset], i, 2);
+  { byte swap i }
+  if flipped then byteswap(i);
+  fetchword := i
+end { fetchword } ;
+
+procedure storebyte(val: integer; cp: codep; offset: integer);
+begin
+  cp^[offset] := val
+end { storebyte } ;
+
+procedure storeword(val: integer; cp: codep; offset: integer);
+begin
+  { byte swap val }
+  if flipped then byteswap(val);
+  moveleft(val, cp^[offset], 2)
+end { storeword } ;
+
+procedure storebig(val: integer; cp: codep; offset: integer);
+  var  bigword: packed record
+                  case boolean of
+                    TRUE:  (integ: integer);
+                    FALSE: (lowbyte: 0..255;
+                            highbyte: 0..255)
+                end;
+begin
+  bigword.integ := val;
+  cp^[offset] := bigword.highbyte + 128;
+  cp^[offset + 1] := bigword.lowbyte;
+end;
+
+{$R+}
+
+{
+*  Byte-flip word quantities in segment dictionary
+*  for byte-flipped file case on reading and writing
+*  segtables.  Called by Phase1 and Phase3.
+}
+
+procedure fliptable(var table: I5segtbl);
+  var  s: segrange;
+       word: record
+               case boolean of
+                 TRUE:  (int: integer);
+                 FALSE: (kind: segkinds)
+             end;
+begin
+  for s := 0 to MAXSEG do
+    with table, diskinfo[s] do
+    begin
+      byteswap(codeaddr);
+      byteswap(codeleng);
+      word.kind := segkind[s];
+      byteswap(word.int);
+      segkind[s] := word.kind;
+    end;
+end;
+
+{
+*  Enter newsym in symtab tree.  The tree is binary for
+*  different names and entries with the same name are entered
+*  onto sideways links (slink).  No check is made for dup
+*  entry types, caller must do that.  Nodes on slink will
+*  always have NIL rlink and llink.
+}
+
+procedure entersym(newsym: symp; var symtab: symp);
+  var syp, lastsyp: symp;
+      useleft: boolean;
+begin
+  newsym^.llink := NIL;
+  newsym^.rlink := NIL;
+  newsym^.slink := NIL;
+  if symtab = NIL then
+    symtab := newsym
+  else
+    begin { search symtab and add newsym }
+      syp := symtab;
+      repeat
+        lastsyp := syp;
+        if syp^.entry.name > newsym^.entry.name then
+          begin syp := syp^.llink; useleft := TRUE end
+        else
+          if syp^.entry.name < newsym^.entry.name then
+            begin syp := syp^.rlink; useleft := FALSE end
+          else { equal }
+            begin { add into sideways list }
+              newsym^.slink := syp^.slink;
+              syp^.slink := newsym;
+              lastsyp := NIL;     { already added flag }
+              syp := NIL          { stop repeat loop }
+            end
+      until syp = NIL;
+      if lastsyp <> NIL then
+        begin { add to bottom of tree }
+          if useleft then
+            lastsyp^.llink := newsym
+          else
+            lastsyp^.rlink := newsym
+        end
+    end { symtab <> NIL }
+end { entersym } ;
+
+{
+*  Look up name in symtab tree and return pointer
+*  to it.  Oktype restricts what litype is
+*  acceptable.  NIL is returned if name not found.
+}
+
+function symsrch(var name: alpha; oktype: litypes; symtab: symp): symp;
+  var syp: symp;
+begin
+  symsrch := NIL;
+  syp := symtab;
+  while syp <> NIL do
+    if syp^.entry.name > name then
+      syp := syp^.llink
+    else
+      if syp^.entry.name < name then
+        syp := syp^.rlink
+      else { equal name }
+        if syp^.entry.litype <> oktype then
+          syp := syp^.slink
+        else { found! }
+          begin symsrch := syp; syp := NIL end
+end { symsrch } ;
+
+{
+*  Search for the occurance of the unit segment
+*  given by name in the list of files in fp.
+*  Return the file and segment number in seg.
+*  NIL is returned for non-existant units and
+*  an error is given.
+}
+
+function unitsrch(fp: finfop; var name: alpha; var seg: segrange): finfop;
+  label 1;
+  var s: segindex;
+begin seg := 0;
+  while fp <> NIL do
+    begin
+      with fp^.segtbl do
+        for s := 0 to MAXSEG do
+          if segname[s] = name then
+            if segkind[s] = UNITSEG then
+              goto 1;
+      fp := fp^.next
+    end;
+  write('Unit ', name);
+  error(' not found');
+  s := 0;
+1:
+  seg := s;
+  unitsrch := fp
+end { unitsrch } ;
+
+{
+*  Alphabetic returns TRUE if name contains all legal
+*  characters for PASCAL identifiers.  Used to validate
+*  segnames and link info entries.
+}
+
+function alphabetic(var name: alpha): boolean;
+  label 1;
+  var i: integer;
+begin
+  alphabetic := FALSE;
+  for i := 0 to 7 do
+    if not (name[i] in ['A'..'Z', '0'..'9', ' ', '_']) then
+      goto 1;
+  alphabetic := TRUE;
+1:
+end { alphabetic } ;
+
+{
+*  Getcodep is a sneaky routine to point codep's anywhere
+*  in memory.  It violates Robot's Rules of Order, but is
+*  very useful for dealing with the variable size segments
+}
+
+function getcodep(memaddr: integer): codep;
+  var r: record
+           case boolean of
+             TRUE:  (i: integer);
+             FALSE: (p: codep)
+           end;
+begin
+  r.i := memaddr;
+  getcodep := r.p
+end { getcodep } ;

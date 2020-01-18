@@ -1,0 +1,382 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+FUNCTION LEADBLANKS(* (PTR: PTRTYPE; VAR BYTES: INTEGER): INTEGER *);
+(* On entry-
+      PTR points to the beginning of a line
+   On exit-
+      function returns the number of leading blanks on that line.
+      bytes has the offset into the line of the first non-blank character *)
+VAR
+  OLDPTR: PTRTYPE;
+  INDENT: INTEGER;
+BEGIN
+  OLDPTR:=PTR; INDENT:=0;
+  WHILE ORD(EBUF^[PTR]) IN [HT,SP,DLE] DO
+    BEGIN
+      IF EBUF^[PTR]=CHR(DLE) THEN
+        BEGIN PTR:=PTR+1; INDENT:=INDENT+ORD(EBUF^[PTR])-32 END
+      ELSE
+        IF ORD(EBUF^[PTR])=SP THEN INDENT:=INDENT+1
+        ELSE
+          (*HT*) INDENT:=((INDENT DIV 8)+1)*8;  (* KLUDGE FOR COLUMNAR TAB! *)
+      PTR:=PTR+1
+    END;
+  BYTES:=PTR-OLDPTR;
+  LEADBLANKS:=INDENT;
+END(*LEADBLANKS*);
+
+PROCEDURE REDISPLAY;
+(* Do a total update of the screen.  Note that this code is partially a
+   duplicate of lineout/upscreen for reasons of speed.  This procedure is
+   called only from centercursor *)
+VAR
+  LINEDIST,EOLDIST,LINE: INTEGER;
+  PTR: PTRTYPE;
+  T: PACKED ARRAY [0..MAXSW] OF CHAR;
+BEGIN
+  BLANKCRT(1);
+  LINE:=1;
+  PTR:=LINE1PTR;
+  REPEAT
+    BLANKS:=MIN(LEADBLANKS(PTR,BYTES),SCREENWIDTH);
+    GOTOXY(BLANKS,LINE);
+    PTR:=PTR+BYTES;
+    EOLDIST:=SCAN(MAXCHAR,=CHR(EOL),EBUF^[PTR]);
+    LINEDIST:=MAX(0,MIN(EOLDIST,SCREENWIDTH-BLANKS+1));
+    MOVELEFT(EBUF^[PTR],T[0],LINEDIST);
+    IF EBUF^[PTR+LINEDIST]<>CHR(EOL) THEN (* Line truncation *)
+      T[MAX(0,LINEDIST-1)]:='!';
+    WRITE(T:LINEDIST);
+    PTR:=PTR+EOLDIST+1; LINE:=LINE+1
+  UNTIL (LINE>SCREENHEIGHT) OR (PTR>=BUFCOUNT)
+END;
+
+PROCEDURE CENTERCURSOR
+(*VAR LINE: INTEGER; LINESUP: INTEGER; NEWSCREEN: BOOLEAN*);
+(* Figure out if the cursor is still on the screen.  If it is, and
+   newscreen is false, then no redisplay is done.  Otherwise an attempt
+   is made to position the cursor at line "linesup".  line is then updated
+   to the actual line the cursor was forced to. *)
+VAR
+  MARK: INTEGER;
+  PTR: PTRTYPE;
+BEGIN
+  IF EBUF^[CURSOR]=CHR(EOL) THEN PTR:=CURSOR ELSE PTR:=CURSOR+1;
+  LINE:=0;
+  REPEAT
+    PTR:=PTR-1;
+    PTR:=SCAN(-MAXCHAR,=CHR(EOL),EBUF^[PTR])+PTR;
+    LINE:=LINE+1;
+    IF LINE=LINESUP THEN MARK:=PTR;
+  UNTIL (LINE>SCREENHEIGHT) OR ((LINE1PTR=PTR+1) AND NOT NEWSCREEN) OR (PTR<1);
+  IF LINE>SCREENHEIGHT THEN (* Off the screen *)
+    BEGIN LINE1PTR:=MARK+1; REDISPLAY; LINE:=LINESUP END
+  ELSE
+    IF LINE1PTR=PTR+1 THEN
+      BEGIN
+        IF NEWSCREEN THEN REDISPLAY
+      END
+    ELSE
+      BEGIN
+        LINE1PTR:=1; REDISPLAY
+      END;
+END;
+
+PROCEDURE FINDXY(*VAR INDENT,LINE: INTEGER*);
+VAR
+  I,LEAD: INTEGER;
+  PTR,EOLPTR: PTRTYPE;
+BEGIN
+  (* Place CRT cursor on the screen at the position corresponding
+     to the logical cursor. *)
+  LINE:=1;
+  PTR:=LINE1PTR;
+  EOLPTR:=SCAN(MAXCHAR,=CHR(EOL),EBUF^[PTR])+PTR;
+  WHILE EOLPTR<CURSOR DO
+    BEGIN
+      LINE:=LINE+1; PTR:=EOLPTR+1; (* Set up for the next line *)
+      EOLPTR:=SCAN(MAXCHAR,=CHR(EOL),EBUF^[PTR])+PTR
+    END;
+  (* Now find the indentation on that line of the cursor *)
+  LEAD:=LEADBLANKS(PTR,I);
+  INDENT:=MIN(SCREENWIDTH,(LEAD-I)+(CURSOR-PTR));
+                          (* (extra spaces) + (offset into line) *)
+END;(* FINDXY *)
+
+PROCEDURE SHOWCURSOR;
+VAR
+  X,Y: INTEGER;
+BEGIN
+  FINDXY(X,Y);
+  GOTOXY(X,Y)
+END(* SHOWCURSOR *);
+
+FUNCTION GETNUM(*:INTEGER*);
+VAR
+  N: INTEGER;
+  OVERFLOW: BOOLEAN;
+BEGIN
+  N:=0;
+  OVERFLOW:=FALSE;
+  IF NOT (CH IN ['0'..'9']) THEN N:=1
+  ELSE
+    REPEAT
+      IF N > 1000 THEN OVERFLOW:=TRUE
+      ELSE
+        BEGIN
+          N:=N*10+ORD(CH)-ORD('0');
+          CH:=GETCH
+        END
+    UNTIL (NOT (CH IN ['0'..'9'])) OR OVERFLOW;
+  IF OVERFLOW THEN
+    BEGIN
+      ERROR('Repeatfactor > 10,000',NONFATAL);
+      GETNUM:=0;
+    END
+  ELSE
+    GETNUM:=N;
+  COMMAND:=MAPTOCOMMAND(CH); (* Takes CH and maps it to a command *)
+END;
+
+PROCEDURE GETLEADING;
+BEGIN
+  (* Sets:
+        LINESTART ......... A pointer to the beginning of the line
+        STUFFSTART ........ A pointer to the beginning of the text on the line
+        BYTES ............. The number of bytes between LINESTART and
+                            STUFFSTART
+        BLANKS ............ The indentation of the line    *)
+  LINESTART:=CURSOR;
+  IF EBUF^[LINESTART]=CHR(EOL) THEN LINESTART:=LINESTART-1; (* for scan! *)
+  LINESTART:=SCAN(-MAXCHAR,=CHR(EOL),EBUF^[LINESTART])+LINESTART+1;
+  BLANKS:=LEADBLANKS(LINESTART,BYTES);
+  STUFFSTART:=LINESTART+BYTES
+END (* GETLEADING *);
+
+FUNCTION OKTODEL (* (CURSOR,ANCHOR: PTRTYPE):BOOLEAN *) ;
+BEGIN
+  IF ABS(CURSOR-ANCHOR)>(BUFSIZE-BUFCOUNT)+10 THEN
+    BEGIN
+      MSG:=
+'There is no room to copy the deletion.  Do you wish to delete anyway? (y/n)';
+      PUTMSG;
+      IF UCLC(GETCH)='Y' THEN OKTODEL:=TRUE ELSE OKTODEL:=FALSE;
+    END
+  ELSE
+    BEGIN
+      (* COPYLINE is set by the caller *)
+      COPYOK:=TRUE; COPYLENGTH:=ABS(CURSOR-ANCHOR);
+      COPYSTART:=BUFSIZE-COPYLENGTH+1;
+      MOVELEFT(EBUF^[MIN(CURSOR,ANCHOR)],EBUF^[COPYSTART],COPYLENGTH);
+      OKTODEL:=TRUE
+    END;
+END;
+
+
+PROCEDURE LINEOUT(*VAR PTR:PTRTYPE; BYTES,BLANKS,LINE:INTEGER*);
+(* Write a line out *)
+VAR
+  LINEDIST,EOLDIST: INTEGER;
+  T: PACKED ARRAY [0..MAXSW] OF CHAR;
+BEGIN
+  GOTOXY(BLANKS,LINE);
+  PTR:=PTR+BYTES;
+  EOLDIST:=SCAN(MAXCHAR,=CHR(EOL),EBUF^[PTR]);
+  LINEDIST:=MAX(0,MIN(EOLDIST,SCREENWIDTH-BLANKS+1));
+  MOVELEFT(EBUF^[PTR],T[0],LINEDIST);
+  IF EBUF^[PTR+LINEDIST]<>CHR(EOL) THEN (* Line truncation *)
+    BEGIN
+      LINEDIST:=MAX(LINEDIST,1);
+      T[LINEDIST-1]:='!';
+    END;
+  WRITE(T:LINEDIST);
+  PTR:=PTR+EOLDIST+1
+END;
+
+PROCEDURE UPSCREEN(*FIRSTLINE,WHOLESCREEN: BOOLEAN; LINE: INTEGER*);
+(* Zap, Insert and Delete call this procedure to update (possibly partially)
+   the screen.  FIRSTLINE means only the line that the cursor is on need
+   be updated.  WHOLESCREEN means that everything must be updated.  If
+   neither of these is true then only the part of the screen that's after
+   the cursor is updated *)
+VAR
+  PTR: PTRTYPE;
+
+BEGIN (* Upscreen *)
+  IF FIRSTLINE THEN
+    BEGIN
+      GETLEADING;
+      GOTOXY(0,LINE); ERASETOEOL(0,LINE); (* Clean the line *)
+      LINEOUT(LINESTART,BYTES,BLANKS,LINE) (* Just this line *)
+    END
+  ELSE
+    IF WHOLESCREEN THEN
+      CENTERCURSOR(TRASH,MIDDLE,TRUE)
+    ELSE (* Only update the part of the screen after the cursor *)
+      BEGIN
+        GOTOXY(0,LINE); ERASEOS(0,LINE);
+        GETLEADING;
+        PTR:=LINESTART;
+        REPEAT
+          BLANKS:=MIN(LEADBLANKS(PTR,BYTES),SCREENWIDTH);
+          LINEOUT(PTR,BYTES,BLANKS,LINE); (* Writes out the line at ptr *)
+          LINE:=LINE+1
+        UNTIL (LINE>SCREENHEIGHT) OR (PTR>=BUFCOUNT)
+      END;
+END;
+
+PROCEDURE READJUST(*CURSOR:PTRTYPE; DELTA: INTEGER*);
+(* if DELTA<0 then move all affected markers to CURSOR.  Also adjust all
+   markers >= CURSOR by DELTA *)
+VAR
+  I: INTEGER;
+BEGIN
+  WITH PAGEZERO DO
+    FOR I:=0 TO COUNT-1 DO
+      IF POFFSET[I]>=CURSOR THEN POFFSET[I]:=MAX(POFFSET[I]+DELTA,CURSOR);
+  IF (COPYSTART>=CURSOR) AND (COPYSTART<BUFCOUNT) THEN
+    COPYSTART:=MAX(COPYSTART+DELTA,CURSOR);
+END;
+
+PROCEDURE THEFIXER(*PARAPTR:PTRTYPE;RFAC:INTEGER;WHOLE:BOOLEAN*);
+(* PARAPTR points somewhere in a paragraph.  If WHOLE is true then the
+   entire paragraph is filled, otherwise only that directly after the cursor
+   is filled.  RFAC, when implemented will tell how many paragraphs to be
+   filled.  Note: A paragraph is defined as lines of text delimited by a line
+   with no text on it whatsoever, or a line of a text whose first character is
+   RUNOFFCH *)
+
+VAR
+  SAVE,PTR,WPTR: INTEGER;
+  WLENGTH,X: INTEGER;
+  DONE: BOOLEAN;
+BEGIN
+  WITH PAGEZERO DO
+    BEGIN
+      SAVE:=CURSOR;
+      CURSOR:=PARAPTR;
+      GETLEADING;
+      IF EBUF^[STUFFSTART] IN [CHR(EOL),RUNOFFCH] THEN EXIT(THEFIXER);
+      IF WHOLE THEN (* Scan backwards for the beginning of the paragraph *)
+        BEGIN
+          REPEAT
+            CURSOR:=LINESTART-1;
+            GETLEADING
+          UNTIL (LINESTART<=1) OR (EBUF^[STUFFSTART] IN [RUNOFFCH,CHR(EOL)]);
+          IF EBUF^[STUFFSTART] IN [RUNOFFCH,CHR(EOL)] THEN
+            PTR:=CURSOR+1
+          ELSE
+            PTR:=1;
+          X:=PARAMARGIN;
+        END
+      ELSE
+        BEGIN
+          PTR:=LINESTART;
+          IF BLANKS=PARAMARGIN THEN X:=PARAMARGIN ELSE X:=LMARGIN
+        END;
+      CURSOR:=BUFSIZE-(BUFCOUNT-PTR)+1; (* Split the buffer *)
+      MOVERIGHT(EBUF^[PTR],EBUF^[CURSOR],BUFCOUNT-PTR);
+      (* Now dribble back the (rest of the) paragraph *)
+      EBUF^[PTR]:=CHR(DLE);
+      EBUF^[PTR+1]:=CHR(X+32);
+      PTR:=PTR+2;
+      EBUF^[CURSOR-1]:=CHR(EOL); (* sentinel for getleading *)
+      DONE:=FALSE;
+      REPEAT
+        WHILE EBUF^[CURSOR] IN [CHR(HT),CHR(SP),CHR(DLE)] DO
+          IF EBUF^[CURSOR]=CHR(DLE) THEN CURSOR:=CURSOR+2 ELSE CURSOR:=CURSOR+1;
+        WPTR:=CURSOR;
+        (* Skip over a token *)
+        WHILE NOT (EBUF^[CURSOR] IN [CHR(EOL),' ','-']) DO CURSOR:=CURSOR+1;
+        (* Special cases for ".<sp><sp>" and "-<sp>" *)
+        IF EBUF^[CURSOR]='-' THEN IF EBUF^[CURSOR+1]=' ' THEN CURSOR:=CURSOR+1;
+        IF (EBUF^[CURSOR-1]='.') THEN IF
+           (EBUF^[CURSOR]=' ') AND (EBUF^[CURSOR+1]=' ') THEN CURSOR:=CURSOR+1;
+        WLENGTH:=CURSOR-WPTR+1; (* Including the delimiter *)
+        IF (X+WLENGTH>RMARGIN) OR (RMARGIN-LMARGIN+1<=WLENGTH) THEN
+          BEGIN
+            IF EBUF^[PTR-1]=' ' THEN PTR:=PTR-1;
+            EBUF^[PTR]:=CHR(EOL); EBUF^[PTR+1]:=CHR(DLE);
+            EBUF^[PTR+2]:=CHR(LMARGIN+32);
+            PTR:=PTR+3;
+            X:=LMARGIN
+          END;
+        CURSOR:=CURSOR+1;
+        MOVELEFT(EBUF^[WPTR],EBUF^[PTR],WLENGTH);
+        IF EBUF^[CURSOR-1]=CHR(EOL) THEN
+          BEGIN
+            IF EBUF^[CURSOR]=CHR(0) THEN DONE:=TRUE
+            ELSE
+              BEGIN
+                GETLEADING;
+                DONE:=(EBUF^[STUFFSTART]=CHR(EOL))
+                      OR (EBUF^[STUFFSTART]=RUNOFFCH);
+                (* The last transfer will move
+                   over the <eol> for the paragraph *)
+                IF NOT DONE THEN
+                  BEGIN
+                    EBUF^[PTR+WLENGTH-1]:=' ';
+                    (* If <eol> <sp>, map to one space only *)
+                    IF EBUF^[CURSOR-2]=' ' THEN PTR:=PTR-1;
+                  END
+              END
+          END;
+        X:=X+WLENGTH;
+        PTR:=PTR+WLENGTH;
+      UNTIL DONE;
+      READJUST(PARAPTR,(BUFSIZE-CURSOR+PTR+1)-BUFCOUNT);
+      BUFCOUNT:=BUFSIZE-CURSOR+PTR+1;
+      MOVELEFT(EBUF^[CURSOR],EBUF^[PTR],BUFSIZE-CURSOR+1);
+      EBUF^[BUFCOUNT]:=CHR(0);
+      CURSOR:=MIN(BUFCOUNT-1,SAVE);
+      GETLEADING;
+      CURSOR:=MAX(CURSOR,STUFFSTART)
+   END;
+END;
+
+PROCEDURE GETNAME(*MSG:STRING; VAR M:NAME*);
+VAR
+  I: INTEGER;
+  S: STRING;
+BEGIN
+  NEEDPROMPT:=TRUE; HOME; CLEARLINE(0); WRITE(MSG,' what marker? ');
+  READLN(S);
+  FOR I:=1 TO LENGTH(S) DO S[I]:=UCLC(S[I]);
+  MOVELEFT(S[1],M[0],MIN(8,LENGTH(S)));
+  FILLCHAR(M[LENGTH(S)],MAX(0,8-LENGTH(S)),' ')
+END;

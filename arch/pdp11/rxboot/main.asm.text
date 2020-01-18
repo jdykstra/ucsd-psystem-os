@@ -1,0 +1,346 @@
+;
+; UCSD PASCAL - Version II.0
+; Copyright (C) 1978, 1979 Regents of the University of California
+; All Rights Reserved
+;
+; Permission to use, copy, modify and distribute any part of UCSD
+; PASCAL solely authored by UC authors before June 1, 1979 for
+; educational, research and non-profit purposes, without fee, and
+; without a written agreement is hereby granted, provided that the
+; above copyright notice, this paragraph and the following three
+; paragraphs appear in all copies.
+;
+; Those desiring to incorporate UCSD PASCAL into commercial products or
+; use for commercial purposes should contact the Technology Transfer &
+; Intellectual Property Services, University of California, San Diego,
+; 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+; Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+;
+; IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+; FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+; INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+; THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+; DAMAGE.
+;
+; THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+; OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+; UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+; MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+; EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+; WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+; THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+; OTHER RIGHTS.
+;
+; Case Number: SD1991-807 (2006)
+; http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+;
+;;; Source: http://bitsavers.org/bits/UCSD_Pascal/ucsd_II.0/
+;;;     U121.2_LSI-11_P-CODE_SOURCE.raw.gz
+;;; Desciption: Bootloader for RX01 compatible drives.
+;;; Date: 1979-02-20
+        .NLIST  TTM
+        .TITLE  FLOPPY BOOTSTRAP        VERSION II.0.A
+        ; FOR VERSION I.5, II.0 INTERPS.
+        ;
+        ; COPYRIGHT (C) 1978 REGENTS OF THE UNIVERSTIY OF CALIFORNIA.
+        ; PERMISSION TO COPY OR DISTRIBUTE THIS SOFTWARE OR DOCUMEN-
+        ; TATION IN HARD COPY OR SOFT COPY GRANTED ONLY BY WRITTEN LICENSE
+        ; OBTAINED FROM THE INSTITUTE OF INFORMATION SYSTEMS.  ALL RIGHTS
+        ; RESERVED.  NO PART OF THIS PUBLICATION MAY BE REPRODUCED, STORED
+        ; IN A RETRIEVAL SYSTEM ( E.G., IN MEMORY, DISK, OR CORE) OR BE
+        ; TRANSMITTED BY ANY MEANS, ELECTRONIC, MECHANICAL, PHOTOCOPY,
+        ; RECORDING, OR OTHERWISE, WITHOUT PRIOR WRITTEN PERMISSION FROM THE
+        ; PUBLISHER.
+        ;
+        ;
+; ******MODIFICATIONS--
+; S B    15-DEC-78:         USE INLINE TESTS FOR DONE AND TR (INSTEAD OF TRAPS)
+;                           IN RXREAD SUBBOUTINE.
+;                           CHANGED .ASECT ORIGIN TO 0 FROM 32000, WITH
+;                           ASSOCIATED CHANGES TO SOME ADDRESS CALCULATIONS--
+;                           LINK WITH BOTTOM:0 OPTION
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;    PDP-11 PASCAL SYSTEM BOOTSTRAP LOADER
+;  THIS CODE SITS ON BLOCKS 0 & 1 OF THE
+;  FLOPPY AND IS READ INTO LOW CORE BY THE
+;  HARDWARE LOADER.  CONTROL THEN PASSES TO
+;  ADDRESS 0 WHERE WE TAKE OVER.  NOTE THAT
+;  R0 = DRIVE # WE WERE LOADED FROM (0 OR 1)
+;  ALSO ONLY THE FIRST 128 BYTES ARE LOADED BY
+;  HARDWARE.  THE REST HAS TO BE DONE OURSELVES
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+RELOC   = 32000         ; ADDRESS WHERE THE CODE COPIES ITSELF TO
+                        ; AND ACTUALLY RUNS
+BK = %2
+BASE = %3
+IPC= %4
+MP = %5
+R0 = %0
+R1 = %1
+R2 = %2
+R3 = %3
+R4 = %4
+R5 = %5
+SP = %6
+PC = %7
+DATASZ  = -10   ; INDEX TO LOCAL DATA SIZE IN JTAB
+SYSUNT  = 404   ; ADDRESS OF SYSUNT WORD IN SYSCOM
+SEG     = 422   ; SEG ADDR IN SYSCOM
+SEGTBL  = 540
+MEMTOP = 424
+FSTBLK  = 2     ; DIR ENTRY INDEX FOR DFIRSTBLK
+DTID    = 6     ;  "    "     "  FOR TITLE FIELD
+DELENG  = 26.   ; LENGTH IN BYTES OF EACH DIR ENTRY
+KW11    = 177546
+RXCS    = 177170
+RCSR    = 177560
+RBUF    = 177562
+XCSR    = 177564
+XBUF    = 177566
+CR = 15
+LF = 12
+BUZZ = 07
+
+        .ASECT
+
+;  THESE FIRST 128 BYTES ARE LOADED AT WORD 0
+;  AND MUST READ IN THE REST OF THE SYSTEM
+;  WHAT IS DONE HERE IS TO READ THE WHOLE BOOTSTRAP
+;  INTO THE RELOCATE POSITION FOR ACTUAL EXECUTION.
+
+ENTRY:  NOP                     ; BOOT LOADER WANTS THIS HERE
+        MOV     #1000,SP        ; SET UP STACK...NO TRAP HANDLING YET
+        MOV     R0,-(SP)        ; SAVE R0 FOR LATER CHECK AFTER START
+        BEQ     1$              ; SKIP BIS IF UNIT 0
+        BIS     #20,RXMASK      ; UNIT WORD, SO SET UNIT 1 BIT IF R0 <> 0
+1$:     MOV     #RELOC,R0       ; BUFFER ADDRESS FOR RXREAD
+        MOV     #8.,R1          ; NUMBER OF SECTORS TO READ
+        CLR     R2              ; LOGICAL SECTOR NUMBER
+        MOV     #<RELOC+START>,-(SP) ; FAKE JSR TO RXREAD
+RXREAD: ; DUMB IO ROUTINE FOR SYSTEM LOADER
+        MOV     R2,-(SP)        ; SAVE LSN FOR LATER
+RXLOOP: MOV     #RXCS,R4        ; R4 POINTS AT RXCS
+2$:     TST     @R4             ; WAIT FOR DONE
+        BEQ     2$
+        BMI     HALTER          ; BRANCH IF ERROR
+        MOV     R4,R5           ; SET UP TO POINT R5 AT RXCS+2...RXDB
+        MOV     RXMASK,(R5)+    ; SEND READ SECTOR COMMAND
+        MOV     (SP),R3         ; SET UP FOR SECTOR AND TRACK CALC
+        JSR     PC,@RXCALC      ; HERE IT IS...THE GROSSEST THING EVER
+3$:     TSTB    @R4             ; WAIT FOR TR
+        BEQ     3$
+        MOV     R3,(R5)         ; SEND SECTOR ADDRESS
+4$:     TSTB    @R4             ; WAIT FOR TR
+        BEQ     4$
+        MOV     R2,(R5)         ; SEND TRACK ADDRESS
+5$:     TST     @R4             ; WAIT FOR DONE
+        BEQ     5$
+        BMI     HALTER          ; BRANCH IF ERROR
+        MOV     #128.,R3        ; LOOP COUNTER FOR MOVB
+        MOV     #3,(R4)         ; SEND EMPTY BUFFER COMMAND
+6$:     TSTB    @R4             ; WAIT FOR TR
+        BEQ     6$
+        MOVB    (R5),(R0)+
+        DEC     R3              ; ONE LESS BYTE TO MOVE
+        BNE     6$              ; GET NEXT BYTE, IF ANY
+        INC     (SP)            ; BUMP LOGICAL SECTOR #
+        DEC     R1              ; ONE LESS SECTOR TO READ
+        BNE     RXLOOP          ; READ NEXT SECTOR IF ANY
+        MOV     (SP)+,R2        ; RESTORE UPDATED SECTOR ADDRESS
+        RTS     PC              ; SO R0 (ADDRESS) AND R2 (SECTOR) ARE UPDATED
+
+RXMASK: .WORD   7               ; READ SECTOR COMMAND
+RXCALC: .WORD   RXDUMB          ; ADDR OF TRACK SECT CALC ROUTINE
+
+RXDUMB: ; THIS ROUTINE FIGURES AN ACTUAL SECTOR FROM LSN IN R3
+        ; IT IS USED ONLY TO LOAD REMAINDER OF BOOTSTRAP. AFTER
+        ; THAT RXCALC IS MADE INTELLIGENT AND WE GO INTO THE OZONE
+        MOV     #1,R2           ; RETURN TRACK #1 (FLOPPY CONVENTION)
+        ASL     R3              ; DOUBLE IT FOR 2 INTERLEAVE
+        INC     R3              ; AND STAGGER BY 1 (FLOPPY CONVENTION)
+        RTS     PC              ; BACK TO RXREAD
+
+HALTER: HALT
+        BR      HALTER
+
+        .BLKW   5               ; UNUSED SPACE IN FIRST SECTOR OF BOOTSTRAP
+
+;  PAST THIS POINT IS THE CODE LOADED BY THE FIRST 128
+;  BYTES.  THIS INCLUDES MISC ROUTINES AND SYSTEM STARTUP
+
+RXSMRT: MOV     #8.,R2          ; LOOP COUNT
+1$:     CMP     #6400,R3        ; DOES 26 GO INTO DIVIDEND?
+        BHI     2$              ; BRANCH IF NOT, C CLEAR
+        ADD     #171400,R3      ; SUBTRACT 26 FROM DIVIDEND, SETS C
+2$:     ROL     R3              ; SHIFT DIVIDEND AND QUOTIENT
+        DEC     R2              ; DEC LOOP COUNT
+        BGT     1$              ; BRANCH TILL DIVIDE DONE
+        MOVB    R3,R2           ; COPY TRACK NUMBER
+        CLRB    R3              ; REMOVE TRACK NUMBER FROM REMAINDER
+        SWAB    R3              ; GET REMAINDER
+        CMP     #12.,R3         ; C=1 IF 13<=R3<=25, ELSE C=0
+        ROL     R3              ; DOUBLE FOR 2 TO 1 INTERLEAVE
+                                ; C-BIT COMES IN FOR SECTOR GROUP
+        ASL     R2              ; ADD TRACK TO TRACK SKEW TO SECTOR
+        ADD     R2,R3           ; SKEW BY 2* TRACK
+        ADD     R2,R3           ; SKEW BY 4* TRACK
+        ADD     R2,R3           ; SKEW BY 6* TRACK
+        ASR     R2              ; REFIX TRACK NUMBER
+        INC     R2              ; PUT TRACK # IN RANGE 1-76 TO HANDLE
+                                ; ANSI FLOPPY, TRACK 0 IS LEFT ALONE
+3$:     SUB     #26.,R3         ; MODULO SECTOR INTO RANGE -26,-1
+        BGE     3$              ; LOOP TILL REMAINDER GOES NEGATIVE
+        ADD     #27.,R3         ; PUT SECTOR IN RANGE 1,26
+        RTS     PC              ; AND RETURN TO RXREAD
+
+BOMB:   MOVB    (R0)+,R1
+        BMI     XBOMB           ; IF MINUS IN STRING, RETURN
+        BEQ     HALTER
+1$:     TSTB    @#XCSR          ; WAIT UNTIL DL11 DONE BIT
+        BPL     1$
+        MOVB    R1,@#XBUF
+        BR      BOMB
+XBOMB:  ROR     R0              ; RETURN TO USER...WORD BOUND R0
+        ADC     R0
+        ROL     R0
+        RTS     R0
+
+NOCORE: JSR     R0,BOMB
+        .ASCIZ  <CR><LF><BUZZ>'?NOT ENOUGH CORE TO BOOT?'<CR><LF>
+        .EVEN
+
+DIRSRCH:MOV     #DIREC+DTID,R1  ; R1 POINTS AT DTID OF EACH DIR ENTRY
+DIRLOOP:MOV     R1,R4           ; R4 IS USED FOR TITLE COMPARE
+        MOV     R0,R3           ; R3 IS TITLE TO LOOK FOR (IN CODE STREAM)
+        MOVB    @R0,R2          ; NUMBER OF BYTES IN NAME (STRING VAR)
+1$:     CMPB    (R3)+,(R4)+     ; CHECK EACH BYTE FOR EQUAL
+        BNE     2$              ; WOOPS, NEQ...CHECK NEXT ENTRY OR BOMB
+        DEC     R2              ; OK SO FAR...DECREMENT LOOP COUNTER
+        BPL     1$              ; LOOP FOR LENG+1 CHARS
+        ; EUREKA! WE HAVE FOUND IT...RETURN WITH R1 POINTING AT ENTRY
+        SUB     #DTID,R1        ; RETURN R1 AT START OF ENTRY
+        ADD     #18.,R0         ; POINT R0 PAST STRING IN CODE
+        RTS     R0              ; AND RETURN
+2$:     ADD     #DELENG,R1      ; SKIP R1 TO NEXT DIRECTORY ENTRY
+        CMP     R1,#ENDDIR      ; CHECK IF WE HAVE GONE OFF END OF DIR
+        BLO     DIRLOOP         ; IF NOT, CHECK NEXT ENTRY
+        JSR     R0,BOMB         ; OH WELL, NO SYSTEM FILE...TIME TO CROAK
+        .ASCII  <CR><LF><BUZZ>'?YOU DON'<47>'T HAVE A '<200>
+        .EVEN
+        INC     R0              ; SKIP R0 PAST LENGTH BYTE
+        BR      BOMB            ; USE R0 AS IS FOR REST OF MESSAGE
+
+START:  TST     (SP)+           ; GRAB OLD UNIT # FROM ENTRY
+        BEQ     1$              ; SO SKIP OVER UNIT 1 STUFF
+        BIS     #20,RXMASK      ; SET THE UNIT 1 BIT IN IO MASK
+1$:     MOV     #DIREC,SP       ; OUR NEW STACK LOCATION
+        MOV     #<RELOC+NOCORE>,@#4 ; BOMB SYSTEM IF NO CORE
+        MOV     #<RELOC+RXSMRT>,RXCALC ; NOW WE CAN USE THE DISK OK
+        MOV     #16.,R1         ; READ DIRECTORY...NUMBER OF SECTORS
+        JSR     PC,RXREAD       ; R0 AND R2 ARE STILL OK FROM LAST TIME
+        JSR     R0,DIRSRCH      ; FIND THE CODE FILE FOR THE SYSTEM
+        .ASCIZ  <15>'SYSTEM.PASCAL?'<CR><LF>
+        MOV     (R1)+,FSTSYS    ; SAVE FIRST BLOCK FOR SYSTEM CODE
+        JSR     R0,DIRSRCH      ; NOW LOOK FOR THE INTERPRETER .SAV FILE
+        .ASCIZ  <15>'SYSTEM.PDP-11?'<CR><LF>
+        MOV     (R1)+,R2        ; FIRST DISK ADDR OF INTERPRETER
+        ASL     R2              ; MULTIPLY BY FOUR TO GET LSN
+        ASL     R2
+        MOV     @R1,R1          ; GET LAST BLOCK # OF INTERP
+        INC     R1              ; MAKE IT POINT AT ALL BLOCKS
+        ASL     R1              ; MULTIPLY BY 4
+        ASL     R1
+        SUB     R2,R1           ; NOW R1 IS TOTAL SECTORS IN INTERP
+        MOV     R1,-(SP)        ; SAVE THIS SECTOR COUNT FOR LATER
+        MOV     #DIREC,R0       ; READ FIRST SECTOR INTO HIGH CORE
+        MOV     #1,R1           ; TO SAVE TRAP VECTOR
+        JSR     PC,RXREAD       ; NOW READ IN FIRST SECTOR
+        MOV     #200,R0         ; NEXT READ IN REMAINDER OF INTERP
+        MOV     (SP)+,R1        ; AGAIN TOTAL LENGTH IN SECTORS
+        DEC     R1              ; BUT SUBTRACT THE ONE WE HAVE
+        JSR     PC,RXREAD
+        MOV     #<RELOC+TSTTRP>,@#4 ; NOW FIND HIGHEST CORE FOR SP
+TSTLOOP:TST     (R0)+           ; START SKIPPING THROUGH MEMORY
+        BR      TSTLOOP         ; UNTIL 4 TRAP TAKES US AWAY
+BADSYS: JSR     R0,BOMB         ; GO HERE TO CROAK FOR BAD CODE FILE
+        .ASCIZ  <CR><LF><BUZZ>'?YOUR SEGTBL IS RIDICULOUS?'<CR><LF>
+        .EVEN
+TSTTRP: SUB     #4,R0           ; BRING R0 BACK DOWN TO EARTH
+        MOV     R0,@#SEG        ; HIGHEST MEM ADDR
+        ; NOW READ SYSTEM CODE STUFF
+        MOV     #LSEGTBL,R0     ; MEM ADDR TO RXREAD INTO
+        MOV     #1,R1           ; NUMBER OF 128 SECTOR TO READ
+        MOV     FSTSYS,R2       ; BLOCK NUMBER OF SYSCODE
+        ASL     R2              ; MULTIPLY BY 4
+        ASL     R2              ; TO END UP WITH RX LOGICAL SECTOR #
+        JSR     PC,RXREAD       ; DO IO...READ IN SEGTBL FROM SYSCODE
+        MOV     #4,@#SYSUNT     ; INFORM SYSTEM WHICH UNIT WAS LOADED FROM
+        CMP     RXMASK,#7       ; NOW CHECK IF UNIT WAS RIGHT HAND DRIVE
+        BEQ     3$              ; SKIP IF OUR IO WORD IS FOR LEFT UNIT
+        MOV     #5,@#SYSUNT     ; IF RIGHT DRIVE, CHANGE UNIT TO # 5
+3$:     MOV     #LSEGTBL,R0     ; NOW COPY LOCAL TBL INTO SYSTEM TABLE
+        MOV     #SEGTBL,R1      ; AND RELOCATE DISK ADDRS
+        MOV     #16.,R2         ; FOR ALL 16 SEGS...LOOP COUNT
+TBLCPY: MOV     @#SYSUNT,(R1)+  ; COPY OVER BOOTED UNIT
+        MOV     FSTSYS,@R1      ; PUT BASE FILE ADDR OF SYSTEM INTO TABLE
+        ADD     (R0)+,(R1)+     ; ADD IN RELATIVE...NOW ABSOLUTE DK ADDR
+        MOV     (R0)+,(R1)+     ; COPY BYTE COUNT TOO
+        DEC     R2              ; DONE LOOP 16 TIMES?
+        BNE     TBLCPY          ; GO LOOP IF NOT
+        ; NOW READ IN SEG #0 OF SYSTEM CODE INTO HIGH CORE
+        MOV     @#SEG,R0        ; GET HIGHEST MEM ADDR AGAIN!
+        SUB     @#<SEGTBL+4>,R0 ; OPEN GAP @R0 BIG ENOUGH FOR SYSCODE
+        TST     (R0)+           ; SEG POINTS @ LAST WORD...NOT ABOVE
+        MOV     R0,NEWSP        ; STASH THE NEW STACK TOP
+        MOV     #77777,R1       ; NUMBER OF SECTORS TO READ
+        MOV     @#<SEGTBL+2>,R2 ; FINALLY GET DISK BLOCK AND
+        ASL     R2              ; MAKE A LSN
+        ASL     R2
+        MOV     #<RELOC+AHEAD>,@#4 ; TRAP TO STOP DISK READ
+        JSR     PC,RXREAD       ; READ IN SYSTEM CODE FILE
+AHEAD:  BIT     #40,@#RXCS      ; IS DONE BIT ON?
+        BNE     1$
+        TSTB    @#RXCS+2        ; GRAB THE LEFT OVER BYTE
+        BR      AHEAD
+1$:     MOV     NEWSP,SP        ; NEW STACK POINTER JUST BELOW SYSCODE
+        MOV     #64.,R2         ; NOW FINAL INITIALIZE...COPY VECTOR STUFF
+        CLR     R1              ; COPY 128 BYTES FROM HIGH CORE TO LOW
+        MOV     #DIREC,R0
+2$:     MOV     (R0)+,(R1)+     ; COPY EACH WORD OF FIRST SECTOR
+        DEC     R2
+        BNE     2$
+        MOV     @#4,-(SP)       ; SAVE 4-TRAP THING FOR KW11 TEST
+        MOV     #<RELOC+NOKW11>,@#4 ; SET UP TO ENABLE INTERRUPTS ON CLOCK
+        BIS     #100,@#KW11     ; ENABLE INTERRUPT...IF NO CLOCK THEN TRAP
+        SUB     #4,SP           ; KW11 RUNNING...MAKE STACK LOOK LIKE TRAPPED
+NOKW11: ADD     #4,SP           ; CHUCK GARBAGE ON STACK
+        MOV     (SP)+,@#4       ; RESTORE INTERP 4 TRAP HANDLER
+        ; NOW SET UP REGISTERS FOR ENTRY VIA CBP 1 .  WE WANT OUTER
+        ; BLOCK OF SYSTEM TO HAVE STAT&DYN LINKS POINT TO ITSELF.
+        ; THIS ENABLES TESTING FOR STACK UNDERFLOWS.
+        MOV     @#SEG,R0        ; POINT R0 AT JTAB FOR OUTER BLOCK
+        MOV     R0,@#MEMTOP
+        SUB     -(R0),R0        ; SUBTRACT SELF RELATIVE
+        MOV     SP,MP           ; SET MP TO WHERE IT WILL BE AFTER CBP
+        SUB     DATASZ(R0),MP   ; OPEN GAP FOR UNIVERSAL LEVEL VARS
+        MOV     #400,@MP        ; FUNNY PARAM FOR SYSTEM OUTER BLOCK
+        SUB     #14,MP          ; LEAVE MP AT ITS FINAL LOCATION
+        MOV     MP,BASE         ; BASE SHOULD POINT HERE TOO.
+        MOV     #<RELOC+CBP.1>,IPC ; SET UP IPC FOR CBP CALL OF OUTER BLOCK
+        BIS     #100,@#RCSR     ; ENABLE KEYBOARD INTERRUPTS
+        MOV     @#40,BK         ; WORD 40 HAS BACK ADDRESS
+        CLR     -(SP)           ; SO PR = 0 UPON ENTRY
+        MOV     BK,-(SP)        ; PC FOR RTI...ENTR SYSTEM AT BACK
+        RTI                     ; NOW START...FETCH CBP 1 OPCODE
+
+FSTSYS: .WORD   ; DISK ADDR (BLOCK) OF PASCAL SYSTEM CODE
+NEWSP:  .WORD   ; STACK POINTER WE COMPUTE
+CBP.1:  .BYTE   128.+66.,1      ; OUTER BLOCK CALLING SEQUENCE
+
+DIREC   = RELOC+1024.
+ENDDIR  = DIREC+2048.   ; ROOM FOR 4 BLOCK DIRECTORY
+LSEGTBL = DIREC+128.    ; DONT DESTROY LOW CORE IMAGE
+
+        .END    ENTRY

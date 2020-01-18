@@ -1,0 +1,1059 @@
+;
+; UCSD PASCAL - Version II.0
+; Copyright (C) 1978, 1979 Regents of the University of California
+; All Rights Reserved
+;
+; Permission to use, copy, modify and distribute any part of UCSD
+; PASCAL solely authored by UC authors before June 1, 1979 for
+; educational, research and non-profit purposes, without fee, and
+; without a written agreement is hereby granted, provided that the
+; above copyright notice, this paragraph and the following three
+; paragraphs appear in all copies.
+;
+; Those desiring to incorporate UCSD PASCAL into commercial products or
+; use for commercial purposes should contact the Technology Transfer &
+; Intellectual Property Services, University of California, San Diego,
+; 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+; Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+;
+; IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+; FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+; INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+; THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+; DAMAGE.
+;
+; THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+; OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+; UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+; MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+; EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+; WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+; THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+; OTHER RIGHTS.
+;
+; Case Number: SD1991-807 (2006)
+; http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+;
+;;; Source: http://bitsavers.org/bits/UCSD_Pascal/ucsd_II.0/
+;;;     U121.2_LSI-11_P-CODE_SOURCE.raw.gz
+;;; Description: Interpreter section for procedure call operators and
+;;;     run-time support subroutines.
+;;; Date: 1979-02-09
+        .TITLE  PROCEDURE OPERATORS    VERSION II.0.A
+        ; FOR VERSION II.0 INTERPS.
+        ;
+        ; COPYRIGHT (C) 1978 REGENTS OF THE UNIVERSTIY OF CALIFORNIA.
+        ; PERMISSION TO COPY OR DISTRIBUTE THIS SOFTWARE OR DOCUMEN-
+        ; TATION IN HARD COPY OR SOFT COPY GRANTED ONLY BY WRITTEN LICENSE
+        ; OBTAINED FROM THE INSTITUTE OF INFORMATION SYSTEMS.  ALL RIGHTS
+        ; RESERVED.  NO PART OF THIS PUBLICATION MAY BE REPRODUCED, STORED
+        ; IN A RETRIEVAL SYSTEM ( E.G., IN MEMORY, DISK, OR CORE) OR BE
+        ; TRANSMITTED BY ANY MEANS, ELECTRONIC, MECHANICAL, PHOTOCOPY,
+        ; RECORDING, OR OTHERWISE, WITHOUT PRIOR WRITTEN PERMISSION FROM THE
+        ; PUBLISHER.
+        ;
+        ;
+        .CSECT  PROCOP
+        .GLOBL  CSPTBL
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                                                                   ;
+;                       PROCEDURE OPERATORS                         ;
+;                                                                   ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+MEMADR: .WORD   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+USGCNT: .WORD   -1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+
+OLDSEG: .WORD   ; SEG VALUE TO BE SAVED IN MSCW
+OLDSP:  .WORD   ; SP VALUE ABOVE LOADED CODE IN READIT
+
+READIT: ; END UP HERE IF SEGMENT IS NOT IN CORE...MAKE ROOM
+        ; IN THE STACK AND READ IT.
+        MOV     (SP)+,RTNTMP    ; SAVE RETURN ADDRESS
+        MOV     R0,SEGNDX       ; PRESERVE R0
+        ADD     R1,R0           ; MULTIPLY BY 6 TO INDEX INTO SEGTBL
+        ASL     R0
+        TST     SEGTBL+4(R0)    ; CHECK IF THERE IS CODE IN SEG
+        BNE     GOTCODE         ; IF SO THEN WE CAN READ IT IN
+CROAKM: TRAP    NOPROC          ; ELSE BOMB FOR SYSTEM ERROR
+GOTCODE:SUB     SEGTBL+4(R0),SP ; OPEN UP GAP LARGE ENOUGH FOR CODE
+        MOV     SP,R1           ; REMEMBER MEM ADDR FOR HANDLERS
+        MOV     SEGTBL(R0),-(SP)        ; PUSH UNIT FOR HANDLERS
+        MOV     R1,-(SP)                ; PUSH BUFFER
+        MOV     SEGTBL+4(R0),-(SP)      ; PUSH LENGTH
+        MOV     SEGTBL+2(R0),-(SP)      ; PUSH BLOCK
+        CLR     -(SP)                   ; PUSH A ZERO,D  ALL ABOVE FOR HANDLERS
+        MOV     R3,R3TEMP       ; AND R3 (ALL OTHERS SAVED BY CONVENTION)
+        MOV     UUNIT(SP),R1    ; GET UNIT #
+        ASL     R1              ; MULTIPLY BY 6
+        ADD     UUNIT(SP),R1
+        ASL     R1              ; FOR UNIT(*) INDEX
+        ADD     #UNITBL,R1      ; R1 SHOULD BE ABS ADDR OF UNIT ENTRY
+        JSR     R3,@2(R1)       ; ENTER HANDLER FOR PARTICULAR UNIT
+        .WORD   1               ; 1 SINCE READ ONLY
+3$:     TST     (R1)            ; NOW WAIT UNTIL UNIT IS NOT BUSY
+        BMI     3$              ; BUSY WAIT UNTIL IO IS COMPLETE
+        TSTB    @R1             ; CHECK IO RESULT FOR UNIT
+        BEQ     2$
+        TRAP    SYIOER          ; BOMB SYSTEM IO ERROR
+2$:     MOV     R3TEMP,R3       ; RESTORE R3
+        ADD     #12,SP          ; CHUCK PARAMETERS
+        MOV     OLDSP,R1        ; RETRIEVE POINTER AT PARAM ON STACK
+        TST     -(R1)           ; NOW POINT R1 AT TOP WORD IN PROCTBL
+        MOV     SEGNDX,R2
+        MOV     R1,MEMADR(R2)   ; SAVE THE ADDRESS OF THIS SEGMENT
+        MOV     SP,RSEGNM       ; SAVE THE SEGMENT RELOCATION VALUE
+        MOV     R1,-(SP)        ; SAVE R1
+        MOV     R3,-(SP)        ; SAVE R3
+RELOC:  MOVB    1(R1),NPROCS    ; SAVE THE NUMBER OF PROCEDURES IN THE SEGMENT
+        BEQ     CROAKM          ; IF SEGMENT EMPTY THEN CROAK
+        MOV     R1,R2
+        MOV     R1,R3
+        TST     -(R2)           ; LOOK AT SELF RELATIVE POINTER TO FIRST PROC.
+        SUB     @R2,R2          ; LOOK AT JTAB OF FIRST PROC.
+        CMP     #1,(R2)         ; IF NOT A BASE LEVEL OUTER BLOCK THEN
+        BNE     1$              ; USE STKBAS AS BASE RELOCATION VALUE ELSE
+        MOV     SP,R0           ; CALCULTE A NEW BASE RELOCATION VALUE
+        ADD     #4,R0                   ; MAKE UP FOR REG SAVE CODE ABOVE
+        SUB     PARMSZ(R2),R0           ; MAKE ROOM FOR PARAMETERS
+        SUB     DATASZ(R2),R0           ; MAKE ROOM FOR DATA
+        SUB     #MSDLTA+2,R0            ; ROOM FOR MARK STACK CONTROL BLOCK
+        MOV     R0,RBASNM       ; THIS IS THE NEW BASE RELOCATION VALUE
+        BR      RBEGIN
+1$:     MOV     STKBAS,RBASNM
+RBEGIN: TST     -(R3)           ; GET SELF RELATIVE POINTER TO PROCEDURE
+        BEQ     CROAKM          ; FORWARD DECLARED PROCEDURE'S BODY MISSING
+        MOV     R3,R1
+        SUB     @R1,R1          ; SUBTRACT POINTER FROM ADDRESS OF POINTER
+        TSTB    (R1)            ; IF PROC # <> 0 THEN
+        BNE     RNEXT           ; P-CODE PROCEDURE SO NO RELOCATION ELSE
+        TST     -(R1)           ; LOOK AT SELF RELATIVE POINTER TO ENTRY POINT
+        MOV     R1,R2           ;   OF ASSEMBLY LANGUAGE PROCEDURE AND
+        SUB     @R2,R2          ; CALCULATE ABSOLUTE ADDRESS OF ENTRY POINT
+        MOV     R2,RLOCNM       ; THIS IS THE LOCAL RELOCATION VALUE
+BASREL: MOV     -(R1),R0        ; GET THE NUMBER OF BASE RELOCATABLE ITEMS
+        BEQ     SEGREL          ; IF NONE THEN SKIP TO SEGMENT RELOCATION
+1$:     TST     -(R1)           ; GET SELF RELATIVE POINTER INTO ASSM CODE
+        MOV     R1,R2           ; GET ADDRESS OF POINTER
+        SUB     @R2,R2          ; SUBTRACT POINTER VALUE FROM ADDRESS
+        ADD     RBASNM,(R2)     ; ADD BASE REL VALUE TO POINTED AT WORD
+        SOB     R0,1$           ; REPEAT FOR EACH BASE RELOCATABLE ITEM
+
+SEGREL: MOV     -(R1),R0        ; NUMBER OF SEGMENT RELOCATABLE ITEMS
+        BEQ     LOCREL          ; IF NONE THEN SKIP TO LOCAL RELOCATION
+1$:     TST     -(R1)
+        MOV     R1,R2
+        SUB     @R2,R2
+        ADD     RSEGNM,(R2)     ; UPDATE EACH POINTED AT LOCATION
+        SOB     R0,1$           ; REPEAT FOR ALL ITEMS
+
+LOCREL: MOV     -(R1),R0        ; NUMBER OF BASE RELOCATABLE ITEMS
+        BEQ     RNEXT           ; IF NONE THEN DONE WITH THIS PROCEDURE
+1$:     TST     -(R1)
+        MOV     R1,R2
+        SUB     @R2,R2
+        ADD     RLOCNM,(R2)     ; UPDATE THE POINTED AT LOCATION
+        SOB     R0,1$           ; REPEAT FOR EACH LOCAL ITEM
+
+RNEXT:  DEC     NPROCS          ; DECREMENT THE NUMBER OF PROCS TO BE CHECKED
+        BNE     RBEGIN          ; IF ANY LEFT THEN DO IT AGAIN
+        MOV     (SP)+,R3        ; RESTORE R3
+        MOV     (SP)+,R1        ; RESTORE R1
+TMPLBL: MOV     SEGNDX,R0       ; RESTORE R0
+        MOV     RTNTMP,PC       ; RETURN TO CALLING PROCEDURE
+R3TEMP: .WORD   0
+NPROCS: .WORD   0
+RBASNM: .WORD   0
+RSEGNM: .WORD   0
+RLOCNM: .WORD   0
+SEGNDX: .WORD   0
+RTNADR: .WORD   0
+RTNTMP: .WORD   0
+
+GETSEG: MOV     (SP)+,RTNADR    ; PUT RETURN ADDRESS IN R1
+        MOV     (SP)+,R0        ; PUT SEG # IN R0
+        MOV     SP,OLDSP
+        MOV     R0,R1
+        ASL     R0              ; SHIFT FOR WORD INDEX
+        TST     USGCNT(R0)      ; CLEARS CARRY
+        BGT     1$              ; SEGMENT ALREADY IN MEMORY
+        BEQ     2$              ; SEGMENT IS NOT IN MEMORY SO READ IT
+        MOV     @#MEMTOP,MEMADR(R0)  ; SPECIAL HANDLING FOR FIRST OP SYS CALL
+        MOV     #1,USGCNT(R0)
+        BR      1$
+2$:     JSR     PC,READIT
+        SEC                     ; CARRY SET INDICATES IO DONE, DO NOT INCLUDE
+                                ; ANY INSTRUCTIONS WHICH WILL CHANGE THE CARRY
+                                ; BETWEEN HERE AND THE BCC IN CXP.
+1$:     INC     USGCNT(R0)
+        MOV     RTNADR,PC
+
+RELSEG: MOV     (SP)+,R1        ; PUT RETURN ADDRESS IN R1
+        MOV     (SP)+,R0        ; PUT SEG # IN R0
+        ASL     R0              ; DOUBLE FOR WORD INDEXING
+        DEC     USGCNT(R0)      ; DECREMENT THE USAGE COUNT
+        BPL     1$              ; BRANCH IF OK
+        TRAP    SYSERR          ; SEGMENT HAS BEEN RELEASED TOO MANY TIMES
+1$:     JMP     @R1
+
+CXP:    ; CALL EXTERNAL (OTHER SEGMENT) PROCEDURE
+        GETNEXT                 ; GRAB SEGMENT # OF CALLED PROC
+        MOV     SEG,OLDSEG      ; SAVE SEG #
+        CMPB    R0,@SEG         ; IS THE CALLED PROCEDURE IN SAME SEGMENT?
+        BEQ     CIP             ; YES SO BRANCH TO CIP ELSE
+        MOV     SP,OLDSP        ; SAVE THE STACK POINTER
+        MOV     R0,-(SP)        ; PUSH NEW SEG #
+        JSR     PC,GETSEG       ; GET SEGMENT
+        MOV     MEMADR(R0),SEG
+        BCC     2$              ; IF CARRY CLEAR THEN NO IO DONE
+        CLR     BK              ; NOW OPEN EXTRA STACK SPACE FOR PARAMS...
+        BISB    @IPC,BK         ; GET PROCEDURE NUMBER FROM CODE
+        ASL     BK              ; DOUBLE FOR WORD INDEXING
+        SUB     BK,R1           ; R1 NOW POINTS AT PROCTBL(P#)
+        SUB     @R1,R1          ; R1 NOW POINTS AT JTAB FOR CALLED PROC
+        SUB     PARMSZ(R1),SP   ; OPEN SOME SPACE FOR DUPLICATE PARAMS
+2$:     MOV     OLDSP,R0
+        MOV     #ENDCIP,BK      ; RETURN TO CIP (VERY GENERAL PROC CALLS)
+        BR      XCLP            ; AND CALL LOCAL PROC
+
+CALLAL: ; CALL USER ASSEMBLY LANGUAGE ROUTINE
+        ADD     #ENTRIC,R1      ; POINT R1 AT ENTRIC IN SHORT JTAB
+        SUB     @R1,R1          ; NOW R1 POINTS AT PDP-11 CODE
+        JSR     PC,@R1          ; ENTER USER ROUTINE
+        MOV     #BACK,BK        ; RESTORE THIS SCRATCH REG.
+        MORE
+
+CLPERR: TSTB    @SEG            ; CHECK IF CALLING EXECERROR...
+        BNE     1$              ; IF NOT SEG 0 THEN CANT BE
+        CMPB    @R1,#2          ; PROCEDURE # 2?
+        BEQ     NOCARE          ; IF SO THEN DONT CARE ABOUT STCK OVER
+1$:     ADD     DATASZ(R1),SP   ; RESTORE STACK W/O DAMAGE HOPEFULLY
+        TRAP    STKOVR
+
+CLP:    ; CALL LOCAL PROCEDURE
+        MOV     SEG,OLDSEG      ; NO SEG CHANGE...SET UP TO SAVE CUR SEG
+        MOV     SP,R0           ; NO CODE...LEAVE R0 AT PARAM LIST
+XCLP:   ; ENTER HERE FOR EXTERNAL CALLS...R0 AND OLDSEG DIFFERENT
+        GETBYTE R1              ; GET PROCEDURE #
+        ASL     R1              ; CHANGE FOR WORD INDEXING
+        NEG     R1              ; ENSURE NEGATIVE SINCE SEGP IS ABOVE TABLE
+        ADD     SEG,R1          ; NOW R1 POINT AT SEGTABLE ENTRY FOR PROC
+        SUB     @R1,R1          ; NOW R1 POINTS AT JTAB FOR PROC
+        TSTB    @R1             ; IS PROC#=0?  (ASSEMBLY ROUTINE?)
+        BEQ     CALLAL          ; IF SO CALL ASSEMBLY LANGUAGE CODE
+        SUB     DATASZ(R1),SP   ; OPEN UP HOLE IN STACK FOR LOCAL VARS
+        CMP     SP,NP           ; SEE IF WE ARE OVERFLOWING INTO HEAP
+        BLOS    CLPERR          ; AAAAUUUUGGGGHHH STACK OVERFLOW!!!
+NOCARE: TST     -(SP)           ; HOLE FOR FUTURE SP SAVE
+        MOV     IPC,-(SP)       ; SAVE PROCESSOR STATE REGS
+        MOV     OLDSEG,-(SP)    ; THUS BUILDING MSCW
+        MOV     JTAB,-(SP)
+        MOV     MP,-(SP)
+        MOV     MP,-(SP)
+        MOV     PARMSZ(R1),IPC  ; NOW COPY PARAMS (IF ANY)
+        BEQ     2$              ; IF NONE, THEN SKIP MESSINESS
+        ASR     IPC             ; WAS NUMBER OF BYTES...NOW WORDS
+        MOV     SP,MP           ; SET UP MP TO PARAM COPY PLACE
+        ADD     #MSDLTA+2,MP    ; MP NOW POINTS ABOVE MSCW...
+1$:     MOV     (R0)+,(MP)+     ; LOOP AND COPY EACH PARAM WORD
+        SOB     IPC,1$
+2$:     MOV     SP,MP           ; NOW FINALLY POINT MP AT STAT LINK
+        MOV     MP,LASTMP       ; SAVE THIS FOR EXECUTION ERROR
+        MOV     R0,MSSP(MP)     ; STASH OLD SP VALUE
+        MOV     R1,JTAB         ; NEW JUMP TABLE POINTER
+        MOV     R1,IPC          ; SET UP CODE ENTRY POINT
+        ADD     #ENTRIC,IPC     ; POINT IPC AT ENTRY OFFSET WORD
+        SUB     @IPC,IPC        ; NOW IPC POINTS AT FIRST CODE BYTE
+        MORE                    ; RETURN NOW
+
+CGP:    ; CALL GLOBAL PROCEDURE
+        MOV     #ENDCGP,BK      ; SET UP MAGIC RETURN
+        BR      CLP             ; AND CALL LOCAL PROC
+ENDCGP: MOV     BASE,@MP        ; CHANGE STAT LINK TO BASE
+        MOV     #BACK,BK        ; RESTORE REGS
+        MORE
+
+CBP:    ; CALL BASE PROCEDURE
+        MOV     #ENDCBP,BK
+        BR      CLP
+ENDCBP: MOV     BASE,-(SP)      ; ADD ON EXTRA MSCW WORD
+        MOV     @BASE,@MP       ; POINT STAT LINK AT OUTER BLOCK
+        MOV     MP,BASE         ; SET BASE REG TO THIS NEW PROC
+        MOV     BASE,STKBAS     ; BE SURE TO UPDATE PERM BASE REG
+        MOV     #BACK,BK        ; RESTORE
+        MORE
+
+CIP:    ; CALL INTERMEDIATE PROCEDURE
+        MOV     #ENDCIP,BK
+        BR      CLP
+ENDCIP: MOVB    1(R1),BK        ; GRAB LEX LEVEL OF CALLED PROC
+        BLE     ENDCBP          ; IF <= 0 THEN A BASE PROC CALL
+        MOV     MP,R0           ; NOW SEARCH DOWN DYN LINKS FOR PARENT
+1$:     MOV     MSJTAB(R0),R1   ; GRAB JTAB SAVED IN MSCW
+        CMPB    1(R1),BK        ; COMPARE LEX LEVELS
+        BLT     2$              ; IS IT LOWER? IF SO THEN FOUND PARENT
+        MOV     MSDYN(R0),R0    ; ELSE LINK DOWN TO CALLER OF CURRENT
+        BR      1$              ; AND LOOP UNTIL FOUND
+2$:     MOV     @R0,@MP         ; SET UP FOUND STAT LINK
+        MOV     #BACK,BK        ; RESTORE AND
+        MORE
+
+RBP:    ; RETURN FROM BASE LEVEL PROCEDURE
+        MOV     MSBASE(MP),BASE ; GET BASE FROM MSCW
+        MOV     BASE,STKBAS     ; AND SAVE IN PERM WORD
+RNP:    ; RETURN FROM NORMAL PROCEDURE
+        CMPB    @MSSEG(MP),@SEG ; ARE WE RETURNING TO THE SAME SEGMENT?
+        BEQ     3$              ; YES SO BRANCH OTHERWISE
+        CLR     -(SP)
+        MOVB    @SEG,@SP        ; PUT SEGMENT NUMBER ON TOP OF STACK
+        JSR     PC,RELSEG       ; RELEASE SEGMENT
+3$:     MOV     MSSP(MP),R0     ; POP OLD SP VALUE
+        GETNEXT R1              ; GRAB # OF WORDS TO RETURN
+        BEQ     2$              ; IF NONE THEN SKIP RETURN CODE
+        ADD     #MSDLTA+2,MP
+        ADD     R1,MP           ; POINT MP ABOVE FUNCTION VALUE
+        ADD     R1,MP           ; R1 IS WORDS
+1$:     MOV     -(MP),-(R0)     ; PUSH RETURN WORDS ONTO STACK
+        SOB     R1,1$           ; AND LOOP FOR TOTAL WORD COUNT
+        MOV     LASTMP,MP       ; RESTORE OLD MP VALUE
+2$:     MOV     MP,R1           ; NOW RESTORE STATE FROM MSCW
+        TST     (R1)+           ; CHUCK STAT LINK
+        MOV     (R1)+,MP        ; DYNAMIC LINK
+        MOV     (R1)+,JTAB
+        MOV     (R1)+,SEG
+        MOV     (R1)+,IPC
+        MOV     MP,LASTMP
+        MOV     R0,SP           ; NOW BACK IN STATE AT CALL TIME
+        MORE
+
+CSP:    ; CALL STANDARD PROCEDURE
+        GETNEXT                 ; GET STANDARD PROC #
+        ASL     R0              ; SET FOR WORD INDEXING
+        MOV     CSPTBL(R0),PC   ; TRANSFER TO PROPER SUBROUTINE
+
+IOC:    ; IO CHECK
+        TST     @#IORSLT
+        BEQ     1$
+        TRAP    UIOERR
+1$:     MORE
+
+NEW:    ; ALLOCATE DYNAMIC MEMORY
+        CMP     @#GDIRP,#NIL    ; IS GLOB DIR NIL?
+        BEQ     2$
+        MOV     @#GDIRP,@#NP    ; RELEASE ITS SPACE
+        MOV     #NIL,@#GDIRP    ; ZAP CURRENT DIRECTORY BUFFER
+2$:     MOV     (SP)+,R1        ; GET NUMBER OF WORDS INTO R1
+        MOV     @#NP,R0         ; GET CURRENT HEAP TOP IN R0
+        MOV     R0,@(SP)+       ; SET POINTER PARAM TO NEW MEM SPACE
+        ADD     R1,R0           ; POINT R0 ABOVE DYN MEM AREA
+        ADD     R1,R0           ; BYTE WISE
+        MOV     SP,R1           ; NOW CHECK FOR STK OVERFLOW
+        SUB     #40.,R1         ; GIVE A 20 WORD BUFFER ZONE
+        CMP     R0,R1           ; CHECK IF OVERLAPPING
+        BLOS    1$              ; IF NEW HEAP TOP LOWER THEN OK
+        TRAP    STKOVR          ; ELSE BOMB FOR STACK OVERFLOW
+1$:     MOV     R0,@#NP         ; SAVE NEW HEAP TOP
+        MORE
+
+FLC:    ; FILL CHAR INTRIN...KB GROSSNESS
+        MOVB    @SP,1(SP)       ; DUP LOW BYTE IN UPPER BYTE
+        MOV     @SP,R1          ; CHAR TO FILL WITH
+        MOV     2(SP),BK        ; # CHARS TO FILL
+        BLE     NOMOVE          ; LEAVE FOUR WORDS ON STACK IN THIS CASE
+        ADD     4(SP),6(SP)     ; BUILD COMPLETE BYTE ADDR
+        TST     (SP)+
+        BIS     2(SP),@SP       ; OR BYTE OFFSET AND BYTE COUNT
+        ROR     (SP)+           ; CHUCK RESULT EXCEPT LOW BIT IN C
+        MOV     (SP)+,R0        ; CHUCK BYTE OFFSET PARAM
+        MOV     (SP)+,R0        ; GRAB DEST ADDR, LEAVE C-BIT ALONE
+        BCS     CHRFIL          ; IF ODD THEN MUST CHAR FILL ELSE
+        CMP     R0,#160000      ; IS ADDR IN IO PAGE? (EG TERAK SCREEN)
+        BHIS    CHRFIL
+        ASR     BK
+1$:     MOV     R1,(R0)+        ; MUCH FASTER!
+        SOB     BK,1$
+        BR      XITMOV
+CHRFIL: MOVB    R1,(R0)+        ; FILL EACH CHAR W/ CHAR PARAM
+        SOB     BK,CHRFIL
+        BR      XITMOV
+
+MVL:    ; MOVE LEFT MEMORY BLOCK
+        MOV     (SP)+,BK        ; GRAB # BYTES TO MOVE
+        BLE     NOMOVE          ; QUIT IF LENGTH <= 0
+        MOV     (SP)+,R1        ; GET DESTINATION ADDR
+        ADD     (SP)+,R1
+        ADD     (SP)+,@SP
+        MOV     @SP,R0          ; GRAB SOURCE ADDR
+        BIS     R1,@SP          ; CHECK FOR ODD COUNT IN ANY OPERAND
+        BIS     BK,@SP          ; IN HOPES OF WORD MOVE
+        ROR     (SP)+           ; OR-ED LOW BIT IN CARRY NOW
+        BCS     1$              ; IF C SET THEN SOMETHING IS ODD
+        CMP     R0,#160000      ; ADDR IN IO PAGE? (EG TERAK SCREEN)
+        BHIS    1$
+        CMP     R1,#160000
+        BHIS    1$
+        ASR     BK              ; ELSE WE CAN WORD MOVE!
+2$:     MOV     (R0)+,(R1)+
+        SOB     BK,2$
+        BR      XITMOV
+1$:     MOVB    (R0)+,(R1)+     ; COPY BYTES
+        SOB     BK,1$
+        BR      XITMOV
+
+NOMOVE: ; GO HERE FOR A BAD MOVE REQUEST
+        ADD     #10,SP          ; CHUCK TWO BYTE ADDRS
+XITMOV: MOV     #BACK,BK
+        MORE
+
+MVR:    ; MOVE RIGHT BYTES
+        MOV     (SP)+,BK        ; GRAB # BYTES TO MOVE RIGHT
+        BLE     NOMOVE          ; QUIT IF <= 0
+        MOV     (SP)+,R1        ; DESTATION ADDR
+        ADD     (SP)+,R1
+        MOV     (SP)+,R0        ; SOURCE ADDR
+        ADD     (SP)+,R0
+        ADD     BK,R0           ; POINT SOURCE AND DESTINATION
+        ADD     BK,R1           ; AT END OF THE ARRAYS
+1$:     MOVB    -(R0),-(R1)     ; BYTE COPY BACKWARDS
+        SOB     BK,1$
+        BR      XITMOV
+
+SCN:    ; SCAN ARRAY
+        TST     (SP)+           ; EXTRA MASK PARAM...NOT USED YET
+        ADD     (SP)+,@SP
+        MOV     @SP,R0          ; GRAB ADDR TO START SCAN
+        MOV     2(SP),BK        ; CHAR TO SCAN FOR
+        MOV     6(SP),R1        ; LENGTH TO SCAN FOR
+        BEQ     NOTFND          ; IF NULL SCAN THEN RETURN 0
+        BMI     BCKSCN          ; IF NEGATIVE THEN BACKWARD SCAN
+        TST     4(SP)           ; ELSE FORWARD SCAN...CHECK RELOP
+        BNE     2$              ; NEQ 0 MEANS NEQ SCAN
+1$:     CMPB    (R0)+,BK        ; ELSE EQUAL COMPARE BYTES
+        BEQ     3$              ; UNTIL ONE IS EQUAL
+        SOB     R1,1$
+        BR      NOTFND
+2$:     CMPB    (R0)+,BK        ; DO NEQ COMPARE
+        BNE     3$
+        SOB     R1,2$
+        BR      NOTFND
+3$:     DEC     R0              ; POINT R0 AT CHAR FOR FIX.R0
+FIX.R0: SUB     (SP)+,R0        ; MAKE R0 THE DISPLACEMENT FROM SCAN START
+        CMP     (SP)+,(SP)+     ; CHUCK CHAR & RELOP PARAMS
+        MOV     R0,@SP          ; RETURN DISP ON TOS
+        MOV     #BACK,BK
+        MORE
+BCKSCN: NEG     R1              ; MAKE A NUMBER SUITABLE FOR SOB OP
+        INC     R0              ; PRE-DEC SETTUP
+        TST     4(SP)           ; CHECK OP TYPE
+        BNE     2$
+1$:     CMPB    -(R0),BK        ; SCAN BACKWARD EQUAL COMPARE
+        BEQ     FIX.R0          ; WHEN FOUND THEN RETURN DISP
+        SOB     R1,1$
+        BR      NOTFND
+2$:     CMPB    -(R0),BK
+        BNE     FIX.R0
+        SOB     R1,2$
+NOTFND: MOV     6(SP),R0        ; RETURN SCAN LENGTH IN THIS CASE
+        ADD     @SP,R0          ; THAT SIGNIFIES UNSUCCESSFUL SCAN
+        BR      FIX.R0
+
+XIT:    ; EXIT PROCEDURE
+        MOV     JTAB,IPC        ; FIRST SET IPC TO EXIT FROM CURRENT
+        ADD     #EXITIC,IPC     ; PROC ... GET INFO FROM CUR JTAB
+        SUB     @IPC,IPC        ; NOW IPC IS SET TO EXIT MY CALLER
+        CMPB    @JTAB,@SP       ; IS IT THE PROC # TO EXIT ANYWAY?
+        BNE     XCHAIN          ; IF NOT THEN CHAIN DYN LINKS TO FIND
+        CMPB    @SEG,2(SP)      ; IF PROC OK, HOW ABOUT SEG#?
+        BNE     XCHAIN          ; IF WRONG, THEN CHAIN DYN TOO
+        CMP     (SP)+,(SP)+     ; ELSE CHUCK STACK STUFF
+        MORE                    ; AND DO THE RETURN CODE
+XCHAIN: MOV     MP,R0           ; OK...START EXITING STACKED PROCS
+XLOOP:  CMP     R0,@BASE        ; ARE WE ABOUT TO EXIT SYSTEM BLOCK?
+        BEQ     XBOMB           ; IF SO THEN BIG BOOBOO
+        MOV     MSJTAB(R0),R1   ; ELSE OK...GRAB JTAB AND FUDGE MS IPC
+        ADD     #EXITIC,R1      ; TO EXIT CODE RATHER THAN NORMAL REENTRY
+        SUB     @R1,R1          ; R1 NOW HAS EXIT POINT IPC
+        MOV     R1,MSIPC(R0)    ; SO PLACE IN STACK FRAME
+        CMPB    @MSJTAB(R0),@SP ; IS THIS THE PROC# TO EXIT FROM?
+        BNE     1$              ; IF NOT THEN GO TO NEXT CALLED PROC
+        CMPB    @MSSEG(R0),2(SP)        ; AND RIGHT SEG#
+        BNE     1$
+        CMP     (SP)+,(SP)+     ; WELL, FOUND IT...CHUCK PARAMS
+        MORE                    ; AND FALL OUT OF PROC
+1$:     MOV     MSDYN(R0),R0    ; CHAIN DOWN DYNAMIC LINKS!
+        BR      XLOOP
+XBOMB:  TRAP    NOEXIT
+
+        ;TREESEARCH (TREEROOTP, VAR FOUNDP, VAR TARGETNAME)
+        ;-SEARCHS A BINARY TREE, EACH OF WHOSE NODES CONTAIN
+        ; AT LEAST THE FOLLOWING COMPONENTS, IN ORDER SHOWN:
+        ;       A)  CODEWD: ALPHA (8 CHAR NODE NAME)
+        ;       B)  RLINK: CTP  (POINTER TO RIGHT SUBTREE)
+        ;       C)  LLINK: CTP  (POINTER TO LEFT SUBTREE)
+
+        ;-RETURNS POINTER TO TARGET NODE THROUGH CALL BY NAME PARA-
+        ; METER AND DESCRIPTION OF SEARCH RESULTS AS INTEGER FUNCTION
+        ; VALUE WITH 3 POSSIBLE VALUES:
+        ;       A)  0:  TARGET NAME WAS FOUND; FOUNDP POINTS TO IT
+        ;       B)  1:  NO MATCH; TARGET > LEAF NODE; FOUNDP => LEAF
+        ;       C) -1:  NO MATCH; TARGET < LEAF NODE; FOUNDP => LEAF
+        ;-ROOT POINTER ASSUMED TO BE NON NIL.
+
+TRS:    MOV     (SP)+,R0        ; GET ADDR OF TARGET NAME
+        MOV     2(SP),R1        ;GET ROOT OF TREE
+TRLOOP: CMP     @R0,@R1         ;FIRST WORD COMPARE
+        BNE     TRNEXT
+        CMP     2(R0),2(R1)
+        BNE     TRNEXT
+        CMP     4(R0),4(R1)
+        BNE     TRNEXT
+        CMP     6(R0),6(R1)
+        BNE     TRNEXT
+        MOV     R1,@(SP)+       ;FOUND IT!  TELL USER WHERE
+        CLR     @SP             ;RETURN ZERO VALUE
+        MORE
+
+TRNEXT: BHI     TRRIGHT         ;WHICH SUBTREE NEXT?
+        CMP     #NIL,12(R1)     ;LEFT- IS IT NIL?
+        BNE     NEXTL           ;NOPE, CARRY ON
+        MOV     R1,@(SP)+       ;YES- RETURN POINTER
+        MOV     #177777,(SP)    ;AND FUNCTION VALUE
+        MORE
+NEXTL:  MOV     12(R1),R1       ;ON TO POSTERITY
+        BR      TRLOOP
+
+TRRIGHT:CMP     #NIL,10(R1)     ;RIGHT TREE NIL?
+        BNE     NEXTR
+        MOV     R1,@(SP)+       ;POINTER
+        MOV     #1,(SP)         ;AND FUNCTION VALUE
+        MORE
+
+NEXTR:  MOV     10(R1),R1       ;POSTERITY AGAIN...
+        BR      TRLOOP
+
+        ;IDSEARCH(SYMCURSUR[START OF SYM INFO BUFF],SYMBUF[SOURCE BUF])
+        ;ORDER OF SYMBOL INFO BLOCK IS
+        ;       A) SYMCURSUR    (POINTER IN SYMBOLIC BUFFER)
+        ;       B) SY           (SYMBOL)
+        ;       C) OP           (OPERATOR)
+        ;       D) IDCODE       (8 CHAR ID NAME)
+        ;IDSEARCH EXITS WITH SYMCURUSR UPDATED TO POINT TO THE END OF
+        ;NEXT ID. SY AND OP DESCRIBE THE TOKEN FOUND, AND IDCODE CON-
+        ;TAINS THE FIRST 8 CHARACTERS (BLANK FILLED)  CONVERTED TO UPPERCASE.
+        ;ON ENTRY, SYMCURUSR POINTS TO FIRST CHARACTER OF  ID, WHICH
+        ;IS ASSUMED TO BE ALPHABETIC.  ALSO ON ENTRY, TOS-1 IS ADDRESS OF
+        ;SYMCURSUR AND TOS IS ADDR OF SYMBUF
+
+IDS:    MOV     (SP)+,R0
+        MOV     (SP),R1
+        MOV     R3,-(SP)        ; SAVE OLD R3
+        MOV     R4,-(SP)        ; SAVE OLD R4
+        MOV     (R1),R4         ; GET VALUE OF SYMCURSOR
+        ADD     R4,R0           ; GET ADDRESS OF SYMBOL
+        ADD     #6,R1           ; GET ADDRESS OF IDCODE
+        MOV     R1,-(SP)        ; SAVE ADDRESS OF IDCODE
+        MOV     #400,R3         ; SET SHIFT REGISTER FOR 8 CHARS
+
+CHLOOP: MOVB    (R0)+,R2        ; GET SOURCE CHARACTER
+        INC     R4              ; BUMP SYMCURSOR
+        CMPB    #137,R2         ; IS IT AN UNDERSCORE ? IGNORE IF SO
+        BEQ     CHLOOP
+        CMPB    R2,#'0          ; IS IT LESS THAN A '0' ?
+        BLO     GOTRW
+        CMPB    R2,#'9          ; IS IT LESS THAN A '9' ?
+        BLOS    GOTCH           ; IF SO, IT'S OK
+        BIC     #40,R2          ; MAKE SURE IT'S UPPERCASE
+        CMPB    R2,#'A          ; IS IT LESS THAN AN 'A' ?
+        BLO     GOTRW
+        CMPB    R2,#'Z          ; IS IT GREATER THAN A 'Z' ?
+        BHI     GOTRW
+GOTCH:  ASR     R3              ; HAVE WE RUN OUT THE 8 CHARACTERS ?
+        BEQ     CHLOOP          ; IF SO, DON'T MOVE SYMBOL INTO IDCODE
+        MOVB    R2,(R1)+        ; MAKE CHARACTER PART OF ID BUFFER
+        BR      CHLOOP
+
+GOTRW:  SUB     #2,R4           ; POINT SYMCURSOR AT LAST IDENTIFIER CHAR
+        MOV     #40,R2          ;   OF IDCODE BUFFER
+1$:     ASR     R3              ; DECREMENT COUNT
+        BEQ     2$              ; RUN OUT OF PLACES ??
+        MOVB    R2,(R1)+        ; NOT YET, BLANK IT
+        BR      1$
+2$:     MOVB    @(SP),R2        ; GET INDEX OF
+        ASL     R2              ;   RESWORD TO START
+        MOV     RESTBL-'A-'A(R2),R1     ; GET TO INDEX OF LETTER
+        MOV     RESTBL-'A-'A+2(R2),R3   ; GET INDEX OF NEXT LETTER
+        SUB     R1,R3           ; GET NUMBER OF SYMBOLS TO CHECK
+        ASL     R3              ; MAKE INTO WORD OFFSET
+        MOV     BITTER(R3),R3   ; TURN COUNT INTO SHIFT REGISTER
+        ASL     R1              ; MULTIPLY BY 12
+        ASL     R1
+        MOV     R1,-(SP)
+        ASL     R1
+        ADD     (SP)+,R1
+        ADD     #RESTBL+54.,R1  ; GET ABSOLUTE ADDRESS OF START
+
+RWLOOP: ASR     R3              ; DECREMENT RECORD COUNT
+        BEQ     RWBAD           ; HAVE WE RUN OUT OF CHOICES ??
+        MOV     @SP,R0          ; GET ADDRESS OF IDCODE
+        CMP     (R0)+,(R1)+     ; IS FIRST WORD EQUAL ?
+        BNE     1$
+        CMP     (R0)+,(R1)+     ; IS SECOND WORD EQUAL ?
+        BNE     2$
+        CMP     (R0)+,(R1)+     ; IS THIRD WORD EQUAL ?
+        BNE     3$
+        CMP     (R0)+,(R1)+     ; IS FOURTH (AND LAST) WORD EQUAL ?
+        BNE     4$
+        MOV     (R1)+,R0        ; FOUND A MATCH, R0:=SY
+        MOV     (R1)+,R1        ; R1:=OP
+        BR      RWDONE          ; FINISH UP
+1$:     ADD     #2,R1           ; OFFSET
+2$:     ADD     #2,R1           ;   TO NEXT
+3$:     ADD     #2,R1           ;     ID RECORD
+4$:     ADD     #4,R1           ; GO TO NEXT RECORD
+        BR      RWLOOP          ;  AND TRY TRY AGAIN
+
+RWBAD:  CLR     R0              ; SY:=0
+        MOV     #15.,R1         ; OP:=15  (NOOP)
+RWDONE: MOV     R4,@6(SP)       ; SYMCURSOR:=^LAST CHAR OF SYMBOL
+        MOV     (SP)+,R4        ; WASTE POINTER TO IDCODE
+        MOV     (SP)+,R4        ; GET OLD R4 BACK
+        MOV     (SP)+,R3        ; GET OLD R3 BACK
+        MOV     (SP)+,R2        ; GET ADDRESS OF SYMCURSOR
+        ADD     #2,R2           ; GET TO ADDRESS OF SY
+        MOV     R0,(R2)+        ; SY:=R0
+        MOV     R1,(R2)         ; OP:=R1
+        MOV     #BACK,BK        ; GO FOR IT
+        MORE                    ;  ... AND PRAY
+
+        .EVEN
+
+RESTBL: .WORD   0,2,3,5,8.,11.,15.,16.,16.,20.,20.,20.
+        .WORD   21.,22.,23.,25.,28.,28.,30.,33.,36.
+        .WORD   39.,40.,42.,42.,42.,42.
+
+.MACRO  RW      NAME,SY,OP
+        .ASCII  /NAME/
+        .WORD   SY,OP
+.ENDM   RW
+
+        RW      <AND     >,39.,2
+        RW      <ARRAY   >,44.,15.
+        RW      <BEGIN   >,19.,15.
+        RW      <CASE    >,21.,15.
+        RW      <CONST   >,28.,15.
+        RW      <DIV     >,39.,3
+        RW      <DO      >,6  ,15.
+        RW      <DOWNTO  >,8. ,15.
+        RW      <ELSE    >,13.,15.
+        RW      <END     >,9. ,15.
+        RW      <EXTERNAL>,53.,15.
+        RW      <FOR     >,24.,15.
+        RW      <FILE    >,46.,15.
+        RW      <FORWARD >,34.,15.
+        RW      <FUNCTION>,32.,15.
+        RW      <GOTO    >,26.,15.
+        RW      <IF      >,20.,15.
+        RW      <IMPLEMEN>,52.,15.
+        RW      <IN      >,41.,14.
+        RW      <INTERFAC>,51.,15.
+        RW      <LABEL   >,27.,15.
+        RW      <MOD     >,39.,4
+        RW      <NOT     >,38.,15.
+        RW      <OF      >,11.,15.
+        RW      <OR      >,40.,7
+        RW      <PACKED  >,43.,15.
+        RW      <PROCEDUR>,31.,15.
+        RW      <PROGRAM >,33.,15.
+        RW      <RECORD  >,45.,15.
+        RW      <REPEAT  >,22.,15.
+        RW      <SET     >,42.,15.
+        RW      <SEGMENT >,33.,15.
+        RW      <SEPARATE>,54.,15.
+        RW      <THEN    >,12.,15.
+        RW      <TO      >,7  ,15.
+        RW      <TYPE    >,29.,15.
+        RW      <UNIT    >,50.,15.
+        RW      <UNTIL   >,10.,15.
+        RW      <USES    >,49.,15.
+        RW      <VAR     >,30.,15.
+        RW      <WHILE   >,23.,15.
+        RW      <WITH    >,25.,15.
+        .WORD   0
+        .EVEN
+
+
+TIM:    ; RETURN TIME OF DAY WORDS
+        MOV     LOTIME,@(SP)+
+        MOV     HITIME,@(SP)+
+        MORE
+
+TRC:    ; REAL TRUNCATE
+        JSR     R4,ENTFP
+        .WORD   $RI,XITFP
+
+RND:    ; REAL ROUND
+        MOV     @SP,R0          ; GET SIGN WORD OF PARAM TO ADD + OR - .5
+        CLR     -(SP)           ; LOW ORDER REAL 0.5
+        MOV     #100000,-(SP)   ; HIGH ORDER SHIFTED ONE LEFT
+        ROL     R0              ; SHIFT SIGN OF PARAM INT.O C-BIT
+        ROR     @SP             ; AND PLACE IN SIGN OF THE 0.5
+        .IF     DF,FPI
+        FADD    SP
+        .ENDC
+        JSR     R4,ENTFP
+        .IF     NDF,FPI
+        .WORD   $ADR
+        .ENDC
+        .WORD   $RI,XITFP
+
+SINCSP: ; REAL SINE
+        JSR     R4,ENTFP
+        .WORD   CALJR5,SIN
+
+COSCSP: ; REAL COSINE
+        JSR     R4,ENTFP
+        .WORD   CALJR5,COS
+
+LOGCSP: ; BASE-10 LOGARITHM
+        JSR     R4,ENTFP
+        .WORD   CALJR5,ALOG10
+
+ATNCSP: ; REAL ARCTANGENT
+        JSR     R4,ENTFP
+        .WORD   CALJR5,ATAN
+
+LNCSP:  ; NATURAL LOGARITHM
+        JSR     R4,ENTFP
+        .WORD   CALJR5,ALOG
+
+EXPCSP: ; EXPONENTIAL FUNCTION
+        JSR     R4,ENTFP
+        .WORD   CALJR5,EXP
+
+SQTCSP: ; REAL SQUARE ROOT
+        JSR     R4,ENTFP
+        .WORD   CALJR5,SQRT
+
+CALJR5: ; THIS SUBROUTINE MAGICALLY CALLS FPMP STUFF
+        MOV     SP,1$           ; PUT REAL PARAM ADDR INTO CODE
+        JSR     R5,@(R4)+       ; ENTER THE ROUTINE DESIRED
+        BR      2$              ; PLEASE SEE CALL SEQUENCE IN FPMP DOC
+1$:     .WORD   ; ADDR OF PARAM GOES HERE
+2$:     MOV     R1,2(SP)        ; PUT LOW ORDER RESULT IN STACK
+        MOV     R0,@SP          ; AND THEN HIGH ORDER
+        JMP     XITFP           ; FINALLY EXIT
+
+GSEG:   JSR     PC,GETSEG
+        MOV     #BACK,BK
+        MORE
+
+RSEG:   JSR     PC,RELSEG
+        MORE
+
+MRK:    ; MARK HEAP
+        CMP     @#GDIRP,#NIL    ; IS THE GLOB DIR NIL?
+        BEQ     1$
+        MOV     @#GDIRP,@#NP
+        MOV     #NIL,@#GDIRP
+1$:     MOV     @#NP,@(SP)+     ; SAVE TOP OF HEAP IN POINTER PARAM
+        MORE
+
+RLS:    ; RELEASE HEAP
+        MOV     @(SP)+,@#NP     ; CUT BACK HEAP POINTER
+        MOV     #NIL,@#GDIRP    ; ZAP GLOBAL DIR THING
+        MORE
+
+IOR:    ; RETURN IO RESULT
+        MOV     @#IORSLT,-(SP)
+        MORE
+
+;. BUILD A POWER OF TEN TABLE
+EXPON = 0
+.MACRO  PWR10   EXP
+        .FLT2   1.0E'EXP
+.ENDM
+TENTBL: .REPT   38.
+        PWR10   EXPON
+        EXPON = EXPON+1
+        .ENDR
+
+POT:    ; POWER OF TEN
+        MOV     (SP)+,R0        ; GET POWER DESIRED
+        BMI     BADPOT          ; NO NEGATIVE POWER ALLOWED
+        CMP     R0,#EXPON       ; SEE IF INDEX IS TOO BIG
+        BGE     BADPOT          ; CROAK FOR THAT TOO
+        ASL     R0              ; ELSE MAKE A REAL ARRAY INDEX
+        ASL     R0              ; MULTIPLY BY 4
+        MOV     TENTBL+2(R0),-(SP)      ; LOW ORDER WORD
+        MOV     TENTBL(R0),-(SP)        ; AND HIGH ORDER WORD
+        MORE
+BADPOT: TRAP    INVNDX
+
+HLT:    ; HALT AND/OR BREAKPOINT...EXECERROR KNOWS
+        MOV     (PC)+,@BK       ; STASH TRAP HLTBPT INTO OP FETCH
+        TRAP    HLTBPT
+        MORE
+
+MEM:    ; RETURN # WORD OF FREE MEM
+        MOV     SP,R0           ; TOP OF FREE MEM
+        SUB     NP,R0           ; R0 NOW # BYTES
+        CLC                     ; SET C-BIT TO 0
+        ROR     R0              ; MAKE # WORDS, CLEAR SIGN
+        MOV     R0,-(SP)
+        MORE
+
+UBUSY:  JSR     R4,ENTFP
+        .WORD   BSYSTRT,IOSTRT,BSYTST,CHKERR,IODONE
+
+UWAIT:  JSR     R4,ENTFP
+        .WORD   WATSTRT,IOSTRT,BSYWAIT,CHKERR,IODONE
+
+UCLEAR: JSR     R4,ENTFP
+        .WORD   WATSTRT,IOSTRT,CLRUNT,IODONE
+
+UREAD:  JSR     R4,ENTFP
+        .WORD   BYTFIX,IOSTRT,INMODE,BSYWAIT,CHKERR
+        .WORD   STRTIN,CHKWAIT,BSYWAIT,CHKERR,IODONE
+
+UWRITE: JSR     R4,ENTFP
+        .WORD   BYTFIX,IOSTRT,OUTMODE,BSYWAIT,CHKERR
+        .WORD   STRTOUT,CHKWAIT,BSYWAIT,CHKERR,IODONE
+
+        ; BELOW ARE THE THREAD MODULES FOR THE ABOVE
+        ; OPERATIONS..  IT IS SUGGESTED THAT YOU LOOK
+        ; HERE BEFORE TRYING TO FIGURE OUT THE INTERRUPT
+        ; HANDLER INTERFACE TO THIS SECTION.
+
+BSYSTRT:MOV     (SP),-(SP)      ; DUPL UNIT# PARAM
+        CLR     2(SP)           ; SHOVE A FALSE INTO STACK FOR RETURN
+WATSTRT:SUB     #8.,SP          ; MAKE STACK LOOK OK FOR IODONE
+        JMP     @(R4)+          ; AND ONWARD WE GO
+
+BSYTST: TST     (R1)            ; SEE IF UNIT IS IN FACT BUSY
+        BPL     THRUR4          ; IF NOT, CONTINUE SEQUENCE
+        INC     <UUNIT+2>(SP)   ; SET RETURN VALUE TO 1 (TRUE)
+        BR      IODONE          ; AND QUIT NOW
+
+CLRUNT: JSR     PC,@4(R1)
+        CLRB    @R1
+        JMP     @(R4)+
+
+BYTFIX: ADD     6(SP),10(SP)    ; BASE ADDRESS + BYTE OFFSET
+        MOV     4(SP),6(SP)
+        MOV     2(SP),4(SP)
+        MOV     (SP)+,@SP
+        JMP     @(R4)+
+
+IOSTRT: CLR     R5              ; ERROR REGISTER, NO ERROR YET
+        MOV     UUNIT(SP),R1    ; GRAB RAW UNIT #
+        BLE     1$              ; IF <= ZERO, GIVE BADUNIT ERROR
+        CMP     R1,#MAXUNT      ; SEE IF NUMBER IS TOO BIG
+        BGT     1$              ; UNITBL INDEXED 1..MAXUNT
+        ASL     R1              ; ITS OK, MULTIPLY BY 6
+        ADD     UUNIT(SP),R1
+        ASL     R1              ; TO GET AN ACTUAL ADDR IN
+        ADD     #UNITBL,R1      ; UNITBL, R1 NOW IS ABS ADDR OF UNIT
+        BIT     #INBIT!OUTBIT,@R1
+        BEQ     1$              ; IF NOT IO ALLOWED AT ALL THEN ERROR
+        JMP     @(R4)+          ; SO CONTINUE WITH SEQUENCE
+1$:     MOV     #UNTERR,R5      ; ERROR RESULT FOR JUNK UNIT #
+                                ; AND FALL INTO IO DONE
+IODONE: MOV     R5,@#IORSLT     ; GIVE ANY ERROR RESULTS TO SYSTEM
+        ADD     #10.,SP         ; GET RID OF PARAMS ON STACK
+        JMP     XITFP           ; AND RETURN TO PROGRAM
+
+INMODE: BIT     #INBIT,(R1)     ; SEE IF INPUT ALLOWED ON THE UNIT
+MODTST: BNE     THRUR4          ; IF ONE BIT, THEN GO AHEAD
+        MOV     #MODERR,R5      ; ELSE GIVE BAD MODE ERROR
+        BR      IODONE
+
+OUTMODE:BIT     #OUTBIT,(R1)    ; SEE IF OUTPUT ALLOWED ON UNIT
+        BR      MODTST          ; AND SKIP TO ACTUAL TEST CODE
+
+BSYHANG:MTPS    #0              ; ENSURE LOW PRIORITY BEFORE WAIT
+        WAIT                    ; WAIT UNTIL AN INTERRUPT OCCURS
+BSYWAIT:MTPS    #340            ; NO INTERRUPTS IN HERE...TIMING PROBS
+        TST     (R1)            ; HIGH ORDER BIT TELLS IF BUSY
+        BMI     BSYHANG         ; SO WAIT AROUND UNTIL THE BIT IS OFF
+        MTPS    #0              ; OK...ALLOW INTERRUPTS
+THRUR4: JMP     @(R4)+          ; CONVENIENT LOCATION FOR CONDITIONAL JMP
+
+CHKERR: TSTB    (R1)            ; LOW BYTE IS HARD IO RSLT
+        BEQ     THRUR4          ; IF NO ERROR, THEN KEEP GOING
+        MOVB    (R1),R5         ; ELSE GIVE TO IORSLT AND QUIT NOT
+        CLRB    (R1)            ; BE SURE TO CLEAR UNIT OR SYSTEM BOMB
+        BR      IODONE
+
+CHKWAIT:BIT     #1,UNOWAIT(SP)  ; SEE IF USER WANTS TO WAIT FOR IO
+        BNE     IODONE          ; IF PARAM IS TRUE, THEN GO BACK TO CALLER
+        JMP     @(R4)+          ; ELSE D.O BUSYWAIT ETC
+
+STRTIN: JSR     R3,@2(R1)       ; JUMP INTO INTERRUPT HANDLER TO START IO
+        .WORD   1               ; ONE HERE SAYS READ OP
+        JMP     @(R4)+
+
+STRTOUT:JSR     R3,@2(R1)       ; JUMP TO INTERRUPT HANDLER
+        .WORD   0               ; ZERO MEANS WRITE OP
+        JMP     @(R4)+          ; AND CONTINUE
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+; HERE WE STICK A FEW MISCELLANEOS THINGS
+
+DIV:    .IF     DF,EIS
+        MOV     R1,DENOM        ; STASH DENOM INTO OP FIELD
+        ASHC    #-16.,R0        ; SHIFT R0 INTO R1 WITH SIGN EXT
+        DIV     (PC)+,R0        ; PERFORM DIVID OP
+DENOM:  .WORD   0               ; DENOMINTOR GOES HERE
+        BCC     1$              ; C-BIT IS ON FOR DIV BY ZERO
+        TRAP    DIVZER
+1$:     RTS     PC
+        .IFF
+        CLR     -(SP)           ;CLEAR SIGN FLAG
+        TST     R1              ;EXAMINE DENOMINATOR
+        BGT     1$              ;PLUS
+        BNE     3$              ;GIVE EXECERR IF DIV 0
+        TRAP    DIVZER
+3$:     INC     (SP)            ;REMEMBER IF NEGATIVE
+        NEG     R1              ;AND MAKE IT POS
+1$:     TST     R0              ;TEST NUMERATOR
+        BGT     2$              ;PLUS?
+        BNE     4$              ;NOT ZERO, THEN HAVE TO DO WORK
+        CLR     BK              ;MAKE REMAINDER ZERO
+        TST     (SP)+           ;THROW AWAY SIGN INFORMATION
+        BR      DONED           ;AND THEN JUMP TO END
+4$:     INC     (SP)            ;ELSE NEGATIVE
+        NEG     R0
+2$:     MOV     #8.,-(SP)       ;8 ITERATIONS
+        CLR     BK              ;HIGH ORDER DIVIDEND
+        SWAB    R0              ;ANY HIGH ORDER NUMERATOR?
+        BEQ     DIVD            ;NO, THEN PROCEED TO DIVIDE
+        ASL     @SP             ;ELSE NEED 16 ITERATIONS
+        SWAB    R0              ;AND RESTORE NUMERATOR
+DIVD:   ASL     R0              ;DOUBLE DIVIDEND
+        ROL     BK
+        BEQ     LOP             ;JUMP IF NO CHANCE THIS TIME
+        INC     R0              ;QUOTIENT BIT
+        SUB     R1,BK           ;TRIAL STEP
+        BHIS    LOP             ;OK
+        ADD     R1,BK           ;DIVIDEND NOT BIG ENOUGH
+        DEC     R0              ;RETRACT QUOTIENT BIT
+LOP:    DEC     @SP             ;COUNT THIS LOOP
+        BGT     DIVD            ;CONTINUE TIL DONE
+        NEG     R0              ;NEGMAX CHECK
+        TST     (SP)+
+        ASR     (SP)+           ;GET SIGN OF QUOTIENT
+        BCS     DONED           ;JUMP IF NEG
+        NEG     R0              ;ANSWER POSITIVE
+        BVS     OVR             ;GIVE OVERFLOW ERROR
+DONED:  MOV     BK,R1           ;REMAINDER IN R1
+        MOV     #BACK,BK
+        RTS     PC
+        .ENDC
+
+        .IF     DF,EIS
+MLI:    MUL     R0,R1
+        MOV     R1,R0           ; EXPECTS RESULTS IN R0
+        RTS     PC
+        .IFF
+OVR:    TRAP    INTOVR
+
+MLI:    CLR     -(SP)                   ;SIGN STORAGE
+        TST     R1                      ;CHECK MULTIPLICAND
+        BGT     1$                      ;SKIP FOLLOWING IF +
+        BEQ     ZEROM                   ;ANSWER IS ZERO
+        INC     @SP                     ;REMEMBER -
+        NEG     R1
+1$:     TST     R0                      ;TEST MULTIPLIER
+        BGT     2$
+        BEQ     ZEROM
+        INC     @SP
+        NEG     R0
+2$:     MOV     #8.,-(SP)       ; SET UP ITERATION COUNT
+        CMP     R1,R0                   ;MAKE SURE
+        BGE     CLR                     ;MULTIPLIER
+        MOV     R1,BK                   ;IS
+        MOV     R0,R1                   ;SMALLER
+        MOV     BK,R0
+CLR:    CLR     BK                      ;CLEAR HIGH ORDER PRODUCT
+MUL:    ROR     BK                      ;SHIFT PRODUCT
+        ROR     R0
+        BCC     CYC                     ;MULTIPLIER BIT = 0?
+        ADD     R1,BK                   ;NO,ADD IN MULTIPLICAND
+CYC:    DEC     @SP                     ;COUNT LOOP
+        BGT     MUL
+        TST     (SP)+
+        TSTB    R0                      ;TEST HIGH MULTI
+;       BNE     OVR                     ;ERROR .IF MULTIPLIER NOT GONE
+        BISB    BK,R0                   ;MOVE PRODECT RIGHT
+        SWAB    R0
+        CLRB    BK
+        SWAB    BK
+        ASR     BK                      ;ONE MROE SHIFT
+;       BNE     OVR                     ;PRODUCT EXCEEDED 15 BITS
+        ROR     R0
+        NEG     R0                      ;MAKE NEG
+;       BPL     OVR                     ;TOO BIG
+        ROR     (SP)+                   ;DETERMINE SIGN OF PRODUCT
+        BCS     OUTM
+        NEG     R0                      ;SHOULD BE +
+;       BVS     OVR
+OUTM:   MOV     #BACK,BK
+        RTS     PC
+
+ZEROM:  CLR     R0
+        TST     (SP)+
+        BR      OUTM                    ;AND CLEAN UP
+        .ENDC
+
+CSPTBL: .WORD   IOC
+        .WORD   NEW
+        .WORD   MVL
+        .WORD   MVR
+        .WORD   XIT
+        .WORD   UREAD
+        .WORD   UWRITE
+        .WORD   IDS
+        .WORD   TRS
+        .WORD   TIM
+        .WORD   FLC
+        .WORD   SCN
+        .WORD   0,0
+        .WORD   0,0,0,0,0,0,0
+        .WORD   GSEG
+        .WORD   RSEG
+        .WORD   TRC
+        .WORD   RND
+        .WORD   SINCSP
+        .WORD   COSCSP
+        .WORD   LOGCSP
+        .WORD   ATNCSP
+        .WORD   LNCSP
+        .WORD   EXPCSP
+        .WORD   SQTCSP
+        .WORD   MRK
+        .WORD   RLS
+        .WORD   IOR
+        .WORD   UBUSY
+        .WORD   POT
+        .WORD   UWAIT
+        .WORD   UCLEAR
+        .WORD   HLT
+        .WORD   MEM
+        .CSECT  TABLES
+        .BLKW   30.
+        .WORD   CSP
+        .BLKW   14.
+        .WORD   RNP
+        .WORD   CIP
+        .BLKW   18.
+        .WORD   RBP
+        .WORD   CBP
+        .BLKW   10.
+        .WORD   CXP
+        .WORD   CLP
+        .WORD   CGP
+        .BLKW   48.

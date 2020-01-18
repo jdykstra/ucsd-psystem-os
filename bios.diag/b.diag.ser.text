@@ -1,0 +1,267 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+  {This is an unpublished work copyright by the Regents of
+   the University of California. This item is the property of SofTech
+   Microsystems Inc., and it may be used, copied or distributed only
+   as permitted in a written license from that company.}
+   PROCEDURE console_tester(level: INTEGER);
+  {
+        This routine will test the console and systerm.
+  }
+  BEGIN
+    level := level + 1;
+    squawk(level,enter,'Console and Systerm Tester');
+    test_errors := 0;
+    {
+      Test the console
+    }
+    level := level + 1;
+    name := unit_names[console];
+    squawk(level,test_start,'Console');
+    read_nothing(level,console);
+    write_nothing(level,console);
+    DLE_tester(level,console);
+    CRLF_tester(level,console);
+    EOF_tester(level,console);
+    ALPHALOCK_tester(level,console);
+    status_tester(level,console);
+    squawk(level,test_end,'Console');
+    {
+      Test the systerm
+    }
+    name := unit_names[systerm];
+    squawk(level,test_start,'Systerm');
+    read_nothing(level,systerm);
+    write_nothing(level,systerm);
+    DLE_tester(level,systerm);
+    CRLF_tester(level,systerm);
+    EOF_tester(level,systerm);
+    ALPHALOCK_tester(level,systerm);
+    status_tester(level,systerm);
+    squawk(level,test_end,'Systerm');
+    show_error_count(level-1,'Console and Systerm Tester');
+  END {of console_tester};
+
+  PROCEDURE printer_tester(level: INTEGER);
+  {
+        This routine will test the printer.
+  }
+  BEGIN
+    level := level + 1;
+    name := unit_names[printer];
+    squawk(level,enter,'Printer Tester');
+    test_errors := 0;
+    UNITCLEAR(printer);
+    IF IORESULT = 0 THEN
+      BEGIN
+        read_nothing(level,printer);
+        write_nothing(level,printer);
+        DLE_tester(level,printer);
+        CRLF_tester(level,printer);
+        EOF_tester(level,printer);
+        ALPHALOCK_tester(level,printer);
+        status_tester(level,printer);
+      END
+    ELSE squawk(level+1,error,'Printer not on-line');
+    show_error_count(level,'Printer Tester');
+  END {of printer_tester};
+
+  PROCEDURE remote_tester(level: INTEGER);
+  {
+        This routine will test the remote.
+  }
+  BEGIN
+    level := level + 1;
+    name := unit_names[remin];
+    squawk(level,enter,'Remote Tester');
+    test_errors := 0;
+    UNITCLEAR(remin);
+    IF IORESULT = 0 THEN
+      BEGIN
+        read_nothing(level,remin);
+        write_nothing(level,remout);
+        DLE_tester(level,remout);
+        CRLF_tester(level,remout);
+        EOF_tester(level,remin);
+        ALPHALOCK_tester(level,remin);
+        status_tester(level,remin);
+      END
+    ELSE squawk(level+1,error,'Remote not on-line');
+    show_error_count(level,'Remote Tester');
+  END {of remote_tester};
+
+  PROCEDURE cross_tester(level: INTEGER);
+  {
+        This routine will test DLE's and ALPHALOCK's across all on-line
+      character-oriented devices.
+  }
+  VAR
+    on_line_set: SET of sys_units;
+
+    PROCEDURE cross_write_tester(level: INTEGER);
+    {
+        This routine will test DLE's across all on-line character-oriented
+      devices.
+    }
+    VAR
+      count: INTEGER;
+      first_time: BOOLEAN;
+      line, line1, message: STRING;
+
+      PROCEDURE dump_char(device: sys_units);
+      BEGIN
+        IF device IN on_line_set THEN
+          BEGIN
+            IF first_time THEN
+              BEGIN
+                UNITWRITE(device,line[1],LENGTH(line));
+                UNITWRITE(device,line1[1],LENGTH(line1));
+              END;
+            UNITWRITE(device,message[count],1);
+          END;
+      END {of dump_char};
+
+    BEGIN {cross_write_tester}
+      level := level + 1;
+      test_name := 'Cross write Tester';
+      squawk(level,test_start,test_name);
+      count := 1;
+      first_time := TRUE;
+      line :=
+     '         1111111111222222222233333333334444444444555555555566666666667';
+      line := CONCAT(line,s_cr);
+      line1 :=
+     '1234567890123456789012345678901234567890123456789012345678901234567890';
+      line1 := CONCAT(line1,s_cr);
+                 {1234567890123456789012345678901234567890}
+      message := '  <--2 spaces   <--4 spaces   <--20 spaces';
+      message := CONCAT(message,s_cr);
+      message[1] := CHR(DLE);
+      message[2] := CHR(2 + 32);
+      message[14] := CHR(CR);
+      message[15] := CHR(DLE);
+      message[16] := CHR(4 + 32);
+      message[28] := CHR(CR);
+      message[29] := CHR(DLE);
+      message[30] := CHR(20 + 32);
+      REPEAT
+        dump_char(systerm);
+        dump_char(printer);
+        dump_char(remout);
+        first_time := FALSE;
+        count := count + 1;
+      UNTIL count > LENGTH(message);
+      is_it_correct(level,system,CONCAT(test_name,' failed'));
+      squawk(level,test_end,test_name);
+    END {of cross_write_tester};
+
+    PROCEDURE cross_read_tester(level: INTEGER);
+    {
+        This routine will test DLE's across all on-line character-oriented
+      devices.
+    }
+    VAR
+      count: INTEGER;
+      state, device: sys_units;
+      alphalocked: SET of sys_units;
+
+      PROCEDURE get_a_char(device: sys_units; lock_it: BOOLEAN);
+      VAR
+        ch: PACKED ARRAY [0..0] OF CHAR;
+        s: STRING;
+      BEGIN
+        s := '';
+        IF lock_it THEN
+          BEGIN
+            s := ' the ALPHALOCK character and';
+            IF device IN alphalocked THEN
+              alphalocked := alphalocked - [device]
+            ELSE
+              alphalocked := alphalocked + [device];
+          END;
+        name := unit_names[device];
+        WRITELN('':level,'Enter from ',name,s,' a lower case character');
+        UNITREAD(device,ch,1);
+        IF IORESULT <> 0 THEN
+          on_line_set := on_line_set - [device]
+        ELSE
+          IF device IN alphalocked THEN
+            IF NOT (ch[0] IN capital_letters) THEN
+              squawk(level,user_error,
+                     CONCAT(name,' - Character not ALPHALOCKED'))
+            ELSE
+          ELSE IF ch[0] IN capital_letters THEN
+            squawk(level,user_error,
+                   CONCAT(name,' - Character should not be ALPHALOCKED'));
+      END {of get_a_char};
+
+    BEGIN {cross_read_tester}
+      level := level + 2;
+      test_name := 'Cross read Tester';
+      squawk(level-1,test_start,test_name);
+      alphalocked := [];
+      { Alphalock each device successively, then take it off }
+      FOR count:=1 TO 2 DO
+        FOR state:=systerm TO remin DO
+          IF state IN on_line_set THEN
+            FOR device:=systerm TO remin DO
+              IF device IN on_line_set THEN
+                get_a_char(device,device=state);
+      squawk(level-1,test_end,test_name);
+    END {of cross_read_tester};
+
+  BEGIN {cross_tester}
+    level := level + 2;
+    squawk(level-1,enter,'Cross Tester');
+    test_errors := 0;
+    on_line_set := [systerm];
+    UNITCLEAR(printer);
+    IF IORESULT = 0 THEN
+      on_line_set := on_line_set + [printer];
+    UNITCLEAR(remout);
+    IF IORESULT = 0 THEN
+      on_line_set := on_line_set + [remin,remout];
+    IF on_line_set = [systerm] THEN
+      squawk(level,error,'Only one character-oriented device on-line')
+    ELSE
+      BEGIN
+        cross_write_tester(level);
+        cross_read_tester(level);
+      END;
+    show_error_count(level-1,'Cross Tester');
+  END {of cross_tester};

@@ -1,0 +1,240 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+(*
+ * UCSD p-System Operating System
+ * Copyright (C) 2010 Peter Miller
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of the ucsd-psystem-os project nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *)
+
+CONST
+  VIDLENG = 7;  (* Number of characters in a volume ID *)
+  TIDLENG = 15; (* Number of characters in a title ID *)
+
+TYPE
+
+  DATEREC=PACKED RECORD
+            MONTH: 0..12;
+            DAY:   0..31;
+            YEAR:  0..100
+          END;
+
+  VID = STRING[VIDLENG];
+
+  TID = STRING[TIDLENG];
+
+  INFOREC = RECORD
+              TRASH1,TRASH2: INTEGER;
+              ERRSYM,ERRBLK,ERRNUM: INTEGER;    (* Error com for EDIT *)
+              TRASH3: ARRAY [0..2] OF INTEGER;
+              GOTSYM,GOTCODE: BOOLEAN;
+              WORKVID,SYMVID,CODEVID: VID;      (* Perm&Cur workfile volumes *)
+              WORKTID,SYMTID,CODETID: TID       (* Perm&Cur workfile titles *)
+            END (*INFOREC*) ;
+
+  SYSCOMREC = RECORD
+                JUNK: ARRAY [0..6] OF INTEGER;
+                LASTMP: INTEGER;
+                EXPANSION: ARRAY [0..20] OF INTEGER;
+                MISCINFO: PACKED RECORD
+                            NOBREAK,STUPID,SLOWTERM,
+                            HASXYCRT,HASLCCRT,HAS8510A,HASCLOCK: BOOLEAN
+                          END;
+                CRTTYPE: INTEGER;
+                CRTCTRL: PACKED RECORD
+                           RLF,NDFS,ERASEEOL,ERASEEOS,HOME,ESCAPE: CHAR;
+                           BACKSPACE: CHAR;
+                           FILLCOUNT: 0..255;
+                           CLEARSCREEN,CLEARLINE: CHAR;
+                           PREFIXED: PACKED ARRAY [0..8] OF BOOLEAN
+                         END;
+                CRTINFO: PACKED RECORD
+                           WIDTH,HEIGHT: INTEGER;
+                           RIGHT,LEFT,DOWN,UP: CHAR;
+                           BADCH,CHARDEL,STOP,BREAK,FLUSH,EOF: CHAR;
+                           ALTMODE,LINEDEL: CHAR;
+                           BACKSPACE,ETX,PREFIX: CHAR;
+                           PREFIXED: PACKED ARRAY [0..13] OF BOOLEAN;
+                         END
+              END (*SYSCOM*);
+
+VAR (* I.4 Globals as of 30-Jan-78 *)
+  SYSCOM: ^SYSCOMREC;
+  TRASHY: ARRAY [0..5] OF INTEGER;
+  USERINFO: INFOREC;
+  TRASHYY: ARRAY [0..4] OF INTEGER;
+  SYVID,DKVID: VID;
+  THEDATE: DATEREC;
+
+
+SEGMENT PROCEDURE EDITOR(XXX,YYY: INTEGER);
+CONST
+  (* Unless otherwise noted all constants are upper bounds
+     from zero.                                         *)
+
+  MAXBUFSIZE=32767;
+  MAXSW=84; (* Maximum allowable SCREENWIDTH *)
+  MAXSTRING=127;
+  MAXCHAR=1023;  (* The maximum number of characters on a line in the EBUF *)
+  TIDLENG=15;  (* From SYSCOM *)
+  CHARINBUF=2048;  (* For final version. Not used. *)
+  MAXOFFSET=1023; (* Maximum offset in a page *)
+  MAXPAGE=255; (* Ridiculous upper bound! *)
+
+  (* The following ASCII characters are hard-wired in *)
+  HT=9; LF=10; EOL=13; DLE=16; SP=32;
+  DC1=17; BELL=7; RUBOUT=127; CR=13;
+
+
+TYPE
+  PTRTYPE=0..MAXBUFSIZE;
+  BUFRTYPE=PACKED ARRAY [0..0] OF CHAR;
+  BLOCKTYPE=PACKED ARRAY [0..511] OF CHAR;
+  ERRORTYPE=(FATAL,NONFATAL);
+  OFFSET=0..MAXOFFSET;
+  PAGE=0..MAXPAGE;
+  NAME=PACKED ARRAY [0..7] OF CHAR;
+  PTYPE=PACKED ARRAY [0..MAXSTRING] OF CHAR;
+  COMMANDS=(ILLEGAL,ADJUSTC,COPYC,DELETEC,FINDC,INSERTC,JUMPC,LISTC,MACRODEFC,
+            PARAC,QUITC,REPLACEC,SETC,VERIFYC,XECUTEC,ZAPC,REVERSEC,FORWARDC,UP,
+            DOWN,LEFT,RIGHT,TAB,DIGIT,DUMPC,ADVANCE,SPACE,EQUALC,SLASHC);
+  CTYPE=(FS,GOHOME,ETOEOL,ETOEOS,US);
+  SCREENCOMMAND=(WHOME,ERASEEOS,ERASEEOL,CLEARLNE,CLEARSCN,UPCURSOR,
+                 DOWNCURSOR,LEFTCURSOR,RIGHTCURSOR);
+  KEYCOMMAND=   (BACKSPACEKEY,DC1KEY,EOFKEY,ETXKEY,ESCAPEKEY,DELKEY,UPKEY,
+                 DOWNKEY,LEFTKEY,RIGHTKEY,NOTLEGAL);
+
+  HEADER=    (* Page Zero layout changed 22-JUN-78 *)
+    RECORD CASE BOOLEAN OF
+      TRUE: (BUF: PACKED ARRAY[0..MAXOFFSET] OF CHAR);
+      FALSE:(DEFINED:    BOOLEAN; (* New file nulls => false *)
+             COUNT:      INTEGER;  (* The count of valid markers *)
+             NAME:       ARRAY [0..9] OF PACKED ARRAY [0..7] OF CHAR;
+             PAGEN:      PACKED ARRAY [0..9] OF PAGE;
+             POFFSET:    PACKED ARRAY [0..9] OF OFFSET;
+             AUTOINDENT: BOOLEAN; (* Environment stuff follows *)
+             FILLING:    BOOLEAN;
+             TOKDEF:     BOOLEAN;
+             LMARGIN:    0..MAXSW;
+             RMARGIN:    0..MAXSW;
+             PARAMARGIN: 0..MAXSW;
+             RUNOFFCH:   CHAR;
+             CREATED:    DATEREC;
+             LASTUSED:   DATEREC;
+             FILLER:     PACKED ARRAY [0..891] OF CHAR)
+    END;
+
+
+
+VAR
+  CURSOR: 0..MAXBUFSIZE;
+  BUFCOUNT: 0..MAXBUFSIZE;       (* Number of valid characters in the EBUF *)
+  STUFFSTART: 0..MAXBUFSIZE;     (* GETLEADING            *)
+  LINESTART: 0..MAXBUFSIZE;      (*            sets       *)
+  BYTES,BLANKS: INTEGER;         (*                 these *)
+  CH: CHAR;
+  DIRECTION: CHAR;               (* '>' or '<' *)
+  REPEATFACTOR: INTEGER;
+  BUFSIZE: INTEGER;
+  SCREENWIDTH: INTEGER;          (* Moved to var 26-Jan *)
+  SCREENHEIGHT: INTEGER;         (*   "    "  "    "    *)
+  COMMAND: COMMANDS;
+  LASTPAT: 0..MAXBUFSIZE;
+  EBUF: ^BUFRTYPE;
+  FILLIT: STRING[11];
+  KIND: ARRAY [CHAR] OF INTEGER; (* for token find *)
+  LINE1PTR: 0..MAXBUFSIZE;
+  MIDDLE: INTEGER;               (* Middle line on the screen *)
+  NEEDPROMPT: BOOLEAN;
+  ETX,BS,DEL,ESC,BSPCE: INTEGER;  (* Moved from CONST 30-Jan-78 BSPCE: 11/2/78*)
+  ADJUSTPROMPT,INSERTPROMPT,DELETEPROMPT,COMPROMPT: STRING;
+  {Promptline  11/2/78 M. Bernard}
+  TRASH: INTEGER;                (* Totally without redeeming social value *)
+  TARGET: PTYPE;
+  SUBSTRING: PTYPE;
+  SLENGTH,TLENGTH: INTEGER;      (* Length of target and substring *)
+  SDEFINED,TDEFINED: BOOLEAN;    (* Whether the strings are valid *)
+  COPYLENGTH,COPYSTART: PTRTYPE; (* For Copyc *)
+  COPYLINE,COPYOK: BOOLEAN;      (*    "      *)
+  INFINITY: BOOLEAN;             (* for slashc *)
+  THEFILE: FILE;
+  TRANSLATE: ARRAY [CHAR] OF COMMANDS;
+  PAGEZERO: HEADER;
+  MSG: STRING;
+  PROMPTLINE: STRING;
+  BLANKAREA: ARRAY [0..MAXSW] OF CHAR;
+  SAVETOP: STRING;               (* Dumb terminal patch - for BLANKCRT(1) *)
+  SCREEN: PACKED RECORD (* Screen Control Record *)
+            PREFIX: CHAR;
+            HEIGHT,WIDTH: 0..255;
+            CANUPSCROLL,CANDOWNSCROLL,SLOW: BOOLEAN;
+            HASPREFIX: PACKED ARRAY [SCREENCOMMAND] OF BOOLEAN;
+            CH:        PACKED ARRAY [SCREENCOMMAND] OF CHAR
+          END;
+  KEYBRD: PACKED RECORD (* Keyboard Control Record *)
+            PREFIX: CHAR;
+            HASPREFIX: PACKED ARRAY [KEYCOMMAND] OF BOOLEAN;
+            CH:        PACKED ARRAY [KEYCOMMAND] OF CHAR
+          END;
+
+SEGMENT PROCEDURE NUM2; BEGIN END;      SEGMENT PROCEDURE NUM3; BEGIN END;
+SEGMENT PROCEDURE NUM4; BEGIN END;      SEGMENT PROCEDURE NUM5; BEGIN END;
+SEGMENT PROCEDURE NUM6; BEGIN END;      SEGMENT PROCEDURE NUM7; BEGIN END;
+SEGMENT PROCEDURE NUM8; BEGIN END;      SEGMENT PROCEDURE NUM9; BEGIN END;

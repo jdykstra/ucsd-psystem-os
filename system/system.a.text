@@ -1,0 +1,477 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+(*
+ * UCSD p-System Operating System
+ * Copyright (C) 2010 Peter Miller
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of the ucsd-psystem-os project nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *)
+
+PROCEDURE EXECERROR;
+
+  PROCEDURE PRINTLOCS;
+  BEGIN
+    WITH SYSCOM^,SYSCOM^.BOMBP^ DO
+      BEGIN
+        WRITE(OUTPUT,'S# ',MSSEG^.BYTE[0],
+                   ', P# ',MSJTAB^.BYTE[0],
+                   ', I# ');
+        IF MISCINFO.IS_FLIPT THEN
+          WRITELN(MSIPC)
+        ELSE
+          WRITELN(MSIPC - (ORD(MSJTAB) - 2 - MSJTAB^.WORD[-1]));
+      END;
+    END {of printlocs};
+
+BEGIN
+  WITH SYSCOM^ DO
+    BEGIN
+      IF XEQERR = 4 THEN
+        BEGIN RELEASE(EMPTYHEAP);
+          PL := '*STK OFLOW*';
+          UNITWRITE(2,PL[1],LENGTH(PL));
+          EXIT(COMMAND)
+        END;
+      BOMBP^.MSIPC := BOMBIPC;
+      IF BUGSTATE <> 0 THEN
+        BEGIN DEBUGGER; XEQERR := 0 END
+      ELSE
+        BEGIN RELEASE(EMPTYHEAP);
+          GFILES[0] := INPUTFIB; GFILES[1] := OUTPUTFIB;
+          BOMBIPC := IORESULT; FWRITELN(SYSTERM^);
+          IF SYSUNIT = VOLSEARCH(SYVID,FALSE,SYSCOM^.GDIRP{watch out}) THEN
+            PRINTERROR(XEQERR,BOMBIPC)
+          ELSE
+            BEGIN
+              WRITELN(OUTPUT,'Exec err # ',XEQERR);
+              IF XEQERR = 10 THEN
+                WRITE(OUTPUT,',',BOMBIPC)
+            END;
+          PRINTLOCS;
+          IF NOT SPACEWAIT(TRUE) THEN EXIT(COMMAND)
+        END
+    END
+END (*EXECERROR*) ;
+
+FUNCTION CHECKDEL(CH: CHAR; VAR SINX: INTEGER): BOOLEAN;
+BEGIN CHECKDEL := FALSE;
+  WITH SYSCOM^,CRTCTRL DO
+    BEGIN
+      IF CH = CRTINFO.LINEDEL THEN
+        BEGIN CHECKDEL := TRUE;
+          IF (BACKSPACE = CHR(0)) OR (ERASEEOL = CHR(0)) THEN
+            BEGIN SINX := 1;
+              WRITELN(OUTPUT,'<DEL')
+            END
+          ELSE
+            BEGIN
+              WHILE SINX > 1 DO
+                BEGIN SINX := SINX-1; WRITE(OUTPUT,BACKSPACE) END;
+              WRITE(OUTPUT,ESCAPE,ERASEEOL)
+            END
+        END;
+      IF CH = CRTINFO.CHARDEL THEN
+        BEGIN CHECKDEL := TRUE;
+          IF SINX > 1 THEN
+            BEGIN SINX := SINX-1;
+              IF BACKSPACE = CHR(0) THEN
+                IF CRTINFO.CHARDEL < ' ' THEN
+                  WRITE(OUTPUT,'_')
+                ELSE (*ASSUME PRINTABLE*)
+              ELSE
+                BEGIN
+                  IF CRTINFO.CHARDEL <> BACKSPACE THEN
+                    WRITE(OUTPUT,BACKSPACE);
+                  WRITE(OUTPUT,' ',BACKSPACE)
+                END
+            END
+          ELSE
+            IF CRTINFO.CHARDEL = BACKSPACE THEN
+              WRITE(OUTPUT,' ')
+        END
+    END
+END (*CHECKDEL*) ;
+
+
+PROCEDURE PUTPREFIXED(WHICH:INTEGER; COMMANDCHAR:CHAR);
+BEGIN
+  WITH SYSCOM^ DO
+    IF COMMANDCHAR <> CHR(0) THEN
+      BEGIN
+        IF CRTCTRL.PREFIXED[WHICH] THEN
+          WRITE(OUTPUT,CRTCTRL.ESCAPE);
+        WRITE(OUTPUT,COMMANDCHAR);
+        (* IF length(FILLer) > 0 THEN *)
+          WRITE(OUTPUT,FILLER);
+      END;
+END;
+
+PROCEDURE HOMECURSOR;
+BEGIN
+  PUTPREFIXED(4,SYSCOM^.CRTCTRL.HOME);
+END (*HOMECURSOR*) ;
+
+PROCEDURE CLEARSCREEN;
+BEGIN HOMECURSOR;
+  WITH SYSCOM^,CRTCTRL DO
+    BEGIN
+      UNITCLEAR(3);
+      IF ERASEEOS <> CHR(0) THEN
+        PUTPREFIXED(3,ERASEEOS)
+      ELSE
+        PUTPREFIXED(6,CLEARSCREEN)
+    END
+END (*CLEARSCREEN*) ;
+
+PROCEDURE CLEARLINE;
+BEGIN
+  PUTPREFIXED(2,SYSCOM^.CRTCTRL.ERASEEOL)
+END (*CLEARLINE*) ;
+
+PROCEDURE PROMPT;
+  VAR I: INTEGER;
+BEGIN HOMECURSOR;
+  WITH SYSCOM^ DO
+    BEGIN
+      CLEARLINE;
+      IF MISCINFO.SLOWTERM THEN
+        BEGIN
+          I := SCAN(LENGTH(PL),=':',PL[1]);
+          IF I <> LENGTH(PL) THEN PL[0] := CHR(I+1)
+        END
+    END;
+  WRITE(OUTPUT,PL)
+END (*PROMPT*) ;
+
+PROCEDURE FGOTOXY(*X,Y: INTEGER*);
+BEGIN (*ASSUME DATA MEDIA*)
+  WITH SYSCOM^.CRTINFO DO
+    BEGIN
+      IF X < 0 THEN X := 0;
+      IF X > WIDTH THEN X := WIDTH;
+      IF Y < 0 THEN Y := 0;
+      IF Y > HEIGHT THEN Y := HEIGHT
+    END;
+  WRITE(OUTPUT,CHR(30),CHR(X+32),CHR(Y+32))
+END (*GOTOXY*) ;
+
+FUNCTION GETCHAR(*FLUSH: BOOLEAN*);
+  VAR CH: CHAR;
+BEGIN
+  IF FLUSH THEN UNITCLEAR(1);
+  IF INPUTFIB^.FEOF THEN EXIT(COMMAND);
+  INPUTFIB^.FSTATE := FNEEDCHAR;
+  READ(INPUT,CH);
+  IF (CH >= 'a') AND (CH <= 'z') THEN
+    CH := CHR(ORD(CH)-ORD('a')+ORD('A'));
+  GETCHAR := CH
+END (*GETCHAR*) ;
+
+FUNCTION SPACEWAIT(*FLUSH: BOOLEAN*);
+  VAR CH: CHAR;
+BEGIN
+  REPEAT
+    WRITE(OUTPUT,'Type <space>');
+    IF NOT SYSCOM^.MISCINFO.SLOWTERM THEN
+      WRITE(OUTPUT,' to continue');
+    CH := GETCHAR(FLUSH);
+    IF NOT EOLN(INPUT) THEN
+      WRITELN(OUTPUT);
+    CLEARLINE
+  UNTIL (CH = ' ') OR (CH = SYSCOM^.CRTINFO.ALTMODE);
+  SPACEWAIT := CH <> ' '
+END (*SPACEWAIT*) ;
+
+FUNCTION SCANTITLE(*FTITLE: STRING; VAR FVID: VID; VAR FTID: TID;
+                    VAR FSEGS: INTEGER; VAR FKIND: FILEKIND*);
+  VAR I,RBRACK: INTEGER; CH: CHAR; OK: BOOLEAN;
+BEGIN
+  FVID := ''; FTID := '';
+  FSEGS := 0; FKIND := UNTYPEDFILE;
+  SCANTITLE := FALSE; I := 1;
+  WHILE I <= LENGTH(FTITLE) DO
+    BEGIN CH := FTITLE[I];
+      IF CH <= ' ' THEN DELETE(FTITLE,I,1)
+      ELSE
+        BEGIN
+          IF (CH >= 'a') AND (CH <= 'z') THEN
+            FTITLE[I] := CHR(ORD(CH)-ORD('a')+ORD('A'));
+          I := I+1
+        END
+    END;
+  IF LENGTH(FTITLE) > 0 THEN
+    BEGIN
+      IF FTITLE[1] = '*' THEN
+        BEGIN FVID := SYVID; DELETE(FTITLE,1,1) END;
+      I := POS(':',FTITLE);
+      IF I <= 1 THEN
+        BEGIN
+          IF LENGTH(FVID) = 0 THEN FVID := DKVID;
+          IF I = 1 THEN DELETE(FTITLE,1,1)
+        END
+      ELSE
+        IF I-1 <= VIDLENG THEN
+          BEGIN
+            FVID := COPY(FTITLE,1,I-1);
+            DELETE(FTITLE,1,I)
+          END;
+      IF LENGTH(FVID) > 0 THEN
+        BEGIN
+          I := POS('[',FTITLE);
+          IF I > 0 THEN I := I-1
+          ELSE I := LENGTH(FTITLE);
+          IF I <= TIDLENG THEN
+            BEGIN
+              IF I > 0 THEN
+                BEGIN FTID := COPY(FTITLE,1,I); DELETE(FTITLE,1,I) END;
+              IF LENGTH(FTITLE) = 0 THEN OK := TRUE
+              ELSE
+                BEGIN OK := FALSE;
+                  RBRACK := POS(']',FTITLE);
+                  IF RBRACK = 2 THEN OK := TRUE
+                  ELSE
+                    IF RBRACK > 2 THEN
+                      BEGIN OK := TRUE; I := 2;
+                        REPEAT CH := FTITLE[I];
+                          IF CH IN DIGITS THEN
+                            FSEGS := FSEGS*10+(ORD(CH)-ORD('0'))
+                          ELSE OK := FALSE;
+                          I := I+1
+                        UNTIL (I = RBRACK) OR NOT OK;
+                        IF (I = 3) AND (RBRACK = 3) THEN
+                          IF FTITLE[I-1] = '*' THEN
+                            BEGIN FSEGS := -1; OK := TRUE END
+                      END
+                END;
+              SCANTITLE := OK;
+              IF OK AND (LENGTH(FTID) > 5) THEN
+                BEGIN
+                  FTITLE := COPY(FTID,LENGTH(FTID)-4,5);
+                  IF FTITLE = '.TEXT' THEN FKIND := TEXTFILE
+                  ELSE
+                  IF FTITLE = '.CODE' THEN FKIND := CODEFILE
+                  ELSE
+                  IF FTITLE = '.BACK' THEN FKIND := TEXTFILE
+                  ELSE
+                  IF FTITLE = '.INFO' THEN FKIND := INFOFILE
+                  ELSE
+                  IF FTITLE = '.GRAF' THEN FKIND := GRAFFILE
+                  ELSE
+                  IF FTITLE = '.FOTO' THEN FKIND := FOTOFILE
+                END
+            END
+        END
+    END
+END (*SCANTITLE*) ;
+
+(* VOLUME AND DIRECTORY HANDLERS *)
+
+FUNCTION FETCHDIR{(FUNIT: UNITNUM): BOOLEAN};
+  VAR LINX: DIRRANGE; OK: BOOLEAN; HNOW: INTEGER;
+BEGIN FETCHDIR := FALSE;
+  WITH SYSCOM^,UNITABLE[FUNIT] DO
+    BEGIN (*READ IN AND VALIDATE DIR*)
+      IF GDIRP = NIL THEN NEW(GDIRP);
+      UNITREAD(FUNIT,GDIRP^,SIZEOF(DIRECTORY),DIRBLK);
+      OK := IORSLT = INOERROR;
+      IF OK THEN
+        WITH GDIRP^[0] DO
+          BEGIN OK := FALSE; (*CHECK OUT DIR*)
+            IF (DFIRSTBLK = 0) AND
+                (  (MISCINFO.USERKIND=BOOKER)
+              OR ( (MISCINFO.USERKIND IN [AQUIZ,PQUIZ]) AND (DFKIND=SECUREDIR) )
+                  OR ( (MISCINFO.USERKIND=uk_NORMAL) AND (DFKIND=UNTYPEDFILE)) )
+              THEN
+              IF (LENGTH(DVID) > 0) AND (LENGTH(DVID) <= VIDLENG) AND
+                 (DNUMFILES >= 0) AND (DNUMFILES <= MAXDIR) THEN
+                BEGIN OK := TRUE; (*SO FAR SO GOOD*)
+                  IF DVID <> UVID THEN
+                    BEGIN (*NEW VOLUME IN UNIT...CAREFUL*)
+                      LINX := 1;
+                      WHILE LINX <= DNUMFILES DO
+                        WITH GDIRP^[LINX] DO
+                          IF (LENGTH(DTID) <= 0) OR
+                             (LENGTH(DTID) > TIDLENG) OR
+                             (DLASTBLK < DFIRSTBLK) OR
+                             (DLASTBYTE > FBLKSIZE) OR
+                             (DLASTBYTE <= 0) OR
+                             (DACCESS.YEAR >= 100) THEN
+                            BEGIN OK := FALSE; DELENTRY(LINX,GDIRP) END
+                          ELSE
+                            LINX := LINX+1;
+                      IF NOT OK THEN
+                        BEGIN (*MUST HAVE BEEN CHANGED...WRITEIT*)
+                          UNITWRITE(FUNIT,GDIRP^,
+                                (DNUMFILES+1)*SIZEOF(DIRENTRY),DIRBLK);
+                          OK := IORSLT = INOERROR
+                        END
+                    END
+                END;
+            IF OK THEN
+              BEGIN UVID := DVID; UEOVBLK := DEOVBLK;
+                TIME(HNOW,DLOADTIME)
+              END
+          END;
+      FETCHDIR := OK;
+      IF NOT OK THEN
+        BEGIN UVID := ''; UEOVBLK := MMAXINT;
+          RELEASE(GDIRP); GDIRP := NIL
+        END
+    END
+END (*FETCHDIR*) ;
+
+PROCEDURE WRITEDIR(*FUNIT: UNITNUM; FDIR: DIRP*);
+  VAR HNOW,LNOW: INTEGER; OK: BOOLEAN; LDE: DIRENTRY;
+BEGIN
+  WITH UNITABLE[FUNIT],FDIR^[0] DO
+    BEGIN OK := (UVID = DVID) AND ((DFKIND = UNTYPEDFILE) OR
+                                   (DFKIND = SECUREDIR));
+      IF OK THEN
+        BEGIN TIME(HNOW,LNOW);
+          OK := (LNOW-DLOADTIME <= AGELIMIT) AND
+                ((LNOW-DLOADTIME) >= 0) AND
+                    SYSCOM^.MISCINFO.HASCLOCK;
+          IF NOT OK THEN
+            BEGIN (*NO CLOCK OR TOO OLD*)
+              UNITREAD(FUNIT,LDE,SIZEOF(DIRENTRY),DIRBLK);
+              IF IORESULT = ORD(INOERROR) THEN
+                OK := DVID = LDE.DVID;
+            END;
+          IF OK THEN
+            BEGIN (*WE GUESS ALL IS SAFE...WRITEIT*)
+              DFIRSTBLK := 0;   (*DIRTY FIX FOR YALOE BUGS*)
+              UNITWRITE(FUNIT,FDIR^,
+                        (DNUMFILES+1)*SIZEOF(DIRENTRY),DIRBLK);
+              OK := IORESULT = ORD(INOERROR);
+              IF DLASTBLK = 10 THEN (*REDUNDANT AFTERTHOUGHT*)
+                UNITWRITE(FUNIT,FDIR^,
+                          (DNUMFILES+1)*SIZEOF(DIRENTRY),6);
+              IF OK THEN TIME(HNOW,DLOADTIME)
+            END
+        END;
+      IF NOT OK THEN
+        BEGIN UVID := ''; UEOVBLK := MMAXINT  END
+    END
+END (*WRITEDIR*) ;
+
+FUNCTION VOLSEARCH(*VAR FVID: VID; LOOKHARD: BOOLEAN; VAR FDIR: DIRP*);
+  VAR LUNIT: UNITNUM; OK,PHYSUNIT: BOOLEAN; HNOW,LNOW: INTEGER;
+BEGIN VOLSEARCH := 0; FDIR := NIL;
+  OK := FALSE; PHYSUNIT := FALSE;
+  IF LENGTH(FVID) > 0 THEN
+    BEGIN
+      IF (FVID[1] = '#') AND (LENGTH(FVID) > 1) THEN
+        BEGIN OK := TRUE;
+          LUNIT := 0; HNOW := 2;
+          REPEAT
+            IF FVID[HNOW] IN DIGITS THEN
+              LUNIT := LUNIT*10+ORD(FVID[HNOW])-ORD('0')
+            ELSE OK := FALSE;
+            HNOW := HNOW+1
+          UNTIL (HNOW > LENGTH(FVID)) OR NOT OK;
+          PHYSUNIT := OK AND (LUNIT > 0) AND (LUNIT <= MAXUNIT)
+        END;
+      IF NOT PHYSUNIT THEN
+        BEGIN OK := FALSE; LUNIT := MAXUNIT;
+          REPEAT
+            OK := FVID = UNITABLE[LUNIT].UVID;
+            IF NOT OK THEN LUNIT := LUNIT-1
+          UNTIL OK OR (LUNIT = 0)
+        END
+    END;
+  IF OK THEN
+    IF UNITABLE[LUNIT].UISBLKD THEN
+      WITH SYSCOM^ DO
+        BEGIN OK := FALSE;  (*SEE IF GDIRP IS GOOD*)
+          IF GDIRP <> NIL THEN
+            IF FVID = GDIRP^[0].DVID THEN
+              BEGIN TIME(HNOW,LNOW);
+                OK := LNOW-GDIRP^[0].DLOADTIME <= AGELIMIT
+              END;
+          IF NOT OK THEN
+            BEGIN OK := PHYSUNIT;
+              IF FETCHDIR(LUNIT) THEN
+                IF NOT PHYSUNIT THEN
+                  OK := FVID = GDIRP^[0].DVID
+                ELSE
+              ELSE
+                OK := IORESULT = ORD(INOERROR);{Rely on IORESULT from FETCHDIR}
+              END
+        END;
+  IF NOT OK AND LOOKHARD THEN
+    BEGIN LUNIT := MAXUNIT; (*CHECK EACH DISK UNIT*)
+      REPEAT
+        WITH UNITABLE[LUNIT] DO
+          IF UISBLKD THEN
+            IF FETCHDIR(LUNIT) THEN
+              OK := FVID = UVID;
+        IF NOT OK THEN LUNIT := LUNIT-1
+      UNTIL OK OR (LUNIT = 0)
+    END;
+  IF OK THEN
+    WITH UNITABLE[LUNIT] DO
+      BEGIN VOLSEARCH := LUNIT;
+        IF LENGTH(UVID) > 0 THEN FVID := UVID;
+        IF UISBLKD AND (SYSCOM^.GDIRP <> NIL) THEN
+          BEGIN FDIR := SYSCOM^.GDIRP;
+            TIME(HNOW,FDIR^[0].DLOADTIME)
+          END
+      END
+END (*VOLSEARCH*) ;

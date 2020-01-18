@@ -1,0 +1,499 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+(*
+ * UCSD p-System Operating System
+ * Copyright (C) 2010 Peter Miller
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of the ucsd-psystem-os project nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *)
+
+(* This is an unpublished work copyright by the Regents of
+   the University of California. This item is the property of SofTech
+   Microsystems Inc., and it may be used, copied or distributed only
+   as permitted in a written license from that company. *)
+
+(************************************************************************)
+
+PROCEDURE PROCS;
+TYPE REALANDINTS=RECORD CASE BOOLEAN OF
+                   TRUE:(INT1,INT0:INTEGER);
+                   FALSE:(R:REAL);
+                 END;
+VAR BOTH:REALANDINTS;
+
+  FUNCTION BOTHWORDS:REAL;
+  VAR BOTH:REALANDINTS;
+  BEGIN
+    BOTH.INT0:=1243;
+    BOTH.INT1:=6587;
+    BOTHWORDS:=BOTH.R;
+  END;
+
+  FUNCTION ONEWORD:INTEGER;
+  BEGIN
+    ONEWORD:=6502;
+  END;
+
+  PROCEDURE PARAMS(P0,P1,P2,P3:INTEGER);
+  BEGIN
+    CHK(INIT);
+
+    DESCRIPTION('PROC CALL  passing parameters  checking 1st word passed');
+    CHK(P0=12);
+
+    DESCRIPTION('PROC CALL  passing parameters  checking 2nd word passed');
+    CHK(P1=67);
+
+    DESCRIPTION('PROC CALL  passing parameters  checking 3rd word passed');
+    CHK(P2=1023);
+
+    DESCRIPTION('PROC CALL  passing parameters  checking 4th word passed');
+    CHK(P3=199);
+  END;
+
+BEGIN
+  CHK(INIT);
+
+  DESCRIPTION('FUNCTION CALL  returns 1 word');
+  CHK(ONEWORD=6502);
+
+  DESCRIPTION('FUNCTION CALL  returns 2 words  checking first word');
+  BOTH.R:=BOTHWORDS;
+  CHK(BOTH.INT0=1243);
+
+  DESCRIPTION('FUNCTION CALL  returns 2 words  checking 2nd word');
+  CHK(BOTH.INT1=6587);
+
+  DESCRIPTION('FUNCTION CALL  checking words returned aren''t reversed');
+  CHK(NOT((BOTH.INT0=6587)AND(BOTH.INT1=1243)));
+
+  DESCRIPTION('PROC CALL  passing parameters  checking 1st word passed');
+  PARAMS(12,67,1023,199);
+END;
+
+(*********************************************************************** *)
+
+PROCEDURE LDCLDMSTM;
+VAR FAKESET0,FAKESET1:RECORD CASE BOOLEAN OF
+                        TRUE:(INT1,INT0:INTEGER);
+                        FALSE:(ASET:SET OF 0..31);
+                      END;
+
+BEGIN
+  CHK(INIT);
+
+  WITH FAKESET0 DO
+  BEGIN
+    DESCRIPTION('LDC&STM  2 word block  checking first word');
+    ASET:=[1,3,9,18,25];
+    CHK(INT0=522);
+
+    DESCRIPTION('LDC&STM  2 word block  checking 2nd word');
+    CHK(INT1=516);
+
+    DESCRIPTION('LDC&STM  2 word block  checking that words aren''t reversed');
+    CHK(NOT((INT0=516) AND (INT1=522)));
+  END;
+
+  WITH FAKESET1 DO
+  BEGIN
+    DESCRIPTION('LDC&STM  2 word block');
+    ASET:=[0,17];
+    CHK((INT0=1) AND (INT1=2));
+  END;
+
+  DESCRIPTION('LDM&STM  2 word blocks  checking first word');
+  FAKESET0.ASET:=FAKESET1.ASET;
+  CHK(FAKESET0.INT0=1);
+
+  DESCRIPTION('LDM&STM  2 word blocks  checking 2nd word');
+  CHK(FAKESET0.INT1=2);
+END;
+
+(************************************************************************)
+
+PROCEDURE INDEX;
+VAR ARRAYS:RECORD CASE INTEGER OF
+             0:(SQUARE:ARRAY[0..9,0..9] OF INTEGER);
+             1:(LINE:ARRAY[0..2512] OF INTEGER);
+             2:(INT0:INTEGER;
+                FILLER1:ARRAY[1..8] OF INTEGER;
+                INT9:INTEGER;
+                FILLER2:ARRAY[10..86] OF INTEGER;
+                INT87:INTEGER;
+                FILLER3:ARRAY[88..802] OF INTEGER;
+                INT803:INTEGER;
+                FILLER4:ARRAY[804..2508] OF INTEGER;
+                INT2509:INTEGER);
+             3:(HASINC:ARRAY[0..9] OF
+                         RECORD
+                           WHOCARES:INTEGER;
+                           LITTLEINC:INTEGER;
+                           ARGHHHH:ARRAY[0..243] OF CHAR;
+                           BIGINC:INTEGER
+                         END);
+             4:(RECT:ARRAY[0..9,0..249] OF INTEGER)
+           END;
+    ELPACKO:RECORD CASE INTEGER OF
+              0:(INTS:ARRAY[0..10] OF INTEGER);
+              1:(BITS:PACKED ARRAY[0..159] OF 0..1);
+              2:(OCTS:PACKED ARRAY[0..54] OF 0..7)
+            END;
+    SINDTEST:RECORD CASE BOOLEAN OF
+               TRUE:(RECORDS:ARRAY[0..1] OF RECORD
+                                              INT2,INT1,INT0:INTEGER;
+                                              FILLER:ARRAY[3..126] OF INTEGER;
+                                              BIGINT,INT127:INTEGER;
+                                            END);
+               FALSE:(INTS:ARRAY[0..128] OF INTEGER);
+             END;
+    FRONT:INTEGER;
+    MOVTEST2:ARRAY[0..550] OF INTEGER;
+    REAR:INTEGER;
+    MOVTEST1:ARRAY[0..550] OF INTEGER;
+    I:INTEGER;
+
+BEGIN
+  CHK(INIT);
+
+  {IXA}
+  DESCRIPTION('IXA word size=1 index=9');
+  ARRAYS.INT9:=6800;
+  ARRAYS.LINE[9]:=11;
+  CHK(ARRAYS.INT9=11);
+
+  DESCRIPTION('IXA word size=1 index=0');
+  ARRAYS.INT0:=8085;
+  ARRAYS.LINE[0]:=9900;
+  CHK(ARRAYS.INT0=9900);
+
+  DESCRIPTION('IXA word size=1 index=2509');
+  ARRAYS.INT2509:=9900;
+  ARRAYS.LINE[2509]:=6502;
+  CHK(ARRAYS.INT2509=6502);
+
+  DESCRIPTION('IXA word size=10 index=8');
+  ARRAYS.INT87:=3600;
+  ARRAYS.SQUARE[8,7]:=6700;
+  CHK(ARRAYS.INT87=6700);
+
+  DESCRIPTION('IXA word size=250(big) index=10');
+  ARRAYS.INT2509:=360;
+  ARRAYS.RECT[10,9]:=370;
+  CHK(ARRAYS.INT2509=370);
+
+  WITH SINDTEST DO
+  BEGIN
+
+    INTS[0]:=4;
+    DESCRIPTION('SIND0');
+    CHK(RECORDS[0].INT0=4);
+
+    INTS[2]:=3;
+    DESCRIPTION('SIND2');
+    CHK(RECORDS[0].INT2=3);
+
+    INTS[127]:=2;
+    DESCRIPTION('IND 127(non big)');
+    CHK(RECORDS[0].INT127=2);
+
+    INTS[128]:=1;
+    DESCRIPTION('IND 128(big)');
+    CHK(RECORDS[0].BIGINT=1);
+
+  END;
+
+  DESCRIPTION('INC 1(non big)');
+  ARRAYS.HASINC[3].LITTLEINC:=3600;{non-big INC}
+  CHK(ARRAYS.LINE[742]=3600);
+
+  DESCRIPTION('INC 246(big)');
+  ARRAYS.HASINC[0].BIGINC:=6700;   {big INC}
+  CHK(ARRAYS.LINE[246]=6700);
+
+  DESCRIPTION('IXP&STP IXP 16,1');
+  ELPACKO.INTS[4]:=0;
+  ELPACKO.BITS[66]:=1;
+  CHK(ELPACKO.INTS[4]=4);
+
+  DESCRIPTION('IXP&STP IXP 16,1  indx=64 1st bit of word');
+  ELPACKO.BITS[64]:=1;            {first bit of word field width=1}
+  CHK(ELPACKO.INTS[4]=5);
+
+  DESCRIPTION('IXP&STP IXP 16,1  indx=79 last bit of word');
+  ELPACKO.BITS[79]:=1;
+  CHK(ELPACKO.INTS[4]=-32763);
+
+  DESCRIPTION('IXP&STP IXP 5,3   indx=30');
+  ELPACKO.INTS[6]:=0;
+  ELPACKO.OCTS[30]:=6;
+  CHK(ELPACKO.INTS[6]=6);
+
+  DESCRIPTION('IXP&STP IXP 5,3   indx=34');
+  ELPACKO.OCTS[34]:=2;
+  CHK(ELPACKO.INTS[6]=8198);
+
+  {LDP}
+  DESCRIPTION('IXP&LDP  IXP 5,3  indx=34');
+  CHK(ELPACKO.OCTS[34]=2);
+
+  DESCRIPTION('IXP&LDP  IXP 5,3  indx=30');
+  CHK(ELPACKO.OCTS[30]=6);
+
+  DESCRIPTION('IXP&LDP  IXP 16,1  indx=64');
+  CHK(ELPACKO.BITS[64]=1);
+END;
+
+(************************************************************************)
+
+PROCEDURE MOV;
+VAR ARRAYS:RECORD CASE INTEGER OF
+             0:(SQUARE:ARRAY[0..9,0..9] OF INTEGER);
+             1:(LINE:ARRAY[0..2512] OF INTEGER);
+             2:(INT0:INTEGER;
+                FILLER1:ARRAY[1..8] OF INTEGER;
+                INT9:INTEGER;
+                FILLER2:ARRAY[10..86] OF INTEGER;
+                INT87:INTEGER;
+                FILLER3:ARRAY[88..802] OF INTEGER;
+                INT803:INTEGER;
+                FILLER4:ARRAY[804..2508] OF INTEGER;
+                INT2509:INTEGER);
+             3:(HASINC:ARRAY[0..9] OF
+                         RECORD
+                           WHOCARES:INTEGER;
+                           LITTLEINC:INTEGER;
+                           ARGHHHH:ARRAY[0..243] OF CHAR;
+                           BIGINC:INTEGER
+                         END);
+             4:(RECT:ARRAY[0..9,0..249] OF INTEGER)
+           END;
+    FRONT:INTEGER;
+    MOVTEST2:ARRAY[0..550] OF INTEGER;
+    REAR:INTEGER;
+    MOVTEST1:ARRAY[0..550] OF INTEGER;
+    I:INTEGER;
+
+BEGIN
+  CHK(INIT);
+
+  FOR I:=9 TO 20 DO
+    ARRAYS.LINE[I]:=1812;
+  FOR I:=30 TO 49 DO
+    ARRAYS.LINE[I]:=1776;
+
+  DESCRIPTION('MOV 10 checking 1st word moved');
+  ARRAYS.SQUARE[1]:=ARRAYS.SQUARE[4];
+  CHK(ARRAYS.SQUARE[0,10]=1776);
+
+  DESCRIPTION('MOV 10 checking middle word moved');
+  CHK(ARRAYS.SQUARE[0,14]=1776);
+
+  DESCRIPTION('MOV 10 checking last word moved');
+  CHK(ARRAYS.SQUARE[0,19]=1776);
+
+  DESCRIPTION('MOV 10 chking wrd following last wrd moved-shouldn''t change');
+  CHK(ARRAYS.SQUARE[0,20]=1812);
+
+  DESCRIPTION('MOV 10 chking wrd preceding 1st wrd moved-shouldn''t change');
+  CHK(ARRAYS.SQUARE[0,9]=1812);
+
+  FRONT:=1963;
+  MOVTEST1[0]:=1957;
+  MOVTEST1[42]:=1957;
+  MOVTEST1[550]:=1957;
+  REAR:=1963;
+  MOVTEST2[0]:=1969;
+  MOVTEST2[42]:=1969;
+  MOVTEST2[550]:=1969;
+  MOVTEST1:=MOVTEST2;              {big MOV}
+
+  DESCRIPTION('MOV  551(big) checking first word moved');
+  CHK(MOVTEST1[0]=1969);
+
+  DESCRIPTION('MOV  551(big) checking last word moved');
+  CHK(MOVTEST1[550]=1969);
+
+  DESCRIPTION('MOV  551(big) checking middle word moved');
+  CHK(MOVTEST1[42]=1969);
+
+  DESCRIPTION(
+           'MOV 551(big) chking wrd preceding 1st wrd moved-shouldn''t change');
+  CHK(FRONT=1963);
+
+  DESCRIPTION(
+          'MOV 551(big) chking wrd following last wrd moved-shouldn''t change');
+  CHK(REAR=1963);
+END;
+
+(************************************************************************)
+
+PROCEDURE XJP;
+VAR GOTWHERE,INDEX:INTEGER;
+    NUM,MESSAGE,TEMPMESSAGE,TEMP2:STRING;
+
+BEGIN
+  CHK(INIT);
+
+  MESSAGE:='XJP lo indx=-2 hi indx=4  indx=';
+  FOR INDEX:=-3 TO 5 DO
+  BEGIN
+    GOTWHERE:=-10000; (*default of not getting into case statements code*)
+    CASE INDEX OF
+      -2:GOTWHERE:=-2;
+      -1:GOTWHERE:=-1;
+      0:GOTWHERE:=0;
+      1:GOTWHERE:=1;
+      2:GOTWHERE:=2;
+      3:GOTWHERE:=3;
+      4:GOTWHERE:=4;
+    END;
+    NUM:='  ';
+    NUM[2]:=CHR(ORD('0')+ABS(INDEX));
+    IF INDEX<0 THEN
+      NUM[1]:='-';
+    TEMPMESSAGE:=MESSAGE;
+    MYCONCAT(TEMPMESSAGE,NUM);
+    IF (INDEX<-2) OR (INDEX>4) THEN
+    BEGIN
+      MYCONCAT(TEMPMESSAGE,' shouldn''t get into case');
+      DESCRIPTION(TEMPMESSAGE);
+      CHK(GOTWHERE=-10000);
+    END ELSE
+    BEGIN
+      TEMP2:=TEMPMESSAGE;
+      MYCONCAT(TEMP2,' see if got into any case');
+      DESCRIPTION(TEMP2);
+      CHK(GOTWHERE<>-10000);
+
+      MYCONCAT(TEMPMESSAGE,' see if got into correct case');
+      DESCRIPTION(TEMPMESSAGE);
+      CHK(INDEX=GOTWHERE);
+    END;
+  END;
+
+  (*one of the following two will be on a word boundry, the other wont*)
+  DESCRIPTION('XJP  lo indx=hi indx=1  indx=1    wrd boundry chk');
+  GOTWHERE:=-1;
+  CASE 1 OF
+    1:GOTWHERE:=1;
+  END;
+  CHK(GOTWHERE=1);
+
+  DESCRIPTION('XJP  lo indx=hi indx=1  indx=1      wrd boundry check');
+  GOTWHERE:=-1;
+  CASE 1 OF
+    1:GOTWHERE:=1;
+  END;
+  CHK(GOTWHERE=1);
+END;
+
+(************************************************************************)
+
+PROCEDURE NEWMRKRLS;
+TYPE INTARRAY=ARRAY[0..9] OF INTEGER;
+VAR MEMPTR1,MEMPTR2:^INTARRAY;
+    MARKIT1,MARKIT2:^INTEGER;
+BEGIN
+  CHK(INIT);
+
+  DESCRIPTION('NEW  10 words');
+  NEW(MEMPTR1);
+  MEMPTR1^[0]:=12345;
+  NEW(MEMPTR2);
+  CHK(MEMPTR2^[-10]=12345);
+
+  DESCRIPTION('MRK');
+  MARK(MARKIT1);
+  MARKIT1^:=23456;
+  NEW(MEMPTR1);
+  MARK(MEMPTR2);
+  CHK(MEMPTR2^[-10]=23456);
+
+  DESCRIPTION('RLS');
+  MARK(MARKIT1);
+  NEW(MEMPTR1);
+  MEMPTR1^[0]:=3210;
+  RELEASE(MARKIT1);
+  NEW(MEMPTR1);
+  CHK(MEMPTR1^[0]=3210);
+END;
+
+(************************************************************************)
+
+PROCEDURE LPA;
+VAR BOTH:RECORD CASE BOOLEAN OF
+           TRUE:(CHARS:PACKED ARRAY[0..4] OF CHAR);
+           FALSE:(INT2,INT1,INT0:INTEGER);
+         END;
+BEGIN
+  CHK(INIT);
+
+  DESCRIPTION('LPA');
+  WITH BOTH DO
+  BEGIN
+    CHARS:='AVAST';
+    IF BYTESEXLOHI THEN
+      CHK((INT0=22081) AND (INT1=21313)) ELSE
+      CHK((INT0=16726) AND (INT1=16723));
+  END;
+END;
+
+(************************************************************************)

@@ -1,0 +1,355 @@
+/*
+ * UCSD p-System Operating System
+ * Copyright (C) 2006, 2010, 2011 Peter Miller
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of the ucsd-psystem-os project nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
+
+integration-build-targets:
+    web-site
+    ;
+
+web-site:
+    /* archive/change_log.txt */
+    /* archive/[project_minus].README */
+    archive/[project_minus].tar.gz
+    /* archive/[project_minus].pdf */
+    archive/icon.png
+    [fromto web/%.html archive/%.html
+        [match_mask web/%.html [source_files]]
+    ]
+    archive/disk-image/system.vol
+    archive/disk-image/utility.vol
+    archive/disk-image/.htaccess
+    debian/control /* et al */
+    ;
+
+source_file_order =
+    README
+    [sort
+        [stringset
+            [source_files]
+            BUILDING
+            LICENSE
+            LICENSE-UCSD
+
+            /*
+             * These are for version stamping the distribution.
+             */
+            etc/version.so
+            etc/vstamp.inc.text
+            etc/vstamp.asm.text
+
+            /*
+             * These four are for building the distribution.
+             */
+            configure
+            Makefile.in
+            install-sh
+
+            /*
+             * for the reference manual
+             */
+            etc/ref-index.so
+            etc/ref-parts.so
+            etc/new.so
+
+            /*
+             * For Debian packaging
+             */
+            debian/changelog
+            debian/copyright
+            debian/compat
+            debian/control
+            debian/rules
+            debian/source/format
+            debian/ucsd-psystem-os.install
+        -
+            README
+        ]
+    ]
+    ;
+
+makgen = ucsdpsys_osmakgen;
+makgen_dir = /home/archives/ucsd-psystem-xc/branch.0/branch.10/baseline;
+makgen = [makgen_dir]/linux-x86_64/bin/ucsdpsys_osmakgen;
+
+Makefile.in: [source_files]
+{
+    [makgen] -p [project] -c [change] -o [target];
+}
+
+
+archive/[project_minus].tar.gz: [source_file_order]
+    set shallow
+{
+    tar cf - [resolve [source_file_order]]
+    | tardy
+        -una Peter -gna Miller
+        -unu 0 -gnu 0
+        -ms 0644 -mc 07022
+        -now
+        -prefix\=[project_minus]
+        [prepost "-rp=" "" [search_list]]
+    | gzip -9
+    > [target];
+}
+
+archive/[project_minus].%: %
+    set shallow
+{
+    cat [resolve [need]] > [target];
+}
+
+archive/[project_minus].pdf: etc/reference.pdf
+    set shallow
+{
+    cat [resolve [need]] > [target];
+}
+
+%: etc/%.man
+{
+    roffpp
+        [prepost "-I" /[arch]/etc [search_list]]
+        [prepost "-I" "/etc" [search_list]]
+        [resolve etc/%.man]
+    | groff -Tascii -t -P-bcu -man
+    > [target];
+}
+
+archive/%.txt: etc/%.man
+    set shallow
+{
+    roffpp
+        [prepost "-I" /[arch]/etc [search_list]]
+        [prepost "-I" "/etc" [search_list]]
+        [resolve etc/%.man]
+    | groff -Tascii -t -P-bcu -man
+    > [target];
+}
+
+etc/%.man.d: etc/%.man
+    set no-cascade
+{
+    [c_incl] -nc -ns -api -nrec
+        --lang\=roff
+        [addprefix "-I" [search_list]]
+        [prepost "-I" "/man/man1" [search_list]]
+        [prepost "-I" "/man/man5" [search_list]]
+        [prepost "-I" "/etc" [search_list]]
+        [resolve etc/%.man]
+        -prefix "'cascade etc/%.man ='"
+        -suffix "';'"
+        [addprefix "-rlp=" [search_list]]
+        -o [target];
+}
+
+etc/%.man,M:: etc/%.man,Md;
+
+etc/%.man,Md: etc/%.man
+{
+    [c_incl] -nc -ns -api
+        --lang\=roff
+        [addprefix "-I" [search_list]]
+        [prepost "-I" "/man/man1" [search_list]]
+        [prepost "-I" "/man/man5" [search_list]]
+        [prepost "-I" "/etc" [search_list]]
+        [resolve etc/%.man]
+        [addprefix "-rlp=" [search_list]]
+        -o [target];
+}
+
+#include-cooked [addsuffix ".d" [match_mask etc/%.man [source_files]]]
+
+
+archive/%: web/%.uue
+    set shallow
+{
+    uudecode -o [target] [resolve [need]];
+}
+
+
+web/%.html.d: web/%.html
+    set no-cascade
+{
+    c_incl -nc -ns -eia -r -nrec
+        [prepost "-I" /[arch]/etc [search_list]]
+        [prepost "-I" "/etc" [search_list]]
+        -prefix "'cascade web/"%".html ='"
+        -suffix "';'"
+        [resolve web/%.html]
+        [prepost "-rlp=" "" [search_list]] /* remove leading path */
+        -o [target];
+}
+
+web/%.html,M:: web/%.html,Md;
+
+web/%.html,Md: web/%.html
+{
+    c_incl -nc -ns -eia -r
+        [prepost "-I" /[arch]/etc [search_list]]
+        [prepost "-I" "/etc" [search_list]]
+        [resolve web/%.html]
+        [prepost "-rlp=" "" [search_list]] /* remove leading path */
+        -o [target];
+}
+
+#include-cooked [addsuffix ".d" [match_mask web/%.html [source_files]]]
+
+archive/%.html: web/%.html etc/version.so
+    set shallow
+{
+    roffpp [prepost "-I" "/etc" [search_list]] [resolve web/%.html]
+    | groff -Tascii -t -P-bcu -man
+    | cat -s
+    > [target];
+}
+
+LICENSE: man/cat1/ucsdpsys_os_license_bsd.1
+{
+    cat [resolve [need]] > [target];
+}
+
+LICENSE-UCSD: man/cat1/ucsdpsys_os_license_ucsd.1
+{
+    cat [resolve [need]] > [target];
+}
+
+archive/icon%.png: archive/icon.png
+    set shallow
+{
+    convert [resolve archive/icon.png] -scale % [target];
+}
+
+
+archive/favicon.ico: archive/icon16.png archive/icon32.png archive/icon64.png
+    set shallow
+{
+    png2ico [target]
+        [resolve archive/icon16.png]
+        [resolve archive/icon32.png]
+        [resolve archive/icon64.png]
+        ;
+}
+
+
+/*
+ * Only build the favicon is we have the png2ico command (self-named
+ * package) and the convert command (from the imagemagick package).
+ */
+if [find_command png2ico] then
+if [find_command convert] then
+{
+    // Add this as a dependency, to trigger when necessary.
+    archive/index.html: archive/favicon.ico archive/icon64.png;
+}
+
+
+check-tarball: archive/[project_minus].tar.gz etc/check-tarball.sh
+{
+    sh [resolve etc/check-tarball.sh archive/[project_minus].tar.gz];
+}
+
+archive/disk-image/%: stage1/klebsch/%
+    set shallow
+{
+    cp [resolve stage1/klebsch/%] [target];
+}
+
+archive/disk-image/.htaccess:
+    archive/disk-image/system.vol
+    archive/disk-image/utility.vol
+{
+    echo Options Indexes > [target];
+}
+
+/* ----------  Debian Packaging  ---------------------------------------- */
+
+debian/changelog
+debian/compat
+debian/control
+debian/copyright
+debian/rules
+debian/source/format
+debian/ucsd-psystem-os.install
+        : [source_files]
+    set shallow
+{
+    /* This actually makes more files than just debian/control */
+    [makgen] -o .debian.stamp
+             -p [project] -c [change]
+             -v [version]
+             ;
+}
+
+if [in [fromto %1D%2 %2 [version]] 001 002 003 004] then
+{
+    integration-build-targets += debian-package;
+}
+
+debian-package: archive/[project_minus].tar.gz
+    debian/changelog
+{
+    local vsn = [collect head -1 [resolve debian/changelog]
+        | sed "'s|.*(\\([^()]*\\).*|\\1|'" ];
+    vsn = [fromto %-1 % [vsn]];
+    function print "vsn = '"[vsn]"'";
+    if [not [in [count [vsn]] 1]] then
+        fail "debian version not right";
+    local tarball = [project_short]_[vsn].orig.tar.gz;
+
+    local user = [collect id -un];
+    local key = ;
+    if [in [user] archives] then
+        key = -k19CEC7D5;
+    else
+        key = -us -uc;
+
+    /*
+     * We fake the .orig.tar.gz file to not have a debian/ directory,
+     * by filtering it out with tardy.  This silences a PITA lintian
+     * warning, for no real benefit.
+     */
+
+    unset GPG_AGENT_INFO &&
+    rm -rf archive/debian &&
+    mkdir -p archive/debian &&
+    cd archive/debian &&
+    echo Options Indexes > .htaccess &&
+    gunzip < ../[project_minus].tar.gz
+        | tardy -exclude "'"[project_minus]"/debian/*'"
+        | gzip -9 > [tarball] &&
+    tar xzf ../[project_minus].tar.gz &&
+    cd [project_minus] &&
+#if 0
+    dpkg-buildpackage -sgpg [key] -sa &&
+#else
+    debuild [key] -sa &&
+#endif
+    cd .. &&
+    rm -rf [project_minus] &&
+    lintian -iIv --pedantic *.changes
+    ;
+}

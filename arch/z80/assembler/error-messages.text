@@ -1,0 +1,111 @@
+#
+# UCSD PASCAL - Version I.5
+# Copyright (C) 1978, 1979 Regents of the University of California
+# All Rights Reserved
+#
+# Permission to use, copy, modify and distribute any part of UCSD
+# PASCAL solely authored by UC authors before June 1, 1979 for
+# educational, research and non-profit purposes, without fee, and
+# without a written agreement is hereby granted, provided that the
+# above copyright notice, this paragraph and the following three
+# paragraphs appear in all copies.
+#
+# Those desiring to incorporate UCSD PASCAL into commercial products or
+# use for commercial purposes should contact the Technology Transfer &
+# Intellectual Property Services, University of California, San Diego,
+# 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+# Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+#
+# IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+# FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+# INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+# THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+# DAMAGE.
+#
+# THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+# OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+# UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+# MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+# EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+# WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+# THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+# OTHER RIGHTS.
+#
+# Case Number: SD1991-807 (2006)
+# http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+#
+  1: undefined label
+  2: operand out of range
+  3: must have procedure name
+  4: number of parameters expected
+  5: extra garbage on line
+  6: input line over 80 characters
+  7: not enough .IF's
+  8: must be declared in .ASECT before used
+  9: identifier previously declared
+ 10: improper format
+ 11: .EQU expected
+ 12: must .EQU before use if not to a label
+ 13: macro identifier expected
+ 14: word addressed machine
+ 15: backward .ORG currently not allowed
+ 16: identifier expected
+ 17: constant expected
+ 18: invalid structure
+ 19: extra special symbol
+ 20: branch too far
+ 21: variable not PC relative
+ 22: illegal macro parameter index
+ 23: not enough macro parameters
+ 24: operand not absolute
+ 25: illegal use of special symbols
+ 26: ill-formed expression
+ 27: not enough operands
+ 28: cannot handle this relative expression
+ 29: constant overflow
+ 30: illegal decimal constant
+ 31: illegal octal constant
+ 32: illegal binary constant
+ 33: invalid key word
+ 34: macro stack overflow - 5 nesting limit
+ 35: include files may not be nested
+ 36: unexpected end of input
+ 37: this is a bad place for an .INCLUDE file
+ 38: only labels & comments may occupy col 1
+ 39: expected local label
+ 40: local label stack overflow
+ 41: string constant must be on one line
+ 42: string constant exceeds 80 characters
+ 43: illegal use of macro parameter
+ 44: no local labels in .ASECT
+ 45: expected key word
+ 46: string expected
+ 47: bad block, parity error (CRC)
+ 48: bad unit number
+ 49: bad mode, illegal operation
+ 50: undefined hardware error
+ 51: lost unit, unit is no longer on-line
+ 52: lost file, file is no longer in director
+ 53: bad title, illegal file name
+ 54: no room, insufficient space on disk
+ 55: no unit, no such volume on-line
+ 56: no file, no such file on volume
+ 57: duplicate file
+ 58: not closed, attempt to open an open file
+ 59: not open, attempt to access a closed fil
+ 60: bad format, error in reading real or int
+ 61: nested macro definitions illegal
+ 62: '=' or '<>' expected
+ 63: may not EQU to undefined labels
+ 64: must declare .ABSOLUTE before 1st .PROC
+ 76: incorrect operand format
+ 77: close paren ')' expected
+ 78: comma ',' expected
+ 79: plus '+' expected
+ 80: open paren '(' expected
+ 81: stack pointer 'SP' expected
+ 82: 'HL' expected
+ 83: illegal 'cc' condition code
+ 84: register 'C' expected
+ 85: register expected 'r'
+ 86: register 'A' expected

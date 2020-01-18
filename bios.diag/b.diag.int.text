@@ -1,0 +1,319 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+  {This is an unpublished work copyright by the Regents of
+   the University of California. This item is the property of SofTech
+   Microsystems Inc., and it may be used, copied or distributed only
+   as permitted in a written license from that company.}
+
+  PROCEDURE initialize;
+  {
+          This routine initializes the program.
+  }
+  BEGIN
+    out_filename := 'CONSOLE:';
+    REWRITE(out_file,out_filename); {Better be on-line}
+    display := TRUE;
+    line_error := FALSE;
+    disk_used := FALSE;
+    doing_dots := FALSE;
+    noisy := TRUE;      {Want all info to be displayed}
+    MARK(error_top);
+    root := NIL;        {No errors}
+    errors := 0;
+    s_cr := ' ';
+    s_cr[1] := CHR(CR);
+    s_lf := ' ';
+    s_lf[1] := CHR(LF);
+    unit_names[system ] := 'SYSTEM';
+    unit_names[console] := 'CONSOLE';
+    unit_names[systerm] := 'SYSTERM';
+    unit_names[graphic] := 'GRAPHIC';
+    unit_names[drive_1] := 'DRIVE 1';
+    unit_names[drive_2] := 'DRIVE 2';
+    unit_names[printer] := 'PRINTER';
+    unit_names[remin]   := 'REMOTE';
+    unit_names[remout]  := 'REMOTE';
+    unit_names[drive_3] := 'DRIVE 3';
+    unit_names[drive_4] := 'DRIVE 4';
+    unit_names[drive_5] := 'DRIVE 5';
+    unit_names[drive_6] := 'DRIVE 6';
+    capital_letters := ['A'..'Z'];
+    lower_case_letters := ['a'..'z'];
+  END {of initialize};
+
+  FUNCTION get_char: CHAR;
+  {
+        This function returns the character reads from the CONSOLE.
+    It will always return upper case.
+  }
+  VAR
+    ch: CHAR;
+  BEGIN
+    READ(ch);
+    IF ch IN ['a'..'z'] THEN
+      get_char := CHR(ORD(ch) - ORD('a') + ORD('A'))
+    ELSE
+      get_char := ch;
+  END {of get_char};
+
+  PROCEDURE intstr(i: INTEGER; VAR s: STRING);
+  {
+        This routine converts the signed integer to a string and returns
+      it in 's'.
+  }
+  VAR
+    sign,temp: STRING[1];
+  BEGIN
+    temp := ' ';
+    s := '';
+    IF i < 0 THEN
+      BEGIN
+        sign := '-';
+        i := -i;
+      END
+    ELSE
+      sign := '';
+    REPEAT
+      temp[1] := CHR((i MOD 10) + ORD('0'));
+      i := i DIV 10;
+      s := CONCAT(temp,s);
+    UNTIL i = 0;
+    s := CONCAT(sign,s);
+  END {of intstr};
+
+  PROCEDURE squawk(level: INTEGER; the_type: squawk_types;
+                   proc_name: STRING);
+  {
+        This routine is used to output the various messages to the
+    console during testing and keep a summary of all errors.
+  }
+
+    PROCEDURE enter_error(where: STRING);
+    {
+        This routine attaches the new error to the error list
+      and bumps the error count.
+    }
+    VAR
+      new_error_p: error_p;
+    BEGIN
+      NEW(new_error_p);
+      new_error_p^.where := where;
+      new_error_p^.next_error := NIL;
+      IF root = NIL THEN
+        root := new_error_p
+      ELSE
+        last_error_p^.next_error := new_error_p;
+      last_error_p := new_error_p;
+      errors := errors + 1;
+      test_errors := test_errors + 1;
+    END {of enter_error};
+
+  BEGIN
+    IF NOT ((the_type = user_error) AND display) THEN
+      BEGIN
+        IF (the_type IN [error,user_error]) AND doing_dots THEN
+          WRITELN(out_file);
+        IF noisy THEN
+          BEGIN
+            WRITE(out_file,'':level);
+            CASE the_type OF
+              dots,
+              none      : ;
+              enter     : WRITE(out_file,'Entering ');
+              leave     : WRITE(out_file,'Leaving ');
+              test_start: WRITE(out_file,'Starting Test of ');
+              test_end  : WRITE(out_file,'Ending Test of ');
+              error,
+              user_error: WRITE(out_file,'***Error*** ');
+            END;
+            IF the_type = dots THEN
+              WRITE(out_file,proc_name)
+            ELSE WRITELN(out_file,proc_name);
+          END
+        ELSE
+          IF the_type = error THEN {Always display errors}
+            WRITELN(out_file,'':level,'***Error*** ',proc_name);
+      END;
+    IF the_type IN [error,user_error]  THEN
+      enter_error(proc_name);
+  END {of squawk};
+
+  PROCEDURE show_error_count(level: INTEGER; proc_name: STRING);
+  {
+        This routine will display the number of errors for a given
+    test routine and calls 'squawk' to indicate the test routine is
+    over.
+  }
+  BEGIN
+    IF test_errors = 0 THEN
+      BEGIN
+        WRITELN(out_file,'':level,proc_name,' - No errors');
+        IF NOT display THEN
+          WRITELN('':level,proc_name,' - No errors');
+      END
+    ELSE
+      BEGIN
+        WRITELN(out_file,'':level,proc_name,
+                ' - Errors detected: ',test_errors);
+        IF NOT display THEN
+          WRITELN('':level,proc_name,' - Errors detected: ',test_errors);
+      END;
+    squawk(level,leave,proc_name);
+  END {of show_error_count};
+
+  PROCEDURE dump_errors;
+  {
+        This routine will dump the current error list.
+  }
+  VAR
+    p: error_p;
+  BEGIN
+    IF root = NIL THEN
+      WRITELN(' No errors')
+    ELSE
+      BEGIN
+        WRITELN(' Errors detected: ',errors);
+        p := root;
+        REPEAT
+          WRITELN(p^.where);
+          p := p^.next_error;
+        UNTIL p = NIL;
+      END;
+  END;
+
+  PROCEDURE purge_errors;
+  {
+        This routine cuts the heap back and resets the errors
+    to 0 and the root to NIL.
+  }
+  BEGIN
+    RELEASE(error_top);
+    root := NIL;
+    errors := 0;
+  END {of purge_errors};
+
+  FUNCTION buffer_difference: INTEGER;
+  {
+        This function returns the index of the first byte that
+    is different in 'buffer_1' and 'buffer_2'.
+  }
+  VAR
+    different: BOOLEAN;
+  BEGIN
+    different := FALSE;
+    index := 0;
+    WHILE (index <= buffer_size) AND NOT different DO
+      BEGIN
+        different := buffer_1[index] <> buffer_2[index];
+        index := index + 1;
+      END;
+    buffer_difference := index - 1;
+  END {of buffer_difference};
+
+  FUNCTION do_read(device: sys_units; VAR buffer: buffers; length: INTEGER;
+                   block: INTEGER; control: INTEGER): BOOLEAN;
+  {
+        This function will do a standard UNITREAD of the device
+    specified.  It will return FALSE if the IORESULT <> 0.
+  }
+  BEGIN
+    UNITREAD(device,buffer,length,block,control);
+    do_read := (IORESULT = 0);
+  END {of do_read};
+
+  FUNCTION do_write(device: sys_units; VAR buffer: buffers; length: INTEGER;
+                    block: INTEGER; control: INTEGER): BOOLEAN;
+  {
+        This function will do a standard UNITWRITE of the deviced
+    specified.  It will return FALSE if the IORESULT <> 0.
+  }
+  BEGIN
+    UNITWRITE(device,buffer,length,block,control);
+    do_write := (IORESULT = 0);
+  END {of do_write};
+
+  PROCEDURE read_nothing(level: INTEGER; device: sysunits);
+  {
+        This routine does a UNITREAD of zero bytes from the
+    specified device to make sure an IORESULT of 0 is returned.
+  }
+  BEGIN
+    test_name := CONCAT(name,' - Read nothing');
+    level := level + 1;
+    squawk(level,test_start,test_name);
+    UNITREAD(device,buffer_1,0);
+    IF IORESULT <> 0 THEN
+      squawk(level,error,CONCAT('UNITREAD of 0 bytes, IORESULT <> 0 - ',
+                                unit_names[device]));
+    squawk(level,test_end,test_name);
+  END {of read_nothing};
+
+  PROCEDURE write_nothing(level: INTEGER; device: sysunits);
+  {
+        This routine does a UNITWRITE of zero bytes to the
+    specified device to make sure an IORESULT of 0 is returned.
+  }
+  BEGIN
+    test_name := CONCAT(name,' - Write nothing');
+    level := level + 1;
+    squawk(level,test_start,test_name);
+    UNITWRITE(device,buffer_1,0);
+    IF IORESULT <> 0 THEN
+      squawk(level,error,CONCAT('UNITWRITE of 0 bytes, IORESULT <> 0 - ',
+                                unit_names[device]));
+    squawk(level,test_end,test_name);
+  END {of write_nothing};
+
+  PROCEDURE is_it_correct(level: INTEGER; device: sys_units; s: STRING);
+  {
+        This routine asks the user if the above line or lines is or are
+      correct.  If not an error is logged using the string passed for
+      description.
+  }
+  VAR
+    ch: CHAR;
+  BEGIN
+    line_error := TRUE;
+    WRITE('':level+1,'Line(s) on ',unit_names[device],' correct (Y/N) ? ');
+    ch := get_char;
+    WRITELN;
+    IF ch <> 'Y' THEN
+      squawk(level,user_error,CONCAT(unit_names[device],' - ',s))
+    ELSE
+      line_error := FALSE;
+  END {of is_it_correct};

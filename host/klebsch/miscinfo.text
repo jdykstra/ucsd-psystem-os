@@ -1,0 +1,83 @@
+(*
+ * UCSD p-System Operating System
+ * Copyright (C) 2010 Peter Miller
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of the ucsd-psystem-os project nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *)
+Has clock :=                          true
+Has 8510a :=                          false
+Has lower case :=                     true
+Has random cursor addressing :=       true
+Has slow terminal :=                  false
+Student :=                            false
+Has byte flipped machine :=           false
+Has word oriented machine :=          false
+Lead in to screen :=                  NUL
+Move cursor home :=                   EM
+Prefixed[Move cursor home] :=         false
+Erase to end of screen :=             VT
+Prefixed[Erase to end of screen] :=   false
+Erase to end of line :=               GS
+Prefixed[Erase to end of line] :=     false
+Move cursor right :=                  FS
+Prefixed[Move cursor right] :=        false
+Move cursor up :=                     US
+Prefixed[Move cursor up] :=           false
+Vertical move delay :=                0
+Backspace :=                          BS
+Prefixed[Delete character] :=         false
+Erase line :=                         NUL
+Prefixed[Erase line] :=               false
+Erase screen :=                       FF
+Prefixed[Erase screen] :=             false
+Screen height :=                      24
+Screen width :=                       80
+Key to move cursor up :=              SI
+Prefixed[Key to move cursor up] :=    false
+Key to move cursor down :=            FF
+Prefixed[Key to move cursor down] :=  false
+Key to move cursor left :=            BS
+Prefixed[Key to move cursor left] :=  false
+Key to move cursor right :=           NAK
+Prefixed[Key to move cursor right] := false
+Key to end file :=                    ETX
+Prefixed[Key to end file] :=          false
+Key for flush :=                      ACK
+Prefixed[Key for flush] :=            false
+Key for break :=                      NUL
+Prefixed[Key for break] :=            false
+Key for stop :=                       DC3
+Prefixed[Key for stop] :=             false
+Key to delete character :=            BS
+Prefixed[Key to delete character] :=  false
+Non-printing character :=             '?'
+Prefixed[Non-printing character] :=   false
+Key to delete line :=                 CAN
+Prefixed[Key to delete line] :=       false
+Editor escape key :=                  ESC
+Prefixed[Editor escape key] :=        false
+Lead in from keyboard :=              NUL
+Editor accept key :=                  ETX
+Prefixed[Editor accept key] :=        false

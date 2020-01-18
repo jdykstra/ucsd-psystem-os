@@ -1,0 +1,368 @@
+;
+; UCSD PASCAL - Version I.5
+; Copyright (C) 1978, 1979 Regents of the University of California
+; All Rights Reserved
+;
+; Permission to use, copy, modify and distribute any part of UCSD
+; PASCAL solely authored by UC authors before June 1, 1979 for
+; educational, research and non-profit purposes, without fee, and
+; without a written agreement is hereby granted, provided that the
+; above copyright notice, this paragraph and the following three
+; paragraphs appear in all copies.
+;
+; Those desiring to incorporate UCSD PASCAL into commercial products or
+; use for commercial purposes should contact the Technology Transfer &
+; Intellectual Property Services, University of California, San Diego,
+; 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+; Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+;
+; IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+; FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+; INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+; THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+; DAMAGE.
+;
+; THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+; OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+; UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+; MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+; EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+; WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+; THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+; OTHER RIGHTS.
+;
+; Case Number: SD1991-807 (2006)
+; http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+;
+;;; Source: http://bitsavers.org/bits/UCSD_Pascal/ucsd_II.0/
+;;;     U120_Z80_P-CODE_SOURCE.raw.gz
+;;; Date: 1979-Jan-18
+
+        .IF ~LSTBOOT
+         .NOLIST
+        .ELSE
+         .LIST
+        .ENDC
+
+;Copyright (c) 1978
+;  by the Regents of the University of California, San Diego
+
+; Beginning of file BOOT
+
+
+;****************BOOTSTRAP LOADERS****************;
+
+;    The special TEK bootstrap, which is for files that include both
+;       the interpreter and the P-code program to execute.
+
+        .IF     TEK
+QWIK    ; Assume p-code at 2000H, move to high core
+        LD      HL,(2006H)      ; Get code length (bytes)
+        EX      DE,HL
+        LD      HL,(MEMTOP)     ; Get maximum memory address
+        SUBHLDE                 ; Get address to transfer program to
+        LD      SP,HL           ; Stack grows from here
+        LD      DE,2200H        ; Address of start of p-code
+        LD      BC,(2006H)      ; Set byte counter to # of bytes to transfer
+        CLRA                    ; Get
+        SUB     C               ;  negative
+        LD      C,A             ;   byte
+        LD      A,00H           ;    count
+        SBC     A,B               ;
+        LD      B,A
+
+$10     LD      A,(DE)          ; Get byte to transfer
+        LD      (HL),A          ; Move byte to new home
+        INC     DE              ; Bump address
+        INC     HL              ; Bump destination address
+        INC     C               ; Increment lower part of byte count
+        JP      NZ,$10          ; Overflow into upper byte ?
+        INC     B               ; Yes, increment upper one, too
+        JP      NZ,$10          ; Are we done (BC=0) ?
+        DEC     HL              ; Yes, adjust HL for
+        DEC     HL              ;  STEP5 of booter
+        JP      STEP5           ; COWABUNGA !!!!!
+        .ENDC
+
+;    The complex bootstrap.  So termed not because it is complex, but
+;       because the primary booter that read in the interpreter also
+;       initialized the P-machine, in a like manner to the booter below
+
+CBOOT   POP     HL              ; get UCSD bios location...
+        LD      (BIOSJP),HL     ; ...save it in a fixed place...
+        JP      BACK1           ; ...and start interpreting
+
+
+;    The standard booter.  For primary booters that simply read in the interp
+; This is a Pascal-system loader, it assumes that
+;the complete interpreter and booter have been
+;loaded by the host machine. It assumes that on
+;unit 4 ,block 2 is a directory with the pascal
+;operating system 'SYSTEM.PASCAL'. The booter
+;reads this, initializes the interpreter to enter
+;the system outer block and goes to it.
+
+;     Six easy steps toward the realization of Pascal.
+;  1: initialize all I/O drivers, size memory
+;  2: read directory, find 'SYSTEM.PASCAL'
+;  3: read block zero and set up SEGTBL
+;  4: read in segment zero
+;  5: set up machine state for seg 0 proc 1
+;  6: GO FOR IT.
+
+        ; These declarations are for Step 2.
+SYSTLE  .BYTE   0DH             ;length byte of String
+        .ASCII  "SYSTEM.PASCAL" ;characters of String
+DENTSZ  .EQU    1AH             ;directory entry size, bytes
+DTITLE  .EQU    06H             ;offset of title in an entry
+DENTP   .WORD   0               ;gets set by this Step
+
+SYSBLK  .WORD   0
+SEGCNT  .BYTE   0
+
+
+BOOT    ;Start here and follow the yellow brick road.
+        LD      SP,RELSEG+1000H         ;if that doesn't do it I'll be
+
+        ;   Step 1
+;Initialize all I/O drivers, size memory, and do any other
+;  machine-specific stuff needed.
+
+        CALL    IOINIT
+
+        .IF CML                 ; until we update COMPAL files
+         LD     A,0C3H          ; set up keyboard interrupt vecto
+         LD     (38H),A
+         LD     HL,CHINT
+         LD     (39H),HL
+        .ENDC
+
+
+;   Step 2
+;read directory from abs block 2 into
+;memory just above the interp
+;find system.pascal and leave the
+;address of its direntry in DENTP
+;
+;       read in the directory
+        LD      HL,(SYSUNT)     ;unit number for booting
+        PUSH    HL
+        LD      HL,NRPTOP       ;I/O buffer, way out there
+        PUSH    HL
+        LD      HL,0
+        PUSH    HL
+        LD      HL,04H*200H     ;length, 4 blocks
+        PUSH    HL
+        LD      HL,02H          ;DIR starts at block 2
+        PUSH    HL
+        CALL    SYSRD           ; that does it folks
+;       search dir
+        LD      HL,FSTENT        ;skip over entry 0, disk name
+        LD      (DENTP),HL
+        LD      C,00H
+;               ;(DENTP)=^DIR ENTRY, HL=^DIR.TITLE, DE=^SYSTITLE, C=counter
+$20     ;outer, loop on each dir entry
+        LD      DE,DTITLE       ;inc HL to .TITLE in entry
+        ADD     HL,DE
+        LD      DE,SYSTLE       ;set DE to title for comparison
+        LD      B,0EH           ;comp for length of title
+$30     ;inner, loop on characters
+        LD      A,(DE)
+        CP      (HL)
+        JP      NZ,$40
+        INC     DE
+        INC     HL
+        DJNZM   $30
+        JP      FOUND
+$40     ; No match here - go to next dir entry
+        LD      HL,(DENTP)
+        LD      DE,DENTSZ
+        ADD     HL,DE
+        LD      (DENTP),HL
+        DEC     C
+        JP      NZ,$20
+$45     JP      $45             ; We didn't find it.  Maybe one of this days
+                                ;   we'll put out an error message here.
+FOUND   ;adrs left in DENTP
+
+
+
+;   Step 3
+;RELSEG .EQU    NRPTOP+800H     ;address to read block 0 at, above dir
+;SYSBLK .WORD   0               ;amount to make rel seg blk nos absolute
+;SEGCNT .BYTE   0
+
+        ;do the read
+        LD      HL,(SYSUNT)     ;unit
+        PUSH    HL
+        LD      HL,RELSEG       ;buffer
+        PUSH    HL
+        LD      HL,0
+        PUSH    HL
+        LD      HL,40H          ;length, 16 entries
+        PUSH    HL
+        LD      HL,(DENTP)      ;block, from directory
+        LD      C,(HL)
+        INC     HL
+        LD      B,(HL)
+        PUSH    BC
+        LD      L,C
+        LD      H,B
+        LD      (SYSBLK),HL
+        CALL    SYSRD
+        ;put stuff into SEGTBL
+;                       HL => RELSEG: array [0..15] of
+;                                       DISKADR, relative block number
+;                                       CODELEN  length in bytes
+;                       DE => SEGTBL: array [0..15] of
+;                                       UNIT, device index
+;                                       BLOCK, absolute
+;                                       LENGTH same as above
+        LD      A,10H           ;loop control
+        LD      (SEGCNT),A
+        LD      DE,SEGTBL
+        LD      HL,RELSEG
+$50     LD      A,(SYSUNT)      ;set SEGTBL.UNIT := 4
+        LD      (DE),A
+        INC     DE
+        XOR     A
+        LD      (DE),A
+        INC     DE
+        LD      C,(HL)          ;BC := RELSEG.DISKADR
+        INC     HL
+        LD      B,(HL)
+        INC     HL
+        PUSH    HL              ;calc abs block num
+        LD      HL,(SYSBLK)
+        ADD     HL,BC
+        EX      DE,HL
+        LD      (HL),E
+        INC     HL
+        LD      (HL),D
+        INC     HL
+        EX      DE,HL           ;restore pointers
+        POP     HL
+        LD      A,(HL)          ;set SEGTBL.LENGTH := RELSEG.CODELEN
+        LD      (DE),A
+        INC     DE
+        INC     HL
+        LD      A,(HL)
+        LD      (DE),A
+        INC     DE
+        INC     HL
+        LD      A,(SEGCNT)      ;do this 16 times
+        DEC     A
+        LD      (SEGCNT),A
+        JP      NZ,$50
+
+
+
+;   Step 4
+; read segment zero, pointed at by SEGTBL[0],
+;into the highest memory address possible, up
+;to MAXADR. Also set SP at bottom of code read in.
+
+        LD      HL,SEGTBL+04H   ;get len of seg zero
+        LD      E,(HL)
+        INC     HL
+        LD      D,(HL)
+        LD      HL,(MEMTOP)
+        INC     HL
+        INC     HL
+        SUBHLDE
+        LD      SP,HL
+        LD      A,(SYSUNT)      ;unit
+        LD      C,A
+        LD      B,00H
+        PUSH    BC
+        PUSH    HL              ;buffer
+        LD      HL,0
+        PUSH    HL
+        PUSH    DE              ;length
+        LD      HL,(SEGTBL+02H) ; block
+        PUSH    HL
+        CALL    SYSRD
+
+; Fill in internal seg table
+        LD      HL,INTSEGT+4
+        LD      BC,-<MAXSEG*4>
+        CLRA
+$60     LD      (HL),A
+        INC     HL
+        INC     C
+        JP      NZ,$60
+        INC     B
+        JP      NZ,$60
+        LD      HL,1            ; initialize entries for op sys
+        LD      (INTSEGT),HL
+        LD      HL,(MEMTOP)
+        LD      (INTSEGT+2),HL
+
+
+;   Step 5
+; Initialize all P-machine registers including
+;SP, NP, MP, BASE, IPC, JTAB, SEG.
+;Create an initial stack frame and MSCW including
+;the automagic ^SYSCOM parameter.
+
+        LD      HL,(MEMTOP)
+STEP5   LD      (SEGP),HL
+        DEC     HL              ;set JTAB := SEG^[-1]
+        LD      B,(HL)
+        DEC     HL
+        LD      C,(HL)
+        SUBHLBC                 ; self relative
+        LD      (JTAB),HL
+        DEC     HL              ;set IPCSAV := JTAB^[-1]
+        LD      B,(HL)
+        DEC     HL
+        LD      C,(HL)
+        SUBHLBC                 ; self relative
+        LD      (IPCSAV),HL
+        LD      HL,(JTAB)       ;new stack frame
+        LD      BC,DATASZ
+        ADD     HL,BC           ; SP := SP-JTAB^[-8]
+        LD      C,(HL)
+        INC     HL
+        LD      B,(HL)
+        XOR     A
+        SUB     C
+        LD      L,A
+        LD      A,00H
+        SBC     A,B
+        LD      H,A
+        ADD     HL,SP
+        LD      SP,HL
+        LD      DE,SYSCOM       ;^SYSCOM parameter
+        PUSH    DE
+        PUSH    HL              ;create MSCW, dummy save state
+        LD      HL,-04H         ;address of an ABORT opcode
+        ADD     HL,SP
+        PUSH    HL
+        LD      HL,00D6H        ; an ABORT opcode
+        PUSH    HL
+        PUSH    HL
+        LD      HL,-04H         ;STAT and DYN must be self referencing
+        ADD     HL,SP
+        PUSH    HL
+        PUSH    HL
+        LD      (MP),HL         ;set all MSCW pointers
+        LD      (BASE),HL
+        LD      BC,DISP0
+        ADD     HL,BC
+        LD      (MPD0),HL
+        LD      (BASED0),HL
+        LD      HL,INTEND               ;set NP
+        LD      (NP),HL
+
+;   Step 6
+; enable interrupts and do other junky stuff
+
+        RESTORE
+
+NRPTOP  .EQU    $
+RELSEG  .EQU    NRPTOP+800H
+FSTENT  .EQU    NRPTOP+DENTSZ
+        .END    GOLOC           ;you learn to pray.
+
+; End of file BOOT, and end of interpreter !

@@ -1,0 +1,913 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+(*
+ * UCSD p-System Operating System
+ * Copyright (C) 2010 Peter Miller
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of the ucsd-psystem-os project nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *)
+
+(*$I globals.text *)
+
+SEGMENT PROCEDURE SEDITOR(INN,OWWT: FIBP);
+(********************************************************************)
+(*   Copyright (c) 1978 Regents of the University of California.    *)
+(*   Permission to copy or distribute this software or documen-     *)
+(*   tation in hard or soft copy granted only by written license    *)
+(*   obtained from the Institute for Information Systems.           *)
+(********************************************************************)
+
+(* YALOE * YALOE * YALOE * YALOE * YALOE * YALOE * YALOE * YALOE *
+ * This text editor is based on the command structure
+ * of the RT-11 system text editor.  Initially structured
+ * and writted by Richard Kaufmann and Greg Davidson.
+ * Later modified, enhanced, and quickened by Keith Shillington.
+ * Released continuously from early June 1977.
+ * Latest fixes by Roger Sumner for I.3  8-AUG-77
+ * 11-AUG-77 Keith Shillington  backspacing changes
+ * 13-SEP-77 kas & rts ALPHA lock and backspace fix
+ * 24-SEP-77 rts removes alpha lock...put into 1.3b interp
+ *  7-OCT-77 Made a non-system program...RSK dynasty takes over
+ *  9-FEB-78 Bugs about heap remain...I.4 out the door anyway
+ *           system works ok with dirty fix in writedir!
+ * YALOE * YALOE * YALOE * YALOE * YALOE * YALOE * YALOE * YALOE *)
+
+ CONST
+  RET = 13;  TAB = 9;
+  CTRLX = (*030o*) 24;
+  DC1 =   (*021o*) 17;
+  EXECSIZE = 1000;
+  MAXMAC = 9; (* CHANGING THIS HAS IMPACT ON THE CODE... *)
+  SHIFT = 15;
+TYPE
+  FILEBUF = PACKED ARRAY[0..1023] OF CHAR;
+  COMARRAY = PACKED ARRAY[0..99] OF CHAR;
+  BUFCHUNK = PACKED ARRAY[0..999] OF CHAR;
+VAR
+  I,J,ENDPOS,CURSOR: INTEGER;
+  BUFSIZE,BUFEND: INTEGER;
+  EQUALLENGTH: INTEGER;
+  ESC: CHAR;
+  CTRLU: INTEGER;
+  BACK,ACR: CHAR;
+  EXEC: ^COMARRAY;
+  BUF: ^BUFCHUNK;
+  MACROS: ARRAY[0..MAXMAC] OF
+              RECORD
+                LGTH: INTEGER;
+                EXEC: ^COMARRAY
+              END;
+  IOFILE: FILE;
+
+FUNCTION COMMAND: BOOLEAN; FORWARD;
+
+FUNCTION MIN(A,B:INTEGER): INTEGER;
+BEGIN
+  IF A>B THEN MIN := B ELSE MIN := A
+END;
+
+FUNCTION NEWFIN: BOOLEAN; (* TRUE IF ERROR OCCURS *)
+LABEL 1;
+VAR
+  NBLOCKS,STASHSIZE,STASHEDAT: INTEGER;
+    STASHCURSOR,NPAGES,I,NEXT: INTEGER;
+    DIDDLED: BOOLEAN;
+BEGIN
+  NEWFIN := FALSE;
+  IF BLOCKREAD(IOFILE,I,0,2) = 0 THEN BEGIN (* OK *)
+    STASHCURSOR := CURSOR;
+    STASHSIZE := ENDPOS - CURSOR;  STASHEDAT := BUFEND-STASHSIZE;
+    IF (STASHEDAT > CURSOR) THEN (* THERE IS ROOM *)
+      MOVERIGHT(BUF^[CURSOR],BUF^[STASHEDAT],STASHSIZE)
+    ELSE
+      BEGIN
+        WRITELN(OUTPUT,'not enough space');
+        NEWFIN := TRUE;
+        GOTO 1;
+      END;
+    DIDDLED := FALSE;
+    IF ODD(CURSOR) THEN BEGIN
+      DIDDLED := TRUE;
+      CURSOR := CURSOR +1;
+    END;
+    NBLOCKS := (STASHEDAT - CURSOR) DIV 512;
+    NBLOCKS := BLOCKREAD(IOFILE,BUF^[CURSOR],NBLOCKS);
+    IF (NOT EOF(IOFILE)) OR (IORESULT <> 0) OR (ODD(NBLOCKS)) THEN BEGIN
+      CLOSE(IOFILE);
+      WRITELN(OUTPUT,'not enough space');
+      CURSOR := STASHCURSOR;
+      NEWFIN := TRUE;
+      GOTO 1;
+    END;
+    NPAGES := NBLOCKS DIV 2;
+    IF DIDDLED THEN (* UGH *) BEGIN
+      CURSOR := CURSOR -1;
+      MOVELEFT(BUF^[CURSOR+1],BUF^[CURSOR],NPAGES*1024);
+    END;
+    NEXT := CURSOR;
+    WHILE NPAGES > 0 DO BEGIN
+      NPAGES := NPAGES -1;
+      CURSOR := CURSOR +1023;
+      NEXT := NEXT +1024;
+      I := SCAN(-1024,<>CHR(0),BUF^[CURSOR]);
+      CURSOR := CURSOR +I +1; (* POINT AT FIRST NUL *)
+      IF NPAGES > 0 THEN  MOVELEFT(BUF^[NEXT],BUF^[CURSOR],1024);
+    END;
+1:      (* THIS IS WHERE THE WOUND IS CLOSED AND HEALED *)
+    CLOSE(IOFILE);
+    MOVELEFT(BUF^[STASHEDAT],BUF^[CURSOR],STASHSIZE);
+    ENDPOS := STASHSIZE +CURSOR;
+    BUF^[ENDPOS] := CHR(0);
+    CURSOR := STASHCURSOR;
+  END;
+END;
+
+PROCEDURE INITIALIZE;
+VAR
+  BUFMAKER: ^BUFCHUNK;
+  SPACEMAKER: ^COMARRAY;
+  HERE: ^INTEGER;
+  LIMIT: INTEGER;
+  TEST: BOOLEAN;
+BEGIN
+  WRITE(OUTPUT,'YALOE:');
+  IF NOT SYSCOM^.MISCINFO.SLOWTERM THEN
+    WRITE(OUTPUT,
+        ' - ? <esc><esc> for details');
+  WRITELN(OUTPUT);
+  NEW(BUF); (* BASE OF THE BUFFER *)
+  BUFSIZE := SIZEOF(BUFCHUNK);
+  LIMIT := ORD(SYSCOM^.LASTMP);
+  REPEAT
+    MARK(HERE);
+    TEST := ((LIMIT - ORD(HERE))<5000) AND ((LIMIT - ORD(HERE))>0);
+    IF NOT TEST THEN
+      BEGIN
+        NEW(BUFMAKER);
+        BUFSIZE := BUFSIZE +SIZEOF(BUFCHUNK)
+      END;
+  UNTIL TEST;
+  IF BUFSIZE < 0 THEN BUFSIZE := 32000;
+  NEW(EXEC);
+  FOR I := 1 TO 9 DO NEW(SPACEMAKER); (* CREATE SPACE FOR BASIC COMMAND *)
+  FOR I := 0 TO MAXMAC DO
+    MACROS[I].EXEC := NIL;
+  CURSOR := 0;  ENDPOS := 0;
+  BUFEND := BUFSIZE;
+  I := 0;
+  ACR := CHR(RET);
+  BACK := SYSCOM^.CRTCTRL.BACKSPACE;
+  ESC := SYSCOM^.CRTINFO.ALTMODE;
+  CTRLU := ORD(SYSCOM^.CRTINFO.LINEDEL);
+  WITH USERINFO DO
+   IF GOTSYM THEN BEGIN
+    OPENOLD(IOFILE,CONCAT(SYMVID,':',SYMTID));
+    IF NEWFIN THEN
+    BEGIN WRITELN(OUTPUT,'Lost workfile source');
+      GOTSYM := FALSE
+    END
+    ELSE BEGIN
+      WRITE(OUTPUT,'Workfile ');
+      IF LENGTH(WORKTID) > 0 THEN
+        WRITE(OUTPUT,WORKTID,' ');
+      WRITELN(OUTPUT,'read in');
+     END
+   END ELSE BEGIN
+    ENDPOS := 0; BUF^[0] := CHR(0);
+    WRITELN(OUTPUT,'No workfile to read');
+  END;
+  CURSOR := 0;
+  EQUALLENGTH := 0;
+END;
+
+
+  PROCEDURE NEWOUTLOOK;
+  VAR  I:INTEGER;
+    STASHCURSOR: INTEGER;
+    P: ^INTEGER;
+    COM: ^FILEBUF;
+  BEGIN
+    STASHCURSOR := CURSOR;
+    MARK(P);
+    NEW(COM);
+    FILLCHAR(COM^[0],1024,CHR(0));
+    CURSOR := 0;
+    IF BLOCKWRITE(IOFILE,COM^,2) = 2 THEN
+    WHILE (CURSOR + 1023) < ENDPOS DO BEGIN
+      I := SCAN(-1022, = CHR(RET), BUF^[CURSOR +1022]);
+      MOVELEFT(BUF^[CURSOR],COM^,1023+I);
+      FILLCHAR(COM^[1023+I],ABS(I)+1,CHR(0));
+      IF BLOCKWRITE(IOFILE,COM^,2) <>2 THEN BEGIN
+        RELEASE(P);
+        WRITELN(OUTPUT, 'Output file error: Help');
+        CLOSE(IOFILE);
+        EXIT(COMMAND);
+      END;
+      CURSOR := CURSOR+1023+I;
+    END;
+    IF (CURSOR < ENDPOS) THEN BEGIN
+      FILLCHAR(BUF^[ENDPOS],1024-(ENDPOS-CURSOR),CHR(0));
+      MOVELEFT(BUF^[CURSOR],COM^,1024);
+      IF BLOCKWRITE(IOFILE,COM^,2) <>2 THEN BEGIN
+        RELEASE(P);
+        WRITELN(OUTPUT,'Output file error.  HELP!');
+        CLOSE(IOFILE);
+        EXIT(COMMAND);
+      END;
+    END;
+    RELEASE(P);
+    CLOSE(IOFILE,LOCK);
+    CURSOR := STASHCURSOR;
+  END;
+
+PROCEDURE CLOSETHEWORLD(VAR CH: CHAR);
+VAR
+  LTITLE : STRING[29];
+  EXITSET: SET OF 'A'..'z';
+BEGIN
+  EXITSET := ['E','e','U','u','R','r'];
+  REPEAT
+    IF NOT (CH IN EXITSET) THEN BEGIN
+      CLEARSCREEN;
+      PL:='Quit: U(pdate work file, E(xit without update, R(eturn to editor';
+      PROMPT; READ(INPUT,CH); WRITELN(OUTPUT)
+    END;
+    IF (CH='U') OR (CH='u') THEN
+      WITH USERINFO DO BEGIN
+        LTITLE := '*SYSTEM.WRK.TEXT';
+        OPENNEW(IOFILE,LTITLE); NEWOUTLOOK;
+        (*IF WE GET HERE THEN FILE IS LOCKED ON DISK OK*)
+        SYMVID := SYVID; SYMTID := 'SYSTEM.WRK.TEXT'; GOTSYM := TRUE;
+        LTITLE := '*SYSTEM.WRK.CODE';
+        OPENOLD(IOFILE,LTITLE); CLOSE(IOFILE,PURGE);
+        GOTCODE := FALSE; CODETID := ''
+    END
+  UNTIL CH IN EXITSET;
+END;
+
+
+PROCEDURE PROMPTS;
+VAR
+  HERE: ^INTEGER;
+BEGIN
+  MARK(HERE);
+  CLEARSCREEN;
+  WRITELN(OUTPUT,'Yet Another Line Oriented Editor.');
+  WRITELN(OUTPUT);
+  WRITELN(OUTPUT,
+        'Advance  Beginning  Change  Delete  Get  Insert  Jump');
+  WRITELN(OUTPUT,'Kill  List  Macro <definition>  Now <macro execution>');
+  WRITELN(OUTPUT,'Quit <Esc Update>  Read <filename>  Save  Unsave  Verify');
+  WRITELN(OUTPUT,'Write <filename>  eXchange  ?elp');
+  WRITELN(OUTPUT,'Ctrl-X (can) to cancel command input.');
+  WRITELN(OUTPUT);
+  WRITELN(OUTPUT,'The macros you have defined are:');
+  WRITE(OUTPUT,' - ');
+  FOR I := 0 TO MAXMAC DO
+    IF MACROS[I].EXEC <> NIL THEN
+      WRITE(OUTPUT,I,' - ');
+  WRITELN(OUTPUT);
+  WRITE(OUTPUT,'Your text buffer is ',BUFSIZE,' bytes, ',ENDPOS);
+  WRITELN(OUTPUT,' of which are filled, leaving ',BUFSIZE-ENDPOS);
+  WRITE(OUTPUT,'Your ''save'' text is ',BUFSIZE-BUFEND,' bytes');
+END;
+
+PROCEDURE INCOMMAND;
+LABEL 1,2;
+VAR ONEESC,WARNED: BOOLEAN;
+  CH: CHAR;
+  FACTOR,T: INTEGER;
+  CHDEL: CHAR;
+  CRTESC,UP,EEOL: CHAR;
+  SLOW,WASBS: BOOLEAN;
+  CONTROLS: SET OF CHAR;
+BEGIN
+  FILLCHAR(EXEC^,EXECSIZE,ESC);
+  FACTOR := 0;
+  WITH SYSCOM^,CRTCTRL,MISCINFO DO
+    BEGIN
+      SLOW := (BACKSPACE = CHR(0)); (* NO CONTROL *)
+      CHDEL := CRTINFO.CHARDEL;
+      CRTESC := ESCAPE;
+      UP := RLF;
+      EEOL := ERASEEOL
+    END;
+  WASBS := FALSE;
+  CH := ' ';
+  I := 0;
+  WARNED := FALSE;
+  ONEESC := FALSE;
+  READ(KEYBOARD,CH);
+  IF EOLN(KEYBOARD) THEN CH := ACR;
+  WHILE (CH <> ESC) OR NOT ONEESC DO
+    BEGIN
+      IF CH = CHR(SHIFT) THEN
+        IF SYSCOM^.MISCINFO.HAS8510A THEN               (*KAS 8/15*)
+          IF FACTOR = 128 THEN FACTOR := 0 ELSE FACTOR := 128;
+      ONEESC := (CH = ESC);
+      IF ONEESC THEN GOTO 1;
+      IF CH = CHDEL THEN
+            IF (I > 0) THEN
+              BEGIN
+                I := PRED(I);
+                IF SLOW THEN
+                  IF WASBS THEN WRITE(OUTPUT,EXEC^[I])
+                  ELSE WRITE(OUTPUT,'%',EXEC^[I])
+                ELSE
+                  IF EXEC^[I] = CHR(TAB) THEN
+                    FOR T := 1 TO 8 DO WRITE(OUTPUT,BACK)
+                  ELSE WRITE(OUTPUT,BACK,' ',BACK);
+              END;
+      IF (CH = CHR(CTRLU)) THEN
+        BEGIN
+          IF SLOW THEN
+            WRITELN(OUTPUT,'<ZAP')
+          ELSE
+            BEGIN
+              WRITELN(OUTPUT,CRTESC,UP);
+              WRITE(OUTPUT,CRTESC,EEOL);
+            END;
+          WHILE (I > 0) AND (EXEC^[I] <> ACR) DO I := PRED(I);
+          IF I <> 0 THEN I := SUCC(I) ELSE WRITE(OUTPUT,'*')
+        END
+      ELSE
+      IF (CH < ' ') THEN
+        BEGIN
+          IF ORD(CH) IN [RET,TAB,DC1] THEN
+                BEGIN
+        1:              EXEC^[I] := CH;
+                        I := SUCC(I);
+                        IF ONEESC THEN WRITE(OUTPUT,'$')
+                        ELSE IF ORD(CH) = DC1 THEN WRITE(OUTPUT,CHR(7))
+                             ELSE WRITE(OUTPUT,CH)
+                END;
+          IF CH = CHR(CTRLX) THEN BEGIN
+                         I := 0;
+                         WRITELN(OUTPUT);
+                         EXIT(INCOMMAND)
+                       END
+        END
+      ELSE
+        IF (CH <> CHDEL) AND WASBS THEN
+          BEGIN
+            IF SLOW THEN WRITE(OUTPUT,'%');
+            WRITE(OUTPUT,CH);
+            EXEC^[I] := CH;
+            I := SUCC(I)
+          END
+        ELSE
+          IF (CH <> CHDEL) AND (CH >= ' ') AND (CH <> CHR(CTRLU)) THEN
+            BEGIN
+              WRITE(OUTPUT,CH);
+              EXEC^[I] := CH;
+              I := SUCC(I)
+            END;
+    WASBS := (CH = CHDEL);
+    IF I >= (EXECSIZE - 80 (*WARNING*)) THEN
+      IF I > (EXECSIZE - 2) THEN REPEAT
+        WRITELN(OUTPUT,'Command buffer full.  Type <esc> <esc> or (^X).');
+        READ(KEYBOARD,CH);
+        IF CH=CHR(CTRLX) THEN BEGIN
+          I := 0;  EXIT(INCOMMAND)
+        END ELSE
+        IF CH = ESC THEN BEGIN
+          READ(KEYBOARD,CH);
+          IF CH = ESC THEN
+            EXIT(INCOMMAND);
+        END;
+      UNTIL FALSE
+      ELSE IF NOT WARNED AND (CH = ACR) THEN
+        BEGIN
+          WRITELN(OUTPUT,'please finish',CHR(7)(* BELL *));
+          WARNED:=TRUE;
+        END;
+    READ(KEYBOARD,CH);
+    IF EOLN(KEYBOARD) THEN CH := ACR;
+    IF CH >= ' ' THEN
+      CH := CHR(ORD(CH)+FACTOR)
+    END;
+  WRITELN(OUTPUT,'$');
+  I:=I-1;
+END;
+
+
+FUNCTION COMMAND(*: BOOLEAN *);
+  VAR RCOUNT:INTEGER;
+    THISCH: CHAR;
+    NEG:BOOLEAN;
+    NUMBER: SET OF '0'..'9';
+
+
+PROCEDURE SYNTAX(ERRCH: CHAR);
+BEGIN
+  WRITELN(OUTPUT,ERRCH,' : IS IN ERROR, COMMAND STOPPED.');
+  EXIT(COMMAND);
+END;
+
+PROCEDURE LINEPLACE(VAR PTR: INTEGER; N: INTEGER);
+  VAR I: INTEGER;
+BEGIN
+  PTR := CURSOR; (* A NICE PLACE TO START *)
+  IF (N <= 0) THEN (* LOOK BACK *) BEGIN
+    REPEAT
+      PTR := PTR -1;
+      I := SCAN(-(PTR+1),=ACR,BUF^[PTR]);
+      PTR := PTR +I;
+      N := SUCC(N);
+    UNTIL (N > 0) OR (PTR < 0);
+  PTR := SUCC(PTR);
+  END ELSE REPEAT
+    I := SCAN(ENDPOS-PTR-1,=ACR,BUF^[PTR]);
+    PTR := PTR+I+1;
+    N := N -1;
+  UNTIL (N=0) OR (PTR = ENDPOS);
+END;
+
+PROCEDURE DELETESTUFF;
+VAR
+  COUNT: INTEGER;
+BEGIN
+  IF (RCOUNT = 0) THEN
+    BEGIN
+      LINEPLACE(COUNT,0);
+      RCOUNT := COUNT - CURSOR;
+    END;
+  COUNT:=CURSOR+RCOUNT;
+  IF RCOUNT<0 THEN
+    BEGIN
+    IF COUNT<0 THEN COUNT := 0;
+    MOVELEFT(BUF^[CURSOR],BUF^[COUNT],ENDPOS-CURSOR+1);
+    ENDPOS:=ENDPOS-(CURSOR-COUNT);
+    CURSOR:=COUNT;
+  END
+  ELSE
+    IF (COUNT >= ENDPOS) OR (COUNT < 0) THEN
+      BEGIN
+        ENDPOS := CURSOR;  BUF^[CURSOR] := CHR(0);
+      END
+    ELSE
+      BEGIN
+        MOVELEFT(BUF^[COUNT],BUF^[CURSOR],ENDPOS-COUNT+1);
+        ENDPOS:=ENDPOS-(COUNT-CURSOR);
+      END;
+END;
+
+
+
+
+PROCEDURE GETTER;
+VAR
+  DIR,SIZE: INTEGER;
+  FOUND,HARDEND: BOOLEAN;
+  FIRST: CHAR;
+  PATTERN,QUESTION: STRING[100];
+
+  PROCEDURE FINDIT;
+  BEGIN
+    REPEAT
+      IF DIR < 0 THEN
+        BEGIN
+          CURSOR := CURSOR + SCAN(-CURSOR,=FIRST,BUF^[CURSOR]);
+          IF CURSOR <= 0 THEN
+            BEGIN
+              HARDEND := TRUE;
+              CURSOR := 0;
+              EXIT(FINDIT)
+            END
+        END
+      ELSE
+        BEGIN
+          CURSOR := CURSOR + SCAN(ENDPOS-CURSOR+1,=FIRST,BUF^[CURSOR]);
+          IF CURSOR >= ENDPOS THEN
+            BEGIN
+              HARDEND := TRUE;
+              CURSOR := ENDPOS;
+              EXIT(FINDIT)
+            END
+        END;
+      MOVELEFT(BUF^[CURSOR],QUESTION[1],SIZE);
+      FOUND := (QUESTION = PATTERN);
+      CURSOR := CURSOR + DIR
+    UNTIL FOUND
+  END (* FINDIT *);
+
+BEGIN
+  IF RCOUNT < 0 THEN
+    BEGIN
+      RCOUNT := -RCOUNT;
+      DIR := -1
+    END
+  ELSE DIR := 1;
+  J := J+1;
+  SIZE := 0;
+  FIRST := EXEC^[J];
+  WHILE EXEC^[J +SIZE] <> ESC DO SIZE := SIZE +1;
+  IF SIZE >= SIZEOF(PATTERN) THEN
+    BEGIN WRITELN(OUTPUT,'Find too long'); EXIT(COMMAND) END;
+  MOVELEFT(EXEC^[J],PATTERN[1],SIZE);
+  PATTERN[0] := CHR(SIZE);
+  QUESTION[0] := CHR(SIZE);
+  HARDEND := FALSE;
+  FOUND := FALSE;
+  REPEAT
+    FINDIT;
+    RCOUNT := RCOUNT -1
+  UNTIL (RCOUNT <= 0) OR HARDEND;
+  IF HARDEND THEN
+    BEGIN
+      WRITELN(OUTPUT,PATTERN,' not found');
+      EXIT(COMMAND)
+    END;
+  IF DIR < 0 THEN CURSOR := CURSOR +1
+  ELSE CURSOR := CURSOR +SIZE -1;
+  J := J +SIZE;
+  EQUALLENGTH := SIZE
+END (* GETTER *);
+
+PROCEDURE INSERTTEXT;
+VAR
+  SIZEOVER: BOOLEAN;  LENGTH,TEMP: INTEGER;
+BEGIN
+  SIZEOVER := FALSE;  J := J+1;
+  LENGTH := SCAN(I-J,=(ESC),EXEC^[J]);
+  TEMP := ENDPOS+LENGTH;
+  IF (TEMP > BUFSIZE) THEN
+    BEGIN
+      WRITELN(OUTPUT,'insertion truncated, not enough space');
+      SIZEOVER := TRUE;
+      LENGTH := BUFSIZE-ENDPOS;
+      TEMP := BUFSIZE;
+    END;
+  IF (TEMP > BUFEND) THEN
+    BEGIN
+      WRITELN(OUTPUT,'''save'' area deleted.');
+      BUFEND := BUFSIZE;
+    END;
+  MOVERIGHT(BUF^[CURSOR],BUF^[CURSOR+LENGTH],BUFEND-(CURSOR+LENGTH));
+  MOVELEFT(EXEC^[J],BUF^[CURSOR],LENGTH);
+  ENDPOS := ENDPOS +LENGTH;
+  CURSOR := CURSOR +LENGTH;
+  EQUALLENGTH := LENGTH;
+  IF SIZEOVER THEN EXIT(COMMAND);
+  J := J +LENGTH;
+END (* INSERT NEW TEXT *);
+
+PROCEDURE JUMP;
+BEGIN
+  IF RCOUNT = 0 THEN LINEPLACE(CURSOR,0)
+  ELSE CURSOR := CURSOR + RCOUNT;
+  IF (CURSOR<0) AND (RCOUNT<0) THEN CURSOR := 0
+  ELSE
+   IF (CURSOR<0) OR (CURSOR>ENDPOS) THEN CURSOR := ENDPOS;
+END;
+
+
+PROCEDURE KILL;
+  VAR POSITION:INTEGER;
+BEGIN
+  LINEPLACE(POSITION,RCOUNT);
+  IF RCOUNT<=0 THEN
+    BEGIN
+      MOVELEFT(BUF^[CURSOR],BUF^[POSITION],(ENDPOS-CURSOR+1));
+      ENDPOS := ENDPOS - (CURSOR - POSITION);
+      CURSOR := CURSOR - (CURSOR - POSITION);
+    END
+  ELSE
+    BEGIN
+      MOVELEFT(BUF^[POSITION],BUF^[CURSOR],(ENDPOS-POSITION+1));
+      ENDPOS := ENDPOS - (POSITION - CURSOR);
+    END;
+END;
+
+
+PROCEDURE LIST;
+  VAR POSITION: INTEGER;
+BEGIN
+  LINEPLACE(POSITION,RCOUNT);
+  IF RCOUNT<=0 THEN
+    UNITWRITE(1(* CONSOLE: *),BUF^[POSITION],CURSOR-POSITION)
+  ELSE
+    UNITWRITE(1(* CONSOLE: *),BUF^[CURSOR],POSITION-CURSOR)
+END;
+
+
+PROCEDURE MACRODEFINITION;
+VAR
+  STOPCH: CHAR;
+  LGTH: INTEGER;
+BEGIN
+  IF (RCOUNT<0) OR (RCOUNT>MAXMAC) THEN SYNTAX('#');
+  IF MACROS[RCOUNT].EXEC = NIL THEN NEW(MACROS[RCOUNT].EXEC);
+  STOPCH := EXEC^[J+1];
+  LGTH := SCAN(I-J,=STOPCH,EXEC^[J+2]);
+  IF (LGTH = (I-J)) OR (LGTH > SIZEOF(COMARRAY)) OR (LGTH = 0) THEN
+    BEGIN
+      WRITELN(OUTPUT,'Error in macro definition');
+      EXIT(COMMAND);
+    END;
+  MOVELEFT(EXEC^[J+2],MACROS[RCOUNT].EXEC^[0],LGTH);
+  FILLCHAR(MACROS[RCOUNT].EXEC^[LGTH+1],SIZEOF(COMARRAY)-LGTH,ESC);
+  MACROS[RCOUNT].LGTH := LGTH;
+  J := J+LGTH+2;
+END (* DEFINE MACRO *);
+
+PROCEDURE NOWEXECUTEMACRO;
+VAR
+  SAVE: RECORD
+          EXEC: ^COMARRAY;
+          I,J: INTEGER
+        END;
+  MACNUM: INTEGER;
+  ERROR: BOOLEAN;
+BEGIN
+  J := J +1;
+  SAVE.EXEC := EXEC;
+  SAVE.I := I;
+  SAVE.J := J;
+  IF EXEC^[J] = ESC THEN MACNUM := 1
+  ELSE MACNUM := ORD(EXEC^[J])-ORD('0');
+  IF (MACROS[MACNUM].EXEC = NIL) THEN
+    BEGIN
+      WRITELN(OUTPUT,'ILLEGAL MACRO...Try again');
+      EXIT(COMMAND)
+    END;
+  IF (MACNUM<0) OR (MACNUM > MAXMAC) THEN SYNTAX('#');
+  EXEC := MACROS[MACNUM].EXEC;
+  I := MACROS[MACNUM].LGTH;
+  WHILE RCOUNT > 0 DO
+    BEGIN
+      RCOUNT := RCOUNT -1;
+      IF COMMAND THEN
+        BEGIN
+          COMMAND := TRUE;
+          EXIT(COMMAND)
+        END;
+      ERROR := (J<I);
+      IF ERROR THEN
+        BEGIN
+          RCOUNT := 0;
+          WRITELN(OUTPUT,'macro halted');
+        END;
+    END;
+  EXEC := SAVE.EXEC;
+  I := SAVE.I;
+  J := SAVE.J;
+  IF ERROR THEN EXIT(COMMAND);
+END (* NOW EXECUTE MACRO *);
+
+
+PROCEDURE READFILE;
+VAR
+  LGTH: INTEGER;
+  TITLE: STRING[40];
+BEGIN
+  J := J +1;
+  LGTH := SCAN(30,=ESC,EXEC^[J]);
+  IF (LGTH <= 30) AND (LGTH > 0) THEN
+    BEGIN
+      TITLE[0] := CHR(LGTH);
+      MOVELEFT(EXEC^[J],TITLE[1],LGTH);
+      OPENOLD(IOFILE,TITLE);
+      IF IORESULT = 0 THEN
+        BEGIN IF NEWFIN THEN EXIT(COMMAND) END
+      ELSE
+        BEGIN
+          OPENOLD(IOFILE,CONCAT(TITLE,'.TEXT'));
+          IF IORESULT = 0 THEN
+            BEGIN IF NEWFIN THEN EXIT(COMMAND) END
+          ELSE
+            BEGIN
+              WRITELN(OUTPUT,'File: ',TITLE,' is in error.  Not read');
+              EXIT(COMMAND);
+            END;
+        END
+    END
+  ELSE
+    BEGIN
+      WRITELN(OUTPUT,'File name error.');
+      EXIT(COMMAND);
+    END;
+  J := J +LGTH;
+END;
+
+PROCEDURE SAVE;
+VAR
+  POS,DELTA: INTEGER;
+BEGIN
+  LINEPLACE(POS,RCOUNT);
+  IF RCOUNT <= 0 THEN
+    DELTA := CURSOR -POS
+  ELSE
+    DELTA := POS -CURSOR;
+  BUFEND := BUFSIZE -DELTA;
+  IF BUFEND <= ENDPOS THEN
+    BEGIN
+      BUFEND := BUFSIZE;
+      WRITELN(OUTPUT,'Not enough room to save in');
+      EXIT(COMMAND);
+    END;
+  IF RCOUNT <= 0 THEN
+    MOVELEFT(BUF^[POS],BUF^[BUFEND],DELTA)
+  ELSE
+    MOVELEFT(BUF^[CURSOR],BUF^[BUFEND],DELTA)
+END (* SAVE *);
+
+PROCEDURE UNSAVE;
+VAR
+  STASHSIZE,STASHEDAT,DELTA: INTEGER;
+BEGIN
+  IF RCOUNT = 0 THEN
+    BUFEND := BUFSIZE
+  ELSE
+    BEGIN
+      STASHSIZE := ENDPOS -CURSOR;
+      DELTA := BUFSIZE -BUFEND;
+      STASHEDAT := CURSOR +DELTA;
+      IF ((STASHEDAT +STASHSIZE) < BUFEND) THEN
+        BEGIN
+          MOVERIGHT(BUF^[CURSOR],BUF^[STASHEDAT],STASHSIZE);
+          MOVELEFT(BUF^[BUFEND],BUF^[CURSOR],DELTA);
+          ENDPOS := ENDPOS +DELTA;
+          BUF^[ENDPOS] := CHR(0)
+        END
+      ELSE
+        BEGIN WRITELN(OUTPUT,'not enough space'); EXIT(COMMAND) END
+    END (* ~=0 *)
+END (* UNSAVE *);
+
+PROCEDURE VIEW;
+BEGIN
+  RCOUNT := 0;  LIST;
+  RCOUNT := 1;  LIST
+END;
+
+PROCEDURE WRITEFILE;
+VAR
+  LGTH: INTEGER;
+  TITLE: STRING[40];
+BEGIN
+  J := J +1;
+  LGTH := SCAN(30,=ESC,EXEC^[J]);
+  IF (LGTH > 0) AND (LGTH <= 30) THEN BEGIN
+    TITLE[0] := CHR(LGTH);
+    MOVELEFT(EXEC^[J],TITLE[1],LGTH);
+    IF (TITLE[LGTH] <> '.') AND (TITLE[LGTH] <> ']') AND
+        (POS('.TEXT',TITLE) = 0) THEN
+      TITLE := CONCAT(TITLE,'.TEXT');
+    IF (TITLE[LGTH] = '.') THEN DELETE(TITLE,LGTH,1);
+    OPENNEW(IOFILE,TITLE);
+    IF IORESULT = 0 THEN
+      NEWOUTLOOK
+    ELSE BEGIN
+      WRITELN(OUTPUT,CONCAT('File: ',TITLE,' is in error. Write not done.'));
+      EXIT(COMMAND);
+    END;
+  END ELSE BEGIN
+    WRITELN(OUTPUT,'Illegal title');
+    EXIT(COMMAND);
+  END;
+  J := J +LGTH;
+END;
+
+BEGIN (*COMMAND*)
+  COMMAND := FALSE;
+  NUMBER := ['0'..'9'];
+  J := 0;
+  WHILE (J<I) DO
+    BEGIN
+      WHILE (EXEC^[J] IN [' ',ACR,CHR(TAB),ESC]) AND (J<I) DO
+        J := SUCC(J);
+      THISCH := EXEC^[J];
+      NEG := (THISCH = '-');
+      IF THISCH IN ['+','-'] THEN
+        BEGIN
+          J := J +1;
+          THISCH := EXEC^[J]
+        END;
+      IF (THISCH IN NUMBER) THEN
+        BEGIN
+          RCOUNT := 0;
+          REPEAT
+            RCOUNT := (RCOUNT*10) + ORD(EXEC^[J])-ORD('0');
+            J := SUCC(J)
+          UNTIL ((NOT (EXEC^[J] IN NUMBER)) OR (RCOUNT > 3200));
+          THISCH := EXEC^[J];
+        END(* IN NUMBER *)
+      ELSE RCOUNT := 1;
+      IF (THISCH IN ['=','/']) THEN
+        IF (RCOUNT <> 1) THEN SYNTAX(THISCH)
+        ELSE
+          BEGIN
+            IF (THISCH = '=') THEN RCOUNT := -EQUALLENGTH
+            ELSE (* = '/' *) RCOUNT := 32700;
+            J := J +1;
+            THISCH := EXEC^[J]
+          END;
+      IF NEG THEN RCOUNT := -RCOUNT;
+      IF (J >= I) THEN EXIT(COMMAND);
+      IF (THISCH IN ['?','A'..'Z','a'..'z']) THEN
+        CASE THISCH OF
+          '?'    : PROMPTS;
+          'a','A':LINEPLACE(CURSOR,RCOUNT);
+          'b','B':CURSOR:=0; (*DA END*)
+          'c','C':BEGIN DELETESTUFF; INSERTTEXT END;
+          'd','D':DELETESTUFF;
+          'e','E':CLEARSCREEN;
+          'G','F','f','g':GETTER;
+          'H','h':WRITELN(OUTPUT,'Unimplemented');
+          'I','i': INSERTTEXT;
+          'J','j':JUMP;
+          'K','k':KILL;
+          'L','l':LIST;
+          'M','m': MACRODEFINITION;
+          'N','n': NOWEXECUTEMACRO;
+          'o','p','t','y','z',
+          'O','P','T','Y','Z': SYNTAX(THISCH);
+          'Q','q': BEGIN
+                  THISCH := EXEC^[J+1];
+                  CLOSETHEWORLD(THISCH);
+                  COMMAND := (THISCH IN ['E','e','U','u']);
+                  EXIT(COMMAND)
+                END;
+          'R','r':READFILE;
+          'S','s':SAVE;
+          'U','u':UNSAVE;
+          'V','v':VIEW;
+          'W','w':WRITEFILE;
+          'X','x':BEGIN KILL; INSERTTEXT END
+        END
+      ELSE SYNTAX(THISCH);
+      J:=J+1;
+    END (* WHILE J <= I *);
+END (* COMMAND *);
+
+BEGIN (*EDITOR*)
+  INITIALIZE;
+  REPEAT
+    WRITE(KEYBOARD,'*'); (*CLEARS ^F AND ^S FLAGS!*)
+(*    this line is for the havaheart command
+ *  MOVELEFT(EXEC^,BUF^[ENDPOS+1],MIN(I,BUFEND-ENDPOS));
+ *        which some day may be implemented *)
+    INCOMMAND
+  UNTIL COMMAND;
+END;
+
+BEGIN (* JUST A DUMMY *)
+END.

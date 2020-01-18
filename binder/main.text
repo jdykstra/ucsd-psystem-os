@@ -1,0 +1,271 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+ (* UCSD PASCAL I.5 P-SYSTEM "BINDER" *)
+
+ PROGRAM BINDER;
+ CONST
+   MAXSEG = 15;
+
+ TYPE
+   SEGNUM = 0..MAXSEG;
+   SEGTBLP = ^SEGTBL;
+   SEGTBL = RECORD
+              SEGDESC: ARRAY[SEGNUM] OF
+                         RECORD
+                           DISKADDR: INTEGER;
+                           CODELENG: INTEGER
+                         END {SEGDESC};
+              SEGNAME: ARRAY[SEGNUM] OF
+                         PACKED ARRAY[0..7] OF CHAR;
+              STUFF: PACKED ARRAY[0..319] OF CHAR
+            END {SEGTBL};
+
+    BUFFER = PACKED RECORD CASE INTEGER OF
+          1: ( BYTES: PACKED ARRAY[0..10239] OF 0..255);
+          2: ( WORDS: ARRAY[0..5119] OF INTEGER)
+    END {BUFFERS};
+ VAR
+   CCH: CHAR;
+   ZEROBYTES,USERBYTES: INTEGER;
+   TABLE: SEGTBLP;
+   ZEROBUF,USERBUF: ^BUFFER;
+   HEAPPTR: ^INTEGER;
+   SOURCE,INFILE: FILE;
+
+
+ PROCEDURE ERROR;
+ BEGIN
+   WRITELN(' ERROR ');
+   EXIT(PROGRAM);
+ END;
+
+ PROCEDURE GETFILE;
+ {$I-}
+ CONST
+   USERSEG = 0;
+ VAR
+   BLOCKS: INTEGER;
+   TITLE: STRING;
+ BEGIN
+   WRITELN;
+   WRITELN('This program modifies the SYSTEM.PASCAL of your default prefix');
+   WRITELN('disk.  If any of the files it expects to be around are missing,');
+   WRITELN('i.e. SYSTEM.PASCAL, or enough room (60 blocks) to re-create it,');
+   WRITELN('it will terminate with the cryptic message "ERROR"');
+   writeln;
+   writeln('You also need to execute the program SETUP to get the system to');
+   writeln('work intelligently with your terminal.');
+   WRITELN;
+   REPEAT
+     WRITE(' File with GOTOXY(X,Y: INTEGER) procedure:');
+     READLN(TITLE);
+     IF LENGTH(TITLE) = 0 THEN EXIT(PROGRAM);
+     OPENOLD(INFILE,TITLE);
+     IF IORESULT <> 0 THEN
+       OPENOLD(INFILE,CONCAT(TITLE,'.CODE'));
+   UNTIL IORESULT = 0;
+   OPENOLD(SOURCE,'SYSTEM.PASCAL');
+   IF IORESULT <> 0 THEN ERROR;
+   {$I+}
+   {read in SYSTEM.PASCALs segtable}
+   {read in SYSTEM.PASCALs segment 0}
+   {read in named files segtable}
+   {read in named files segment 1}
+   IF BLOCKREAD(SOURCE,TABLE^,1,0) <> 1 THEN ERROR;
+   WITH TABLE^.SEGDESC[0] DO
+     BEGIN
+       ZEROBYTES := CODELENG;
+       BLOCKS := (CODELENG + 511) DIV 512;
+       IF BLOCKREAD(SOURCE,ZEROBUF^,BLOCKS,DISKADDR) <> BLOCKS THEN ERROR;
+     END;
+   IF BLOCKREAD(INFILE,TABLE^,1,0) <> 1 THEN ERROR;
+   WITH TABLE^.SEGDESC[USERSEG] DO
+     BEGIN
+       USERBYTES := CODELENG;
+       BLOCKS := (CODELENG + 511) DIV 512;
+       IF BLOCKREAD(INFILE,USERBUF^,BLOCKS,DISKADDR) <> BLOCKS THEN ERROR;
+     END;
+ END {GETFILE};
+
+ PROCEDURE MOVECODE;
+   CONST
+     INPNUM = 2;
+     OUTPNUM = 29;
+   {Move procedure #2 from buffer USERBUF^ to
+       procedure #29 buffer ZEROBUF^, and
+       point LINKER at it.}
+ VAR
+   CODESIZE,CODEAT,ENTERIC,CODEBASE: INTEGER;
+   INPPOINT: INTEGER;
+ BEGIN
+   {set inppoint to location of proc offset in source}
+   INPPOINT := (INPNUM*2+2);
+   {set codebase to where proc 'starts' in source}
+   CODEBASE := USERBUF^.WORDS[(USERBYTES DIV 2) -(INPNUM+1)];
+   {get enteric from source}
+   ENTERIC := USERBUF^.WORDS[(USERBYTES-CODEBASE-INPPOINT) DIV 2 -1];
+   {set procedure to appropriate number}
+   USERBUF^.BYTES[USERBYTES-CODEBASE-INPPOINT] := OUTPNUM;
+   {set lex level to zero}
+   USERBUF^.BYTES[USERBYTES-CODEBASE-(INPPOINT-1)] := 0;
+   {number of bytes of code is enteric + 4 more bytes}
+   CODESIZE := ENTERIC + 4;
+   {code is located at ... }
+   CODEAT := USERBYTES - CODEBASE - CODESIZE - INPNUM*2;
+   {make room for the code coming in}
+   MOVERIGHT(ZEROBUF^.BYTES[0],ZEROBUF^.BYTES[CODESIZE],ZEROBYTES);
+   {put the frigging code in}
+   MOVELEFT(USERBUF^.BYTES[CODEAT],ZEROBUF^.BYTES[0],CODESIZE);
+   {make a note of the fact that you have stretched the segment}
+   ZEROBYTES := ZEROBYTES + CODESIZE;
+   {point the appropriate word at the appropriate byte}
+   ZEROBUF^.WORDS[(ZEROBYTES DIV 2)-(OUTPNUM+1)] :=
+                                                ZEROBYTES - CODESIZE-(OUTPNUM*2);
+ END;
+
+
+ PROCEDURE LINKER(NTITLE,TITLE: STRING);
+
+ CONST
+   WINDOW = 2;
+   MARKCODE = 15;
+   MARKIN = 5;
+
+
+ VAR LENCODE,NBLOCKS,RSLT,OUTBLOCK: INTEGER;
+     INTBL,BUF: SEGTBLP;
+     SEG: SEGNUM;
+     CODETABLE: SEGTBLP;
+     CODE: FILE;
+
+ PROCEDURE LINKCODE;
+   VAR NBLOCKS: INTEGER;
+
+   PROCEDURE LINK0;
+     BEGIN
+       WITH INTBL^,SEGDESC[0] DO
+         BEGIN
+             NBLOCKS := (ZEROBYTES + 511) DIV 512;
+             IF BLOCKWRITE(CODE,ZEROBUF^,NBLOCKS,OUTBLOCK) <> NBLOCKS THEN
+               ERROR
+             ELSE
+               BEGIN
+                 CODETABLE^.SEGNAME[0] := 'PASCALSY';
+                 CODETABLE^.SEGDESC[0].CODELENG := ZEROBYTES;
+                 CODETABLE^.SEGDESC[0].DISKADDR := OUTBLOCK;
+                 LENCODE := LENCODE + NBLOCKS;
+                 OUTBLOCK := OUTBLOCK + NBLOCKS
+               END
+         END;
+     END;
+
+   PROCEDURE LINKIT;
+     BEGIN
+       WITH INTBL^,SEGDESC[SEG] DO
+         BEGIN
+           NBLOCKS := (CODELENG+511) DIV 512;
+           IF BLOCKREAD(INFILE,BUF^,NBLOCKS,DISKADDR) <> NBLOCKS THEN
+             ERROR
+           ELSE
+             IF BLOCKWRITE(CODE,BUF^,NBLOCKS,OUTBLOCK) <> NBLOCKS THEN
+               ERROR
+             ELSE
+               BEGIN
+                 CODETABLE^.SEGNAME[SEG] := SEGNAME[SEG];
+                 CODETABLE^.SEGDESC[SEG].CODELENG := CODELENG;
+                 CODETABLE^.SEGDESC[SEG].DISKADDR := OUTBLOCK;
+                 LENCODE := LENCODE + NBLOCKS;
+                 OUTBLOCK := OUTBLOCK + NBLOCKS
+               END
+         END;
+     END;
+
+ BEGIN
+   IF LENGTH(NTITLE)>0 THEN
+     IF BLOCKREAD(INFILE,INTBL^,1,0) = 1 THEN
+     ELSE
+       ERROR;
+     LINK0;
+     FOR SEG := 1 TO 15 DO
+       IF (INTBL^.SEGDESC[SEG].CODELENG > 0) THEN LINKIT;
+   CLOSE(INFILE)
+ END {LINKCODE} ;
+
+ BEGIN
+   LENCODE := 0;
+   NEW(CODETABLE);
+   NEW(INTBL);
+   OPENNEW(CODE,TITLE);
+   OUTBLOCK := 1; NEW(BUF);
+   WITH CODETABLE^ DO
+     FOR SEG := 0 TO MAXSEG DO
+       BEGIN  SEGNAME[SEG] := '        ';
+         SEGDESC[SEG].CODELENG := 0;
+         SEGDESC[SEG].DISKADDR := 0
+       END;
+   OPENOLD(INFILE,NTITLE);
+   LINKCODE;
+   IF BLOCKWRITE(CODE,CODETABLE^,1,0) = 1 THEN CLOSE(CODE,LOCK)
+   ELSE
+     WRITELN(OUTPUT,'Code file write error ')
+ END;
+
+ BEGIN
+   NEW(ZEROBUF);
+   MARK(HEAPPTR);
+   NEW(TABLE);
+   NEW(USERBUF);
+   GETFILE;
+   WRITELN;
+   WRITELN(' Moving procedures around ');
+   MOVECODE;
+   RELEASE(HEAPPTR);
+   USERBUF := NIL;
+   TABLE := NIL;
+   CLOSE(INFILE);
+   WRITELN;
+   WRITELN(' Calling system linker to create new SYSTEM.PASCAL');
+   LINKER('SYSTEM.PASCAL','SYSTEM.PASCAL[60]');
+ END {BINDER}.
+
+
+{ +------------------------------------------------------------------+
+  |                                                                  |
+  |                     F     I     N     I     S                    |
+  |                                                                  |
+  +------------------------------------------------------------------+ }

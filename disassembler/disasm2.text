@@ -1,0 +1,511 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+SEGMENT PROCEDURE GATHER;
+VAR   FILENAME:STRING;
+
+PROCEDURE WRITEHDR(VAR H:INTERACTIVE;HEADER:INTEGER);
+BEGIN
+  CASE HEADER OF
+    1: WRITELN(H,'         Parameter one');
+    2: WRITELN(H,'Bits used    Total    Percentage');
+    3: WRITELN(H,'         Parameter one           Parameter two         ');
+    4: WRITELN(H,'Bits used    Total    Percentage    Total    Percentage');
+    5: WRITELN(H,'         Parameter one           Parameter two',
+                                               '           Case table size');
+    6: WRITELN(H,'Bits used    Total    Percentage    Total    Percentage',
+                                                  '    Total    Percentage');
+    7: WRITELN(H,'Flavor      Total    Percentage     Flavor',
+                                                '      Total    Percentage');
+    8: WRITELN(H,'   #   Total    Pct   #   Total    Pct   #   Total',
+                                                '    Pct   #   Total    Pct')
+  END;
+END;
+
+PROCEDURE JUMPSTUFF;
+VAR   I:INTEGER;
+BEGIN
+  WRITELN(LISTFILE,CR,'Jump statistics on the',JUMPTOTAL:5,' Total jumps');
+  IF JUMPTOTAL>0 THEN
+    BEGIN
+      WRITELN(LISTFILE,CR,
+                '                Positive jumps         Negative jumps');
+      WRITEHDR(LISTFILE,4);
+      WITH JUMPSTATS DO
+        FOR I:=0 TO 15 DO
+          WRITELN(LISTFILE,I+1:5,POS[I]:13,POS[I]/JUMPTOTAL*100:14:2,
+                         NEG[I]:9,NEG[I]/JUMPTOTAL*100:14:2);
+    END
+  ELSE WRITELN(LISTFILE,CR,'Sorry no jumps today!');
+END;
+
+PROCEDURE PROCSTUFF;
+VAR   I,J:INTEGER;
+BEGIN
+  WRITELN(LISTFILE,CR,'Procedure call statistics');
+  FOR I:=0 TO 15 DO
+    IF PROCCALL[I]<>NIL THEN
+      FOR J:=1 TO MAXPROCNUM DO
+        IF PROCCALL[I]^[J]>0 THEN
+          WRITELN(LISTFILE,'  Segment:',I:4,'  Procedure:',J:4,
+                                          '  Calls:',PROCCALL[I]^[J]:4);
+END;
+
+PROCEDURE HISTOGRAM(PCTMAX:INTEGER);
+VAR  I:INTEGER;
+BEGIN
+  PCTMAX:=ROUND(PCTMAX/MAXOP*20);
+  FOR I:=1 TO PCTMAX DO WRITE(LISTFILE,'*');
+END;
+
+PROCEDURE SHORTSTUFF;
+VAR  I:INTEGER;
+
+PROCEDURE SHORT1(VAR H:INTERACTIVE);
+BEGIN
+  WRITE(H,CR,'SLDC   OPCODE: 0..127   TOTAL:',
+             SLDC:8,SLDC/OPTOTAL*100:16:2,' % ');
+  HISTOGRAM(SLDC);
+  IF SLDC<>0 THEN
+    BEGIN
+      WRITELN(H,CR); WRITEHDR(H,8);
+      FOR OP:=0 TO 31 DO
+        WRITELN(H,OP:4,':',OPCODE[OP]^.TOTAL0:7,OPCODE[OP]^.TOTAL0/SLDC*100:7:2,
+         OP+32:4,':',OPCODE[OP+32]^.TOTAL0:7,OPCODE[OP+32]^.TOTAL0/SLDC*100:7:2,
+         OP+64:4,':',OPCODE[OP+64]^.TOTAL0:7,OPCODE[OP+64]^.TOTAL0/SLDC*100:7:2,
+         OP+96:4,':',OPCODE[OP+96]^.TOTAL0:7,OPCODE[OP+96]^.TOTAL0/SLDC*100:7:2);
+    END;
+  WRITE(H,CR,CR,'SLDL  OPCODE: 216..231  TOTAL:',
+                 SLDL:8,SLDL/OPTOTAL*100:16:2,' % ');
+  HISTOGRAM(SLDL);
+  IF SLDL<>0 THEN
+    BEGIN
+      WRITELN(H,CR); WRITEHDR(H,8);
+      FOR OP:=216 TO 219 DO
+        WRITELN(H,OP:4,':',OPCODE[OP]^.TOTAL0:7,OPCODE[OP]^.TOTAL0/SLDL*100:7:2,
+         OP+4:4,':',OPCODE[OP+4]^.TOTAL0:7,OPCODE[OP+4]^.TOTAL0/SLDL*100:7:2,
+         OP+8:4,':',OPCODE[OP+8]^.TOTAL0:7,OPCODE[OP+8]^.TOTAL0/SLDL*100:7:2,
+         OP+12:4,':',OPCODE[OP+12]^.TOTAL0:7,OPCODE[OP+12]^.TOTAL0/SLDL*100:7:2);
+    END;
+END;
+
+PROCEDURE SHORT2(VAR H:INTERACTIVE);
+BEGIN
+  WRITE(H,CR,CR,'SLDO  OPCODE: 232..247  TOTAL:',
+                 SLDO:8,SLDO/OPTOTAL*100:16:2,' % ');
+  HISTOGRAM(SLDO);
+  IF SLDO<>0 THEN
+    BEGIN
+      WRITELN(H,CR); WRITEHDR(H,8);
+      FOR OP:=232 TO 235 DO
+        WRITELN(H,OP:4,':',OPCODE[OP]^.TOTAL0:7,OPCODE[OP]^.TOTAL0/SLDO*100:7:2,
+           OP+4:4,':',OPCODE[OP+4]^.TOTAL0:7,OPCODE[OP+4]^.TOTAL0/SLDO*100:7:2,
+           OP+8:4,':',OPCODE[OP+8]^.TOTAL0:7,OPCODE[OP+8]^.TOTAL0/SLDO*100:7:2,
+           OP+12:4,':',OPCODE[OP+12]^.TOTAL0:7,OPCODE[OP+12]^.TOTAL0/SLDO*100:7:2);
+    END;
+  WRITE(H,CR,CR,'SIND  OPCODE: 248..255  TOTAL:',
+                 SIND:8,SIND/OPTOTAL*100:16:2,' % ');
+  HISTOGRAM(SIND);
+  IF SIND<>0 THEN
+    BEGIN
+      WRITELN(H,CR); WRITEHDR(H,8);
+      FOR OP:=248 TO 249 DO
+        WRITELN(H,OP:4,':',OPCODE[OP]^.TOTAL0:7,OPCODE[OP]^.TOTAL0/SIND*100:7:2,
+             OP+2:4,':',OPCODE[OP+2]^.TOTAL0:7,OPCODE[OP+2]^.TOTAL0/SIND*100:7:2,
+             OP+4:4,':',OPCODE[OP+4]^.TOTAL0:7,OPCODE[OP+4]^.TOTAL0/SIND*100:7:2,
+             OP+6:4,':',OPCODE[OP+6]^.TOTAL0:7,OPCODE[OP+6]^.TOTAL0/SIND*100:7:2);
+    END;
+  WRITELN(H);
+END;
+
+BEGIN(* SHORTSTUFF *)
+  SHORT1(LISTFILE);
+  SHORT2(LISTFILE);
+END;
+
+PROCEDURE SHORTST;
+VAR  I:INTEGER;
+BEGIN
+  INUM:=OPCODE[OP]^.TOTAL0;
+  WRITE(LISTFILE,INUM:8,INUM/OPTOTAL*100:16:2,' % ');
+  HISTOGRAM(INUM);
+  WRITELN(LISTFILE);
+END;
+
+PROCEDURE ONEST;
+VAR   I:INTEGER;
+BEGIN
+  WITH OPCODE[OP]^ DO
+    BEGIN
+      INUM:=TOTAL1;
+      WRITE(LISTFILE,INUM:8,INUM/OPTOTAL*100:16:2,' % ');
+      IF TOTAL1<>0 THEN
+        BEGIN
+          HISTOGRAM(TOTAL1);
+          WRITELN(LISTFILE,CR);
+          WRITEHDR(LISTFILE,1); WRITELN(LISTFILE);
+          WRITEHDR(LISTFILE,2);
+          FOR I:=0 TO 7 DO
+           WRITELN(LISTFILE,I+1:5,BYTEONE1[I]:13,BYTEONE1[I]/TOTAL1*100:14:2);
+        END
+      ELSE WRITELN(LISTFILE);
+    END;
+  END;
+
+PROCEDURE TWOST;
+VAR   I:INTEGER;
+BEGIN
+  WITH OPCODE[OP]^ DO
+    BEGIN
+      WRITE(LISTFILE,TOTAL2:8,TOTAL2/OPTOTAL*100:16:2,' % ');
+      HISTOGRAM(TOTAL2);
+      WRITELN(LISTFILE,CR); WRITEHDR(LISTFILE,3);
+      WRITELN(LISTFILE); WRITEHDR(LISTFILE,4);
+      IF TOTAL2=0 THEN
+        FOR I:=0 TO 7 DO
+          WRITELN(LISTFILE,I+1:5,BYTEONE2[I]:13,0.0:14:2,BYTETWO2[I]:9,0.0:14:2)
+      ELSE
+        FOR I:=0 TO 7 DO
+          WRITELN(LISTFILE,I+1:5,BYTEONE2[I]:13,BYTEONE2[I]/TOTAL2*100:14:2,
+                        BYTETWO2[I]:9,BYTETWO2[I]/TOTAL2*100:14:2);
+      IF OP=205 THEN
+        BEGIN
+          WRITELN(LISTFILE); WRITEHDR(LISTFILE,7);
+          IF TOTAL2=0 THEN
+            FOR I:=2 TO 15 DO
+               WRITELN(LISTFILE,NAMES[56+I],FLAVOR2[I]:9,0.0:14:2,'     ',
+                         NAMES[56+I+14],FLAVOR2[I+14]:9,0.0:14:2)
+          ELSE
+            FOR I:=2 TO 15 DO
+              WRITELN(LISTFILE,NAMES[56+I],FLAVOR2[I]:9,
+                        FLAVOR2[I]/TOTAL2*100:14:2,'     ',
+                        NAMES[56+I+14],FLAVOR2[I+14]:9,
+                        FLAVOR2[I+14]/TOTAL2*100:14:2);
+        END;
+    END;
+END;
+
+PROCEDURE WORDST;
+VAR   I:INTEGER;
+BEGIN
+  WITH OPCODE[OP]^ DO
+    BEGIN
+      INUM:=TOTAL3;
+      WRITE(LISTFILE,INUM:8,INUM/OPTOTAL*100:16:2,' % ');
+      IF TOTAL3<>0 THEN
+        BEGIN
+          HISTOGRAM(TOTAL3);
+          WRITELN(LISTFILE,CR); WRITEHDR(LISTFILE,1);
+          WRITELN(LISTFILE); WRITEHDR(LISTFILE,2);
+          FOR I:=0 TO 15 DO
+            WRITELN(LISTFILE,I+1:5,PARMONE3[I]:13,PARMONE3[I]/TOTAL3*100:14:2);
+        END
+      ELSE WRITELN(LISTFILE);
+    END;
+END;
+
+PROCEDURE LOPTST;
+VAR   I:INTEGER;
+BEGIN
+  WITH OPCODE[OP]^ DO
+    BEGIN
+      INUM:=TOTAL4;
+      WRITE(LISTFILE,INUM:8,INUM/OPTOTAL*100:16:2,' % ');
+      IF TOTAL4<>0 THEN
+        BEGIN
+          HISTOGRAM(TOTAL4);
+          WRITELN(LISTFILE,CR); WRITEHDR(LISTFILE,3);
+          WRITELN(LISTFILE); WRITEHDR(LISTFILE,4);
+          FOR I:=0 TO 7 DO
+            WRITELN(LISTFILE,I+1:5,BYTEONE4[I]:13,BYTEONE4[I]/TOTAL4*100:14:2,
+              PARMTWO4[I]:9,PARMTWO4[I]/TOTAL4*100:14:2);
+          FOR I:=8 TO 15 DO
+            WRITELN(LISTFILE,I+1:5,PARMTWO4[I]:36,PARMTWO4[I]/TOTAL4*100:14:2);
+        END
+      ELSE WRITELN(LISTFILE);
+    END;
+END;
+
+PROCEDURE WORDSST;
+VAR   I:INTEGER;
+BEGIN
+  WITH OPCODE[OP]^ DO
+    BEGIN
+      INUM:=TOTAL5;
+      WRITE(LISTFILE,INUM:8,INUM/OPTOTAL*100:16:2,' % ');
+      IF TOTAL5<>0 THEN
+        BEGIN
+          HISTOGRAM(TOTAL5);
+          WRITELN(LISTFILE,CR); WRITEHDR(LISTFILE,5);
+          WRITELN(LISTFILE); WRITEHDR(LISTFILE,6);
+          FOR I:=0 TO 15 DO
+            WRITELN(LISTFILE,I+1:5,PARMONE5[I]:13,PARMONE5[I]/TOTAL5*100:14:2,
+              PARMTWO5[I]:9,PARMTWO5[I]/TOTAL5*100:14:2,
+              PARMTHREE5[I]:9,PARMTHREE5[I]/TOTAL5*100:14:2);
+        END
+      ELSE WRITELN(LISTFILE);
+    END;
+END;
+
+PROCEDURE CMPRSSST;
+VAR   I:INTEGER;
+BEGIN
+  WITH OPCODE[OP]^ DO
+    BEGIN
+      WRITE(LISTFILE,TOTAL6:8,TOTAL6/OPTOTAL*100:16:2,' % ');
+      HISTOGRAM(TOTAL6);
+      WRITELN(LISTFILE,CR); WRITEHDR(LISTFILE,7);
+      IF TOTAL6=0 THEN
+        BEGIN
+          FOR I:=0 TO 19 DO
+            WRITELN(LISTFILE,NAMES[86+I],FLAVOR6[I]:9,0.0:14:2,'     ',
+                    NAMES[106+I],FLAVOR6[I+20]:9,0.0:14:2);
+          WRITELN(LISTFILE,NAMES[126]:44,FLAVOR6[40]:9,0.0:14:2);
+        END
+      ELSE
+        BEGIN
+          FOR I:=0 TO 19 DO
+            WRITELN(LISTFILE,NAMES[86+I],FLAVOR6[I]:9,
+              FLAVOR6[I]/TOTAL6*100:14:2,
+              NAMES[106+I]:13,FLAVOR6[I+20]:9,FLAVOR6[I+20]/TOTAL6*100:14:2);
+          WRITELN(LISTFILE,NAMES[126]:44,
+              FLAVOR6[40]:9,FLAVOR6[40]/TOTAL6*100:14:2);
+        END;
+    END;
+END;
+
+PROCEDURE CMPRSS2ST;
+VAR   I:INTEGER;
+BEGIN
+  WITH OPCODE[OP]^ DO
+  BEGIN
+    INUM:=TOTAL7;
+    WRITE(LISTFILE,INUM:8,INUM/OPTOTAL*100:16:2,' % ');
+    HISTOGRAM(TOTAL7);
+    WRITELN(LISTFILE,CR); WRITEHDR(LISTFILE,7);
+    FOR I:=1 TO 6 DO
+      BEGIN
+        IF INUM<>0 THEN
+          WRITE(LISTFILE,NAMES[51+I],FLAVOR7[I]:9,FLAVOR7[I]/INUM*100:14:2,'     ')
+        ELSE
+          WRITE(LISTFILE,NAMES[51+I],FLAVOR7[I]:9,0.0:14:2,'     ');
+        IF (I MOD 2=0) THEN WRITELN(LISTFILE);
+      END;
+  END;
+END;
+
+PROCEDURE GINIT;
+BEGIN
+  MAXOP:=0;
+  FOR OP:=128 TO 215 DO
+    WITH OPCODE[OP]^ DO
+      CASE RECTYPES[OP] OF
+            ONE,CHRS,BLK:IF (TOTAL1>MAXOP) THEN MAXOP:=TOTAL1;
+                     TWO:IF (TOTAL2>MAXOP) THEN MAXOP:=TOTAL2;
+                WORD,OPT:IF (TOTAL3>MAXOP) THEN MAXOP:=TOTAL3;
+                    LOPT:IF (TOTAL4>MAXOP) THEN MAXOP:=TOTAL4;
+                   WORDS:IF (TOTAL5>MAXOP) THEN MAXOP:=TOTAL5;
+                  CMPRSS:IF (TOTAL6>MAXOP) THEN MAXOP:=TOTAL6;
+                 CMPRSS2:IF (TOTAL7>MAXOP) THEN MAXOP:=TOTAL7
+       END;
+END;
+
+BEGIN (* SEGMENT PROCEDURE GATHER *)
+  GINIT;
+  PAGE;
+  GOTOXY(0,10);
+  WRITE(CHR(7),'Output file for opcode statistics (<CR> for none): ');
+  READLN(FILENAME);
+  DISPLAY:=(FILENAME<>'');
+  CONSOLE:=(FILENAME='CONSOLE:') OR (FILENAME='#1:');
+  IF DISPLAY THEN
+    BEGIN
+      IF (FILENAME<>LASTFILENAME) THEN
+        BEGIN
+          CLOSE(LISTFILE,LOCK);
+          REWRITE(LISTFILE,FILENAME);
+          LASTFILENAME:=FILENAME;
+        END;
+      PAGE;
+      PROCSTUFF;
+      JUMPSTUFF;
+      SHORTSTUFF;
+      FOR OP:=128 TO 215 DO
+        BEGIN
+          WRITE(LISTFILE,CR,NAMES[OP],'  Opcode:',OP:4,'   Total:');
+          CASE RECTYPES[OP] OF
+                      SHORT:SHORTST;
+                   OPT,WORD:WORDST;
+               ONE,CHRS,BLK:ONEST;
+                        TWO:TWOST;
+                       LOPT:LOPTST;
+                      WORDS:WORDSST;
+                     CMPRSS:CMPRSSST;
+                    CMPRSS2:CMPRSS2ST
+            END;
+        END;
+      WRITELN(LISTFILE,CR,CR,CR,OPTOTAL:20,'   Total operators');
+      WRITELN(CR,CR,CR,OPTOTAL:20,'   Total operators');
+    END;
+END;
+
+SEGMENT PROCEDURE DATACOUNT;
+TYPE  ACTPTR=^ACTREC;
+      ACTREC=RECORD
+        OFFSET,TOTAL:INTEGER;
+        LES,GTR:ACTPTR
+      END;
+VAR   TOTAL:INTEGER;
+      HEAP:^INTEGER;
+      TREETRUNK,ENTRY:ACTPTR;
+      FILENAME:STRING;
+
+PROCEDURE SETORDER;
+VAR INDEX:INTEGER;
+
+PROCEDURE DATASET(TREEMARK:ACTPTR);
+BEGIN
+  {$R-}
+  IF DSSTART^[INDEX]<TREEMARK^.TOTAL THEN
+    IF TREEMARK^.LES<>NIL THEN
+      DATASET(TREEMARK^.LES)
+    ELSE
+      BEGIN
+        NEW(ENTRY);
+        ENTRY^.OFFSET:=INDEX;
+        ENTRY^.TOTAL:=DSSTART^[INDEX];
+        ENTRY^.LES:=NIL;
+        ENTRY^.GTR:=NIL;
+        TREEMARK^.LES:=ENTRY;
+      END
+  ELSE IF TREEMARK^.GTR<>NIL THEN
+      DATASET(TREEMARK^.GTR)
+    ELSE
+      BEGIN
+        NEW(ENTRY);
+        ENTRY^.OFFSET:=INDEX;
+        ENTRY^.TOTAL:=DSSTART^[INDEX];
+        ENTRY^.LES:=NIL;
+        ENTRY^.GTR:=NIL;
+        TREEMARK^.GTR:=ENTRY;
+      END;
+  {$R+}
+END;
+
+BEGIN
+  NEW(TREETRUNK);
+  TREETRUNK^.TOTAL:=0;
+  TREETRUNK^.LES:=NIL;
+  TREETRUNK^.GTR:=NIL;
+  DATAREF:=0; INDEX:=0;
+  REPEAT
+    {$R-}
+    INDEX:=INDEX + SCAN((DATASEGSIZE-INDEX)*2,<>CHR(0),DSSTART^[INDEX]) DIV 2;
+    IF DSSTART^[INDEX]>0 THEN
+      BEGIN
+        DATASET(TREETRUNK);
+        DATAREF:=DATAREF + DSSTART^[INDEX];
+        DSSTART^[INDEX]:=0;
+      END;
+    {$R+}
+  UNTIL INDEX>=DATASEGSIZE;
+END;
+
+PROCEDURE DATAHEADER(VAR H2:INTERACTIVE);
+VAR  I:INTEGER;
+BEGIN
+  WRITELN(H2,CR,CR,'Data Segment size:',DATASEGSIZE:6,'      Data references:',
+                      DATAREF:6,'      Lex level',PROCLEX[DATAPROC]:6);
+  WRITE(H2,CR,CR,'For segment ');
+  FOR I:=1 TO 8 DO WRITE(H2,CHR(SEGDIREC[63 + DATASEG*8 +I]));
+  WRITELN(H2,' Procedure #',DATAPROC:3);
+  WRITELN(H2,'Offset(word)  Total      %');
+END;
+
+PROCEDURE PRINTDATA(TREE:ACTPTR);
+BEGIN
+  IF TREE^.GTR<>NIL THEN PRINTDATA(TREE^.GTR);
+  TOTAL:=TREE^.TOTAL;
+  IF DISPLAY THEN WRITELN(LISTFILE,
+            TREE^.OFFSET:9,TOTAL:11,TOTAL/DATAREF*100:9:2);
+  IF TREE^.LES<>NIL THEN PRINTDATA(TREE^.LES);
+END;
+
+BEGIN (* DATACOUNT *);
+  MARK(HEAP);
+  PAGE;
+  GOTOXY(0,10);
+  WRITE(CHR(7),'Output file for data segment statistics(<CR> for none): ');
+  READLN(FILENAME);
+  DISPLAY:=(FILENAME<>'');
+  CONSOLE:=(FILENAME='CONSOLE:') OR (FILENAME='#1:');
+  IF DISPLAY AND (FILENAME<>LASTFILENAME) THEN
+    BEGIN
+      CLOSE(LISTFILE,LOCK);
+      REWRITE(LISTFILE,FILENAME);
+      LASTFILENAME:=FILENAME;
+    END;
+  PAGE;
+  SETORDER;
+  IF DISPLAY THEN DATAHEADER(LISTFILE);
+  IF DATAREF>0 THEN
+    PRINTDATA(TREETRUNK^.GTR)
+  ELSE
+    BEGIN
+      IF DISPLAY THEN WRITELN(LISTFILE,CR,CR,
+                'sorry but there were no accesses',
+                ' to this data segment from dis-assembled procedures');
+    END;
+  PROMPT;
+  RELEASE(HEAP);
+END;
+
+PROCEDURE PAGE;
+VAR     I:INTEGER;
+BEGIN
+  GOTOXY(0,16);
+  FOR I:=1 TO 40 DO WRITELN;
+  GOTOXY(0,0);
+END;
+
+PROCEDURE PROMPT;
+VAR  CH:CHAR;
+BEGIN
+  WRITE(CHR(7),CR,CR,'press spacebar to continue...');
+  REPEAT  READ(CH)  UNTIL CH=' ';
+  WRITELN;
+END;

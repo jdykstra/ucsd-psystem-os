@@ -1,0 +1,251 @@
+;
+; UCSD PASCAL - Version II.0
+; Copyright (C) 1978, 1979 Regents of the University of California
+; All Rights Reserved
+;
+; Permission to use, copy, modify and distribute any part of UCSD
+; PASCAL solely authored by UC authors before June 1, 1979 for
+; educational, research and non-profit purposes, without fee, and
+; without a written agreement is hereby granted, provided that the
+; above copyright notice, this paragraph and the following three
+; paragraphs appear in all copies.
+;
+; Those desiring to incorporate UCSD PASCAL into commercial products or
+; use for commercial purposes should contact the Technology Transfer &
+; Intellectual Property Services, University of California, San Diego,
+; 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+; Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+;
+; IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+; FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+; INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+; THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+; DAMAGE.
+;
+; THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+; OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+; UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+; MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+; EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+; WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+; THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+; OTHER RIGHTS.
+;
+; Case Number: SD1991-807 (2006)
+; http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+;
+;;; Source: http://bitsavers.org/bits/UCSD_Pascal/ucsd_II.0/
+;;;     U121.2_LSI-11_P-CODE_SOURCE.raw.gz
+;;; Description: Global definitions and macros for the interpreter
+;;;     sources.  These should be assembled in front of all sources,
+;;;     except the boot loaders.
+;;; Date: 1979-02-06
+        .NLIST
+        .NLIST  CND
+        .NLIST  TTM
+        ; FOR VERSION II.0 INTERPS.
+        ;
+        ; COPYRIGHT (C) 1978 REGENTS OF THE UNIVERSTIY OF CALIFORNIA.
+        ; PERMISSION TO COPY OR DISTRIBUTE THIS SOFTWARE OR DOCUMEN-
+        ; TATION IN HARD COPY OR SOFT COPY GRANTED ONLY BY WRITTEN LICENSE
+        ; OBTAINED FROM THE INSTITUTE OF INFORMATION SYSTEMS.  ALL RIGHTS
+        ; RESERVED.  NO PART OF THIS PUBLICATION MAY BE REPRODUCED, STORED
+        ; IN A RETRIEVAL SYSTEM ( E.G., IN MEMORY, DISK, OR CORE) OR BE
+        ; TRANSMITTED BY ANY MEANS, ELECTRONIC, MECHANICAL, PHOTOCOPY,
+        ; RECORDING, OR OTHERWISE, WITHOUT PRIOR WRITTEN PERMISSION FROM THE
+        ; PUBLISHER.
+        ;
+        ;
+        .LIST
+;************************************************;
+;*                                              *;
+;*    UCSD PASCAL INTERPRETER FOR PDP-11'S      *;
+;*                                              *;
+;*    INSTITUTE FOR INFORMATION SYSTEMS         *;
+;*    UC SAN DIEGO, LA JOLLA, CA  92093         *;
+;*                                              *;
+;*    KENNETH L. BOWLES, DIRECTOR               *;
+;*                                              *;
+;************************************************;
+
+        .NLIST
+PC=%7                   ;PDP-11 PROGRAM COUNTER
+SP=%6                   ;PDP-11 AND P-11 STACK POINTER
+IPC=%4                  ;P-11 PROGRAM COUNTER
+MP=%5                   ;BASE OF LOCAL DATA SEGMENT
+BASE=%3                 ;BASE OF GLOBAL DATA SEG
+BK=%2                   ;USED TO GET TO BACK FOR NEXT OPCODE FETCH
+
+MAXUNT = 12.    ; MAX LEGAL UNIT # IN SYSTEM
+MAXSEG = 15.    ; MAX SEGMENT NUMBER ALLOWED
+NP = 50         ; INITIAL HEAP TOP...SET BY LINKER MAGICALLY
+
+.IF     DF,TERAK
+        LSI=1
+        EIS=1
+        FPI=1
+.ENDC
+
+.IF     NDF,FPI
+        .GLOBL  $ADR,$SBR,$MLR,$DVR,$CMR
+.ENDC
+
+        .GLOBL  HLTLIN,BRKPTS,BUGSTA
+        .GLOBL  $IR,$RI,ALOG,ALOG10,EXP,SIN,COS,ATAN,SQRT
+        .GLOBL  ENTFP,XITFP,LOTIME,HITIME
+        .GLOBL  MEMTOP,CRTNFO,GDIRP,INTRTN
+        .GLOBL  BACK,SYSUNT,DIV,MLI,STKBAS,IORSLT
+        .GLOBL  JTAB,SEGTBL,LASTMP,SEG,UNITBL,BITTER
+        .GLOBL  SBROPS,UBROPS
+
+
+BLANK=40
+BLANKS=20040    ;TWO ASCII BLNKS
+BS=10           ;BACKSPACE
+CR=15
+LF=12
+HT=11
+EM=31
+FS=34
+US=37
+FF=14
+GS=35
+VT=13
+RS=36
+DLE=20
+DC1=21
+DC2=22
+
+; TRAP PARAMETERS ( >=0 ARE EXECERR, <0 ARE SYSTEM REQUESTS)
+SYSERR=0
+INVNDX=1
+NOPROC=2
+NOEXIT=3
+STKOVR=4
+INTOVR=5
+DIVZER=6
+BADMEM=7
+UBREAK=10
+SYIOER=11
+UIOERR=12
+NOTIMP=13
+FPIERR=14
+S2LONG=15
+HLTBPT=16
+BRKPNT=17
+TTXREQ=-1
+
+NIL = 170001
+
+;;;; CODE SEGMENT FORMAT DEFINES
+; R@JTAB IS PROC# (LOW BYTE) AND LL (HIGH BYTE)
+
+ENTRIC  = -2    ; JTAB INDEX OF ENTRY OFFSET
+EXITIC  = -4    ;   "    "    "   EXIT POINT
+PARMSZ  = -6    ;   "    "    "  # WORDS OF PARAMS TO COPY AT ENTRY TIME
+DATASZ  = -10   ;   "    "    "  # WORDS TO OPEN IN STACK
+
+;;;; MARK STACK CONTROL WORD FORMAT
+; THESE OFFSETS ARE RELATIVE TO THE STAT LINK WORD!
+
+MSSTAT = 0      ; STATIC LINK...POINTS TO PARENTS STAT LINK
+MSDYN  = 2      ; DYNAMIC LINK...POINTS TO CALLERS STAT LINK
+MSIPC  = 10     ; ABSOLUTE MEM ADDR OF NEXT OPCODE IN CALLER
+MSSEG  = 6      ;    "      "    "  OF SEG TABLE OF CALLER (LIKELY = SEG)
+MSJTAB = 4      ;    "      "    " OF CALLER JTAB (PROCEDURE CODE INFO ETC)
+MSSP   = 12     ; VALUE TO SET SP TO UPON EXIT
+MSBASE = -2     ; BASE REG...ONLY IN BASE MSCW'S
+MSDLTA = 12     ; SIZE OF MSCW - 2
+
+;;;; IO SUBSYSTEM STUFF
+; BIT FIELDS IN UNITBL
+; IO RESULTS GIVEN BY IO ROUTINES
+
+PARERR  = 1
+UNTERR  = 2
+MODERR  = 3
+INBIT   =  20000
+OUTBIT  =  40000
+BSYBIT  = 100000
+UNOWAIT = 0
+UBLOCK  = 2
+URLENG  = 4
+UBUFFR  = 6
+UUNIT   = 10
+
+.MACRO  GETNEXT STUFF
+        .IF     B,<STUFF>
+        MOVB    (IPC)+,R0               ;GET A BYTE FROM CODE
+        .IFF
+        MOVB    (IPC)+,STUFF            ;AND PUT IT IN R0 OR
+        .ENDC                   ;IN STUFF IF STUFF I S NON-BLANK
+.ENDM   GETNEXT
+
+.MACRO  GETBYTE STUFF
+        .IF     B,<STUFF>
+        CLR     R0
+        BISB    (IPC)+,R0
+        .IFF
+        CLR     STUFF
+        BISB    (IPC)+,STUFF
+        .ENDC
+.ENDM   GETBYTE
+
+.MACRO  GETBIG  STUFF,?NOTBIG
+        .IF     B,<STUFF>
+        GETNEXT
+        BPL     NOTBIG
+        BIC     #SIGNWIPE,R0
+        SWAB    R0
+        BISB    (IPC)+,R0
+        .IFF
+        GETNEXT STUFF
+        BPL     NOTBIG
+        BIC     #SIGNWIPE,STUFF
+        SWAB    STUFF
+        BISB    (IPC)+,STUFF
+        .ENDC
+NOTBIG:
+.ENDM   GETBIG
+
+R0=%0   ; DEFINE WORKING REGISTERS
+R1=%1
+R2=%2
+R3=%3
+R4=%4
+R5=%5
+
+.MACRO  MORE
+        MOV     BK,PC   ;SET PC TO BACK LABEL ADDR
+.ENDM   MORE
+
+.MACRO  WORDBOUND
+        INC     IPC             ;BUMP IPC
+        BIC     #1,IPC          ;THEN ROUND
+.ENDM   WORDBOUND
+
+SIGNWIPE=177600
+CLREXT=177400
+
+.IF     NDF,LSI
+.MACRO  MTPS    NEWPS,?L
+        MOV     NEWPS,-(SP)
+        MOV     #L,-(SP)
+        RTI
+L:
+.ENDM   MTPS
+
+.IF     NDF,EIS
+.MACRO  SOB     REG,LABEL
+        DEC     REG     ; THIS IS AN SOB OPERATOR
+        BNE     LABEL   ; AS IN LSI-11 OR 11-40
+.ENDM   SOB
+.ENDC
+.ENDC
+
+.MACRO  .TTYOUT .CHAR
+        .IIF    NB,<.CHAR>,     MOVB    .CHAR,R0
+        TRAP    TTXREQ
+.ENDM   .TTYOUT
+
+        .LIST

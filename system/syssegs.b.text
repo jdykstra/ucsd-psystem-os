@@ -1,0 +1,430 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+(*
+ * UCSD p-System Operating System
+ * Copyright (C) 2010 Peter Miller
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of the ucsd-psystem-os project nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *)
+
+SEGMENT FUNCTION GETCMD(LASTST: CMDSTATE): CMDSTATE;
+  CONST ASSEMONLY = LINKANDGO;
+  TYPE  STATUS_ASSOCIATE = (FOUND_OK,FOUND_BAD,NOT_FOUND);
+  VAR CH: CHAR; BADCMD: BOOLEAN;
+      DONT_CARE : STATUS_ASSOCIATE;
+
+  PROCEDURE RUNWORKFILE(OKTOLINK, RUNONLY: BOOLEAN);
+    FORWARD;
+
+  FUNCTION SYS_ASSOCIATE(SYS_NAME:SYSFILE):BOOLEAN;
+    FORWARD;
+
+  FUNCTION ASSOCIATE(TITLE: STRING; OKTOLINK, RUNONLY,ERROR_OK: BOOLEAN;
+                     VAR ASS_STATUS : STATUS_ASSOCIATE): BOOLEAN;
+    LABEL 1;
+    VAR RSLT: IORSLTWD; LSEG: SEGRANGE;
+        SEGTBL: RECORD
+                  DISKINFO: ARRAY [SEGRANGE] OF SEGDESC;
+                  SEGNAME: ARRAY [SEGRANGE] OF
+                             PACKED ARRAY [0..7] OF CHAR;
+                  SEGKIND: ARRAY [SEGRANGE] OF
+                             (LINKED,HOSTSEG,SEGPROC,UNITSEG,SEPRTSEG);
+                  FILLER: ARRAY [0..143] OF INTEGER
+                END { SEGTBL } ;
+  BEGIN
+    ASS_STATUS := NOT_FOUND;
+    ASSOCIATE := FALSE;
+    FOPEN(USERINFO.CODEFIBP^,TITLE,TRUE,NIL);
+    RSLT := SYSCOM^.IORSLT;
+    IF RSLT <> INOERROR THEN
+      BEGIN
+        IF ERROR_OK THEN
+          IF RSLT = IBADTITLE THEN
+            WRITE(OUTPUT,'Illegal file name')
+          ELSE
+            WRITE(OUTPUT,'No file ',TITLE);
+        GOTO 1
+      END;
+    ASS_STATUS := FOUND_BAD; {until shown otherwise}
+    WITH USERINFO,SYSCOM^ DO
+      IF CODEFIBP^.FHEADER.DFKIND <> CODEFILE THEN
+        BEGIN
+          WRITE(OUTPUT,TITLE,' not code');
+          GOTO 1
+        END
+      ELSE
+        BEGIN
+          UNITREAD(CODEFIBP^.FUNIT,SEGTBL,SIZEOF(SEGTBL),
+                        CODEFIBP^.FHEADER.DFIRSTBLK);
+          IF IORESULT <> ORD(INOERROR) THEN
+            BEGIN
+              WRITE(OUTPUT,'Bad block #0');
+              GOTO 1
+            END;
+          WITH SEGTBL DO
+            FOR LSEG := 0 TO MAXSEG DO
+              IF (SEGKIND[LSEG]<LINKED) OR (SEGKIND[LSEG]>SEPRTSEG) THEN
+                BEGIN { PRE I.5 CODE...FIX UP! }
+                  FILLCHAR(SEGKIND, SIZEOF(SEGKIND), ORD(LINKED));
+                  FILLCHAR(FILLER, SIZEOF(FILLER), 0);
+                  UNITWRITE(CODEFIBP^.FUNIT, SEGTBL, SIZEOF(SEGTBL),
+                                CODEFIBP^.FHEADER.DFIRSTBLK)
+                END;
+          WITH SEGTBL DO
+            FOR LSEG := 0 TO MAXSEG DO
+              IF SEGKIND[LSEG] <> LINKED THEN
+              BEGIN
+                IF OKTOLINK THEN
+                  BEGIN WRITELN(OUTPUT,'Linking...');
+                    FCLOSE(CODEFIBP^, CNORMAL);
+                    IF SYS_ASSOCIATE(LINKER) THEN
+                      BEGIN
+                        IF RUNONLY THEN GETCMD := LINKANDGO
+                        ELSE GETCMD := LINKDEBUG;
+                        EXIT(GETCMD)
+                      END
+                  END
+                ELSE
+                  IF NOT (LASTST IN [LINKANDGO, LINKDEBUG]) THEN
+                    WRITE(OUTPUT,'Must L(ink first');
+                GOTO 1
+              END;
+          FOR LSEG := 1 TO MAXSEG DO
+            IF (LSEG = 1) OR (LSEG >= 7) THEN
+              WITH SEGTABLE[LSEG],SEGTBL.DISKINFO[LSEG] DO
+                BEGIN CODEUNIT := CODEFIBP^.FUNIT;
+                  CODEDESC.CODELENG := CODELENG;
+                  CODEDESC.DISKADDR := DISKADDR+
+                                        CODEFIBP^.FHEADER.DFIRSTBLK
+                END
+        END;
+    ASS_STATUS := FOUND_OK;
+    ASSOCIATE := TRUE;
+1:  FCLOSE(USERINFO.CODEFIBP^,CNORMAL)
+  END (*ASSOCIATE*) ;
+
+  FUNCTION SYS_ASSOCIATE{(SYS_NAME:SYSFILE):BOOLEAN};
+  VAR  VOL : VID;
+       TITLE : TID;
+       SEGS : INTEGER;
+       KIND : FILEKIND;
+       LUNIT : UNITNUM;
+       LTITLE : FULL_ID;
+       ASS_STATUS : STATUS_ASSOCIATE;
+  BEGIN
+    SYS_ASSOCIATE := ASSOCIATE(FILENAME[SYS_NAME],FALSE,FALSE,FALSE,ASS_STATUS);
+    IF ASS_STATUS = NOT_FOUND THEN
+      IF SCANTITLE(FILENAME[SYS_NAME],VOL,TITLE,SEGS,KIND) THEN
+        BEGIN
+          LUNIT := 0;
+          REPEAT
+            LUNIT := LUNIT + 1;
+            WITH UNITABLE[LUNIT] DO
+              IF UISBLKD THEN
+                BEGIN
+                  UVID := '';
+                  IF FETCHDIR(LUNIT) THEN
+                    BEGIN
+                      UVID := SYSCOM^.GDIRP^[0].DVID;
+                      LTITLE := CONCAT(UVID,':',TITLE);
+                      IF LTITLE <> FILENAME[SYS_NAME] THEN
+                        IF ASSOCIATE(LTITLE,FALSE,FALSE,FALSE,ASS_STATUS) THEN
+                          FILENAME[SYS_NAME] := LTITLE;
+                      END;
+                  END; { of IF ISBLOCKED ...}
+            UNTIL (LUNIT = MAXUNIT) OR (ASS_STATUS IN [FOUND_OK,FOUND_BAD]);
+          SYS_ASSOCIATE := ASS_STATUS = FOUND_OK;
+          IF ASS_STATUS = NOT_FOUND THEN
+            IF ASSOCIATE(FILENAME[SYS_NAME],FALSE,FALSE,TRUE,ASS_STATUS) THEN;
+                        {just to get the appropriate error}
+          END; {of IF SCANTITLE...}
+    END;  {of SYS_ASSOCIATE}
+
+PROCEDURE STARTCOMPILE(NEXTST: CMDSTATE);
+    LABEL 1;
+    VAR TEXT_TITLE,TITLE: STRING[40];
+        I : INTEGER;
+        CODE_NAME : FULL_ID;
+        SYS_TYPE : SYSFILE;
+  BEGIN
+    IF NEXTST = ASSEMONLY THEN
+      WRITE(OUTPUT,'Assembling')
+    ELSE
+      WRITE(OUTPUT,'Compiling');
+    WRITELN(OUTPUT,'...');
+    IF NEXTST = ASSEMONLY THEN
+      SYS_TYPE := ASSMBLER
+    ELSE
+      SYS_TYPE := COMPILER;
+    IF SYS_ASSOCIATE(SYS_TYPE) THEN
+      WITH USERINFO DO
+        BEGIN
+          IF GOTSYM THEN
+            TITLE := CONCAT(SYMVID,':',SYMTID)
+          ELSE
+            BEGIN
+              IF NEXTST = ASSEMONLY THEN
+                WRITE(OUTPUT, 'Assemble')
+              ELSE
+                WRITE(OUTPUT, 'Compile');
+              WRITE(OUTPUT,' what text? ');
+              READLN(INPUT, TEXT_TITLE);
+              IF TEXT_TITLE = '' THEN GOTO 1;
+              TITLE := CONCAT(TEXT_TITLE,'.TEXT');
+            END;
+          FOPEN(SYMFIBP^,TITLE,TRUE,NIL);
+          IF IORESULT <> ORD(INOERROR) THEN
+            BEGIN
+              WRITE(OUTPUT,'Can''t find ', TITLE);
+              GOTSYM := FALSE; GOTO 1
+            END;
+          TITLE := CONCAT(COPY(FILENAME[SYS_TYPE],1,
+                          POS(':',FILENAME[SYS_TYPE])),'SYSTEM.SWAPDISK');
+          FOPEN(SWAPFIB^,TITLE,TRUE,NIL);
+          CODE_NAME := '*SYSTEM.WRK.CODE[*]';
+          IF NOT GOTSYM THEN
+            BEGIN
+              WRITE(OUTPUT, 'To what codefile? ');
+              READLN(INPUT, TITLE);
+              IF TITLE <> '' THEN
+                IF TITLE[1] = SYSCOM^.CRTINFO.ALTMODE THEN
+                  GOTO 1  ELSE
+                  BEGIN       {Treat '$' as a wildcard}
+                    I := POS('$',TITLE);
+                    WHILE I <> 0 DO
+                      BEGIN
+                        DELETE(TITLE,I,1);
+                        INSERT(COPY(TEXT_TITLE,1,LENGTH(TEXT_TITLE)),
+                               TITLE,I);
+                        I := POS('$',TITLE);
+                        END;
+                    IF TITLE[LENGTH(TITLE)] <> ']' THEN
+                      CODE_NAME := CONCAT(TITLE,'.CODE[*]')  ELSE
+                      CODE_NAME := TITLE;
+                    END;
+            END;
+          FOPEN(CODEFIBP^,CODE_NAME,FALSE,NIL);
+          IF IORESULT <> ORD(INOERROR) THEN
+            BEGIN
+              WRITE(OUTPUT,'Can''t open ',CODE_NAME);
+              GOTO 1
+            END;
+          ERRNUM := 0; ERRBLK := 0; ERRSYM := 0;
+          IF NEXTST = ASSEMONLY THEN
+            NEXTST := COMPONLY;
+          GETCMD := NEXTST; EXIT(GETCMD);
+        1:
+          FCLOSE(SYMFIBP^,CNORMAL);
+          FCLOSE(SWAPFIB^,CNORMAL);
+        END;
+  END (*STARTCOMPILE*) ;
+
+  PROCEDURE FINISHCOMPILE;
+  VAR  RESULT : INTEGER;
+  BEGIN
+    FCLOSE(USERINFO.SYMFIBP^,CNORMAL);
+    FCLOSE(SWAPFIB^,CNORMAL);
+    IF SYSCOM^.MISCINFO.HAS8510A THEN
+      UNITCLEAR(3);
+    WITH USERINFO DO
+      IF ERRNUM > 0 THEN
+        BEGIN GOTCODE := FALSE;
+          FCLOSE(CODEFIBP^,CPURGE);
+          IF ERRBLK > 0 THEN
+            BEGIN CLEARSCREEN; WRITELN(OUTPUT);
+              IF SYS_ASSOCIATE(EDITOR) THEN
+                BEGIN GETCMD := SYSPROG; EXIT(GETCMD) END
+            END
+        END
+      ELSE
+        BEGIN
+          IF CODETID <> 'SYSTEM.WRK.CODE' THEN
+            BEGIN
+              CODEVID := CODEFIBP^.FVID;
+              CODETID := CODEFIBP^.FHEADER.DTID;
+              IF CODETID <> 'SYSTEM.WRK.CODE' THEN
+                BEGIN
+                  WORKVID := CODEVID;
+                  IF LENGTH(CODETID) > 5 THEN
+                    IF COPY(CODETID,LENGTH(CODETID)-4,5) = '.CODE' THEN
+                      WORKTID := COPY(CODETID,1,LENGTH(CODETID)-5);
+                END;
+            END;
+          GOTCODE := TRUE;
+          {FIB for codefile was closed in COMMAND}
+          IF LASTST IN [COMPANDGO,COMPDEBUG] THEN
+            RUNWORKFILE(TRUE, LASTST = COMPANDGO)
+        END
+  END (*FINISHCOMPILE*) ;
+
+  PROCEDURE EXECUTE;
+    VAR TITLE: STRING;
+  BEGIN
+    WRITE(OUTPUT,'Execute');
+    IF NOT SYSCOM^.MISCINFO.SLOWTERM THEN
+      WRITE(OUTPUT,' what file');
+    WRITE(OUTPUT,'? '); READLN(TITLE);
+    IF LENGTH(TITLE) > 0 THEN
+      BEGIN
+        IF TITLE[LENGTH(TITLE)] = '.' THEN
+          DELETE(TITLE,LENGTH(TITLE),1)
+        ELSE
+          INSERT('.CODE',TITLE,LENGTH(TITLE)+1);
+        IF ASSOCIATE(TITLE, FALSE, FALSE, TRUE, DONT_CARE) THEN
+          BEGIN GETCMD := SYSPROG; EXIT(GETCMD) END
+      END
+  END (*EXECUTE*) ;
+
+  PROCEDURE RUNWORKFILE;
+  BEGIN
+    WITH USERINFO DO
+    IF GOTCODE THEN
+      BEGIN
+        CLEARSCREEN;
+        WRITELN(OUTPUT);
+        IF ASSOCIATE(CONCAT(CODEVID,':',CODETID), OKTOLINK, RUNONLY, TRUE,
+                     DONT_CARE) THEN
+          BEGIN
+            WRITELN(OUTPUT,'Running...');
+            IF RUNONLY THEN
+                GETCMD := SYSPROG
+            ELSE
+                GETCMD := DEBUGCALL;
+            EXIT(GETCMD)
+          END;
+        IF NOT (LASTST IN [LINKANDGO, LINKDEBUG]) THEN
+          GOTCODE := FALSE
+      END
+    ELSE
+      IF RUNONLY THEN
+        STARTCOMPILE(COMPANDGO)
+      ELSE
+        STARTCOMPILE(COMPDEBUG)
+  END { RUNWORKFILE } ;
+
+BEGIN (*GETCMD*)
+  INPUTFIB^.FEOF := FALSE;
+  OUTPUTFIB^.FEOF := FALSE;
+  SYSTERM^.FEOF := FALSE;
+  GFILES[0] := INPUTFIB; GFILES[1] := OUTPUTFIB;
+  IF LASTST = HALTINIT THEN
+    IF ASSOCIATE('*SYSTEM.STARTUP',FALSE,FALSE,FALSE,DONT_CARE) THEN
+      BEGIN CLEARSCREEN;
+        GETCMD := SYSPROG; EXIT(GETCMD)
+      END;
+  IF LASTST IN [COMPONLY,COMPANDGO,COMPDEBUG] THEN
+    FINISHCOMPILE;
+  IF LASTST IN [LINKANDGO,LINKDEBUG] THEN
+    RUNWORKFILE(FALSE, LASTST = LINKANDGO);
+  IF SYSCOM^.MISCINFO.USERKIND = AQUIZ THEN
+    IF LASTST = HALTINIT THEN
+      BEGIN LASTST := COMPANDGO; RUNWORKFILE(TRUE, TRUE) END
+    ELSE
+      BEGIN
+        EMPTYHEAP := NIL;
+        GETCMD := HALTINIT;
+        EXIT(GETCMD)
+      END;
+  WITH USERINFO DO
+    BEGIN ERRNUM := 0; ERRBLK := 0; ERRSYM := 0 END;
+  BADCMD := FALSE;
+  REPEAT
+    PL :=
+'Command: E(dit, R(un, F(ile, C(omp, L(ink, X(ecute, A(ssem, D(ebug,? [II.0]';
+    PROMPT; CH := GETCHAR(BADCMD); CLEARSCREEN;
+    IF CH = '?' THEN
+      BEGIN PL := 'Command: U(ser restart, I(nitialize, H(alt';
+        PROMPT; CH := GETCHAR(BADCMD); CLEARSCREEN
+      END;
+    BADCMD := NOT (CH IN ['E','R','F','C','L','X','A','D','U','I','H','?']);
+    IF NOT BADCMD THEN
+      CASE CH OF
+        'E':  BEGIN WRITELN(OUTPUT);
+                IF SYS_ASSOCIATE(EDITOR) THEN
+                  BEGIN GETCMD := SYSPROG; EXIT(GETCMD) END
+              END;
+        'F':  BEGIN WRITELN(OUTPUT);
+                IF SYS_ASSOCIATE(FILER) THEN
+                  BEGIN GETCMD := SYSPROG; EXIT(GETCMD) END
+              END;
+        'L':  BEGIN WRITELN(OUTPUT,'Linking...');
+                IF SYS_ASSOCIATE(LINKER) THEN
+                  BEGIN GETCMD := SYSPROG; EXIT(GETCMD) END
+              END;
+        'X':  EXECUTE;
+        'C':  STARTCOMPILE(COMPONLY);
+        'A':  STARTCOMPILE(ASSEMONLY);
+        'U':  IF LASTST <> UPROGNOU THEN
+                BEGIN
+                  WRITELN(OUTPUT,'Restarting...');
+                  GETCMD := SYSPROG; EXIT(GETCMD)
+                END
+              ELSE
+                BEGIN WRITELN(OUTPUT); WRITE(OUTPUT,'U not allowed') END;
+    'R','D':  RUNWORKFILE(TRUE, CH = 'R');
+    'I','H':  BEGIN
+                GETCMD := HALTINIT;
+                IF CH = 'H' THEN
+                  EMPTYHEAP := NIL;
+                EXIT(GETCMD)
+              END
+      END
+  UNTIL FALSE
+END (*GETCMD*) ;

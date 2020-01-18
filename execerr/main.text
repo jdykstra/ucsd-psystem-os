@@ -1,0 +1,194 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+{This is an unpublished work copyright by the Regents of
+   the University of California. This item is the property of SofTech
+   Microsystems Inc., and it may be used, copied or distributed only
+   as permitted in a written license from that company.}
+(*$U-*)
+PROGRAM TESTRUNNTIMEERRORS;
+CONST NOERROR=FALSE;
+      ERROR=TRUE;
+      SILENT=FALSE;
+TYPE SYSCOMREC=RECORD
+                 IOERROR:INTEGER;
+                 XEQERR:INTEGER;
+               END;
+VAR SYSCOM:^SYSCOMREC;
+    SUBTESTNUM,TESTNUM:INTEGER;
+    OKIFERROR:BOOLEAN;
+    CRLF:CHAR;
+    BADNOERROR,BADERROR,DESCRIPSTRING:STRING;
+
+  PROCEDURE EXECERROR;FORWARD;
+
+  FUNCTION DOTESTS:BOOLEAN;FORWARD;
+
+  PROCEDURE EXECERROR;
+
+    PROCEDURE PRINTINT(INT:INTEGER);
+    VAR POWR,DIGCNT:INTEGER;
+        HADDIGIT:BOOLEAN;
+        CH:CHAR;
+    BEGIN
+      IF INT<0 THEN
+      BEGIN
+        CH:='-';
+        UNITWRITE(1,CH,2);
+        INT:=ABS(INT);
+      END;
+      POWR:=10000;
+      HADDIGIT:=FALSE;
+      FOR DIGCNT:=0 TO 4 DO
+      BEGIN
+        CH:=CHR(ORD('0')+INT DIV POWR MOD 10);
+        IF (CH<>'0') OR (HADDIGIT OR (DIGCNT=4)) THEN
+        BEGIN
+          UNITWRITE(1,CH,2);
+          HADDIGIT:=TRUE;
+        END;
+        POWR:=POWR DIV 10;
+      END;
+    END;
+
+  BEGIN
+    IF NOT (SILENT AND OKIFERROR) THEN
+    BEGIN
+      UNITWRITE(1,CRLF,2);
+      UNITWRITE(1,DESCRIPSTRING[1],ORD(DESCRIPSTRING[0]));
+    END;
+    IF NOT OKIFERROR THEN
+    BEGIN
+      UNITWRITE(1,BADERROR[1],ORD(BADERROR[0]));
+      PRINTINT(SYSCOM^.XEQERR);
+    END;
+    EXIT(DOTESTS);
+  END;
+
+  PROCEDURE TEST(FAKE:BOOLEAN);
+  BEGIN
+    IF (NOT SILENT) OR OKIFERROR THEN
+    BEGIN
+      UNITWRITE(1,CRLF,2);
+      UNITWRITE(1,DESCRIPSTRING[1],ORD(DESCRIPSTRING[0]));
+    END;
+    IF OKIFERROR THEN
+      UNITWRITE(1,BADNOERROR[1],ORD(BADNOERROR[0]));
+    EXIT(DOTESTS);
+  END;
+
+  PROCEDURE PRINTSTRING(S:STRING);
+  BEGIN
+    UNITWRITE(1,S[1],ORD(S[0]));
+  END;
+
+  PROCEDURE DESCRIP(S:STRING;SHOULDERROR:BOOLEAN);
+  BEGIN
+    IF SILENT THEN
+      DESCRIPSTRING:=S ELSE
+      PRINTSTRING(S);
+    OKIFERROR:=SHOULDERROR;
+  END;
+
+  FUNCTION BUMPCOUNTERS(MAXSUBTESTNUM:INTEGER):BOOLEAN;
+  BEGIN
+    SUBTESTNUM:=SUBTESTNUM+1;
+    BUMPCOUNTERS:=TRUE;
+    IF SUBTESTNUM>MAXSUBTESTNUM THEN
+    BEGIN
+      SUBTESTNUM:=0;
+      TESTNUM:=TESTNUM+1;
+      BUMPCOUNTERS:=FALSE;
+    END;
+  END;
+
+  PROCEDURE INVINDX;
+  VAR ARRAY0:ARRAY[0..0] OF INTEGER;
+  BEGIN
+    IF BUMPCOUNTERS(7) THEN
+      CASE SUBTESTNUM OF
+        1:BEGIN
+            DESCRIP('CHK  lo bound=0  hi bound=0  index=0',NOERROR);
+            TEST(ARRAY0[0]=0);
+          END;
+        2:BEGIN
+            DESCRIP('CHK  lo bound=0  hi bound=0  index=1',ERROR);
+            TEST(ARRAY0[(*1*)0]=0);
+          END;
+        3:BEGIN
+            DESCRIP('CHK  lo bound=0  hi bound=0  index=-1',ERROR);
+            TEST(ARRAY0[-1]=0);
+          END;
+        4:BEGIN
+            DESCRIP('CHK  lo bound=0  hi bound=0  index=134',NOERROR);
+            TEST(ARRAY0[134]=0);
+          END;
+        5:BEGIN
+            DESCRIP('CHK  lo bound=0  hi bound=0  index=-200',ERROR);
+            TEST(ARRAY0[-200]=0);
+          END;
+        6:BEGIN
+            DESCRIP('CHK  lo bound=0  hi bound=0  index=17557',ERROR);
+            TEST(ARRAY0[17557]=0);
+          END;
+        7:BEGIN
+            DESCRIP('CHK  lo bound=0  hi bound=0  index=-21321',ERROR);
+            TEST(ARRAY0[-21321]=0);
+          END;
+
+      END;
+  END;
+
+  FUNCTION DOTESTS;
+  BEGIN
+    DOTESTS:=TESTNUM<=0;
+    IF TESTNUM<=0 THEN
+      CASE TESTNUM OF
+        0:INVINDX;
+      END;
+  END;
+
+BEGIN
+  CRLF:=CHR(13);
+  BADERROR:='  >>> gave error # ';
+  BADNOERROR:='  >>> gave no error';
+  TESTNUM:=0;
+  SUBTESTNUM:=0;
+  WHILE DOTESTS DO;
+  PRINTSTRING('TESTS COMPLETED');
+  FOR TESTNUM:=0 TO 1000 DO;
+END.

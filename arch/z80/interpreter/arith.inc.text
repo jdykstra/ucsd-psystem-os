@@ -1,0 +1,672 @@
+;
+; UCSD PASCAL - Version I.5
+; Copyright (C) 1978, 1979 Regents of the University of California
+; All Rights Reserved
+;
+; Permission to use, copy, modify and distribute any part of UCSD
+; PASCAL solely authored by UC authors before June 1, 1979 for
+; educational, research and non-profit purposes, without fee, and
+; without a written agreement is hereby granted, provided that the
+; above copyright notice, this paragraph and the following three
+; paragraphs appear in all copies.
+;
+; Those desiring to incorporate UCSD PASCAL into commercial products or
+; use for commercial purposes should contact the Technology Transfer &
+; Intellectual Property Services, University of California, San Diego,
+; 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+; Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+;
+; IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+; FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+; INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+; THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+; DAMAGE.
+;
+; THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+; OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+; UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+; MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+; EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+; WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+; THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+; OTHER RIGHTS.
+;
+; Case Number: SD1991-807 (2006)
+; http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+;
+;;; Source: http://bitsavers.org/bits/UCSD_Pascal/ucsd_II.0/
+;;;     U120_Z80_P-CODE_SOURCE.raw.gz
+;;; Date: 1978-Oct-19
+
+        .IF ~LSTARIT
+         .NOLIST
+        .ELSE
+         .LIST
+        .ENDC
+
+;Copyright (c) 1978
+;  by the Regents of the University of California, San Diego
+
+; start of file ARITH
+
+
+;*************** TOP OF STACK ARITHMETIC ****************;
+
+
+;***** Logical
+
+LAND    ; Logical AND
+        POP     DE
+        POP     HL
+        LD      A,E
+        AND     L
+        LD      L,A
+        LD      A,D
+        AND     H
+        LD      H,A
+        PUSH    HL
+        JP      BACK
+
+LOR     ; Logical OR
+        POP     HL
+        POP     DE
+        LD      A,L
+        OR      E
+        LD      L,A
+        LD      A,H
+        OR      D
+        LD      H,A
+        PUSH    HL
+        JP      BACK
+
+NOT     ; Logical NOT
+        POP     HL
+        LD      A,L
+        CPL
+        LD      L,A
+        LD      A,H
+        CPL
+        LD      H,A
+        PUSH    HL
+        JP      BACK
+
+
+;***** Integer
+
+ABI     ; Integer absolute value
+        POP     HL
+        LD      A,H
+        TSTA
+        JP      P,$10
+        CLRA
+        SUB     L
+        LD      L,A
+        LD      A,00H
+        SBC     A,H
+        AND     7FH             ; in case of -32768
+        LD      H,A
+$10     PUSH    HL
+        JP      BACK
+
+ADI     ; Add integers
+        POP     DE
+        POP     HL
+        ADD     HL,DE
+        PUSH    HL
+        JP      BACK
+
+DVI     ; Divide integers
+        SAVIPC
+        POP     BC              ; divisor
+        POP     DE              ; dividend
+        CALL    DIVD
+        PUSH    DE              ; quotient
+        JP      BACK1
+
+MODI    ; Remainder of integer division
+        SAVIPC
+        POP     BC
+        POP     DE
+        CALL    DIVD
+        PUSH    HL
+        JP      BACK1
+
+MPI     ; Integer multiply
+        SAVIPC
+        POP     DE
+        POP     BC
+        CALL    MULT
+        PUSH    HL
+        JP      BACK1
+
+SQI     ; Square integers
+        SAVIPC
+        POP     DE
+        LD      C,E
+        LD      B,D
+        CALL    MULT
+        PUSH    HL
+        JP      BACK1
+
+NGI     ; Negate integer
+        POP     HL
+        CLRA
+        SUB     L
+        LD      L,A
+        LD      A,00H
+        SBC     A,H
+        LD      H,A
+        PUSH    HL
+        JP      BACK
+
+SBI     ; Subtract integers
+        POP     DE
+        POP     HL
+        SUBHLDE
+        PUSH    HL
+        JP      BACK
+
+CHK     ; Check number against limits (range-checking)
+        POP     HL              ; max
+        POP     DE              ; min
+        EX      (SP),HL
+        ; HL = num, DE = min, (SP) = max
+        LD      A,D
+        XOR     H
+        JP      M,$10
+        LD      A,L
+        SUB     E
+        LD      A,H
+        SBC     A,D
+        JP      P,$20
+        JP      $98
+$10     AND     D
+        JP      P,$98
+$20     POP     DE              ; max
+        PUSH    HL              ; put num back
+        ; HL = num, DE = max
+        LD      A,D
+        XOR     H
+        JP      M,$30
+        LD      A,E             ; is max >= num ?
+        SUB     L
+        LD      A,D
+        SBC     A,H
+        JP      P,BACK
+        JP      $99
+$30     AND     H
+        JP      M,BACK
+        JP      $99
+$98     EX      (SP),HL         ; leave num on stack to help person debug
+$99     SAVIPC
+        JP      INVNDX
+
+;***************TEMPORARY EXPEDIENT
+
+MULT    ; Two's complement integer multiply routine
+        ; Entry  BC = multiplicand, DE = multiplier
+        ; Exit   HL = product
+        .IF Z80
+         LD     HL,0000H
+$10      SRL    D
+         JP     NZ,$20
+         RR     E
+         JP     Z,$50
+         JP     $30
+$20      RR     E
+$30      JP     NC,$40
+         ADD    HL,BC
+$40      SLA    C
+         RL     B
+         JP     $10
+$50      JP     NC,$60
+         ADD    HL,BC
+$60      RET
+        .ENDC
+
+        .IF ~Z80
+         EX     DE,HL           ; make HL multiplicand
+         LD     DE,0000H        ; and DE product
+         LD     A,C             ; A := lower 8 bits of multiplier
+$10      LD     C,B             ; set up next 8 bits for next time around
+         LD     B,08H           ; B := shift count
+$20      RRA
+         JP     NC,$30
+         EX     DE,HL           ; add in the partial product
+         ADD    HL,DE
+         EX     DE,HL
+$30      ADD    HL,HL           ; shift multiplicand left
+         DEC    B
+         JP     NZ,$20
+         LD     A,C             ; get high order byte of multiplier
+         TSTA
+         JP     NZ,$10
+         EX     DE,HL           ; put the product in HL to meet specs
+         RET
+        .ENDC
+
+DIVPOS  ; Divide two positive integers
+        ; Entry BC = divisor, HL = dividend
+        ; Exit  BC = divisor, HL = remainder
+        ;       DE = quotient
+SHFTCT  .EQU     BYTE1
+        .IF Z80
+         LD     DE,0000H
+         LD     A,01H
+$10      INC    A
+         SLA    C
+         RL     B
+         JP     P,$10
+$20      SCF
+         RL     E
+         RL     D
+         SBC    HL,BC
+         JP     NC,$30
+         ADD    HL,BC
+         DEC    DE
+$30      SRL    B
+         RR     C
+         DEC    A
+         JP     NZ,$20
+         RL     C
+         RL     B
+         RET
+        .ENDC
+
+        .IF ~Z80
+         ; make HL divisor, DE dividend while shifting divisor left
+         EX     DE,HL
+         LD     H,B
+         LD     L,C
+         CLRA
+$10      INC    A               ; A is shift count
+         ADD    HL,HL
+         JP     NC,$10
+         ; for main loop, BC = divisor, DE = what's left of dividend,
+         ;   HL = quotient so far
+         LD     C,L
+         LD     B,H
+         LD     HL,0000H
+$20      LD     (SHFTCT),A
+         LD     A,B             ; shift divisor right
+         RRA
+         LD     B,A
+         LD     A,C
+         RRA
+         LD     C,A
+         ADD    HL,HL           ; shift quotient left
+         LD     A,E             ; dividend := dividend-divisor
+         SUB    C
+         LD     E,A
+         LD     A,D
+         SBC    A,B
+         LD     D,A
+         JP     NC,$30
+         EX     DE,HL           ; shit. restore dividend
+         ADD    HL,BC
+         EX     DE,HL
+         CLRCF                  ; for shifting divisor right
+         JP     $40
+$30      INC    HL              ; subtract was okay
+$40      LD     A,(SHFTCT)
+         DEC    A
+         JP     NZ,$20
+         EX     DE,HL           ; satisfy exit conditions specified above
+         RET
+        .ENDC
+
+DIVD    ; Two's complement divide - mathematically correct even!
+        ; NOTE WELL. Does not return values as specified in J & W.
+        ; Entry BC = divisor, DE = dividend
+        ; Exit  HL = remainder, DE = quotient
+        CLRA                    ; make sure divisor isn't 0 or -32768
+        OR      C
+        JP      NZ,$10
+        OR      B
+        JP      Z,$99
+        XOR     80H
+        JP      Z,$99
+$10     LD      A,B             ; check divisor sign
+        TSTA
+        JP      M,$50
+$20     OR      D               ; check dividend sign
+        JP      M,$40
+$30     EX      DE,HL           ; divide positive by positive
+        CALL    DIVPOS
+        ; no adjustment necessary.  7 DIV 3 = 2, 7 MOD 3 = 1
+        ;  6 DIV 3 = 2, 6 MOD 3 = 0
+        RET
+$40     ; divide negative by positive
+        LD      A,E             ; dividend := -dividend-1
+        CPL
+        LD      L,A
+        LD      A,D
+        CPL
+        LD      H,A
+        CALL    DIVPOS
+        ; now set realquotient := -quotient-1
+        ;         realremainder := divisor-remainder-1
+        ; -7 DIV 3 = -3, -7 MOD 3 = 2
+        ; -6 DIV 3 = -2, -6 MOD 3 = 0
+        LD      A,E
+        CPL
+        LD      E,A
+        LD      A,D
+        CPL
+        LD      D,A
+        ; now for the remainder
+        SCF
+        LD      A,C
+        SBC     A,L
+        LD      L,A
+        LD      A,B
+        SBC     A,H
+        LD      H,A
+        RET
+$50     ; divide by negative.  make divisor positive.
+        CLRA
+        SUB     C
+        LD      C,A
+        LD      A,00H
+        SBC     A,B
+        LD      B,A
+        LD      A,D             ; check dividend sign
+        TSTA
+        JP      M,$80
+        JP      NZ,$60
+        OR      E
+        JP      Z,$80           ; makes things cleanest, believe it or not
+$60     EX      DE,HL           ; divide positive by negative
+        DEC     HL
+        CALL    DIVPOS
+        ; now set realquotient := -quotient-1,
+        ;         realremainder := remainder+1-divisor
+        ; 7 DIV -3 = -3, 7 MOD -3 = -2
+        ; 6 DIV -3 = -2, 6 MOD -3 = 0
+        LD      A,E
+        CPL
+        LD      E,A
+        LD      A,D
+        CPL
+        LD      D,A
+$70     SUBHLBC
+        INC     HL
+        RET
+$80     ; divide negative or zero by negative
+        CLRA                    ; make dividend positive
+        SUB     E
+        LD      L,A
+        LD      A,00H
+        SBC     A,D
+        LD      H,A
+        CALL    DIVPOS
+        ; now set realremainder := -realremainder
+        ; -7 DIV -3 = 2, -7 MOD -3 = -1
+        CLRA
+        SUB     L
+        LD      L,A
+        LD      A,00H
+        SBC     A,H
+        LD      H,A
+        RET
+$99     POP     HL              ; return_address
+        PUSH    DE              ; leave dividend on stack...
+        JP      DIVZER          ; ...and bomb.
+
+;***** Word comparisons.  pop b; pop a; push (a <relop> b)
+
+EQUI    ; Compare for =
+        POP     DE
+        POP     HL
+        LD      A,L
+        SUB     E
+        JP      NZ,PSHFLS
+        LD      A,H
+        SBC     A,D
+        JP      Z,PSHTRU
+PSHFLS  LD      HL,0000H
+        PUSH    HL
+        JP      BACK
+
+GEQI    ; Compare for >=
+        POP     DE
+        POP     HL
+GEQ0    LD      A,D
+        XOR     H
+        JP      M,GEQ1
+        LD      A,L
+        SUB     E
+        LD      A,H
+        SBC     A,D
+        JP      P,PSHTRU
+        JP      PSHFLS
+GEQ1    AND     H
+        JP      P,PSHTRU
+        JP      PSHFLS
+
+GTRI    ; Compare for >
+        POP     DE
+        POP     HL
+GTR0    LD      A,D
+        XOR     H
+        JP      M,GEQ1
+        LD      A,E
+        SUB     L
+        LD      A,D
+        SBC     A,H
+        JP      C,PSHTRU
+        JP      PSHFLS
+
+NEQI    ; Compare for <>
+        POP     DE
+        POP     HL
+        LD      A,L
+        SUB     E
+        JP      NZ, PSHTRU
+        LD      A,H
+        SBC     A,D
+        JP      Z,PSHFLS
+PSHTRU  LD      HL,0001H
+        PUSH    HL
+        JP      BACK
+
+LEQI    ; Compare for <=
+        POP     HL
+        POP     DE
+        JP      GEQ0
+
+LESI    ; Compare for <
+        POP     HL
+        POP     DE
+        JP      GTR0
+
+
+;***** Comparisons of complex things
+
+; Beware that many comparisons work only because compiler restricts you
+;   to = and <> on certain types.
+; The opcode tells what relation is being tested
+;   the next byte indicates the type of the things being compared
+;   if arrays are being compared, the next GBDE is the array size
+; Tests allowed...
+; Boolean:  all relations.  stuff is on the stack.
+; Real:             all relations.  stuff is on the stack.
+; Set:      =, <>, <= (subset), >= (superset).  stuff is on the stack.
+; String:   all relations. pointers to stuff are on stack.
+; Arrays and records:   =, <>. pointers to stuff on stack
+;
+;  after CSETUP flags are result of a-b.
+
+CEQU    CALL    CSETUP
+        JP Z,PSHTRU1
+PSHFLS1 LD  HL,0000H
+        PUSH    HL
+        JP BACK1
+
+CNEQ    CALL    CSETUP
+        JP  Z,PSHFLS1
+PSHTRU1 LD  HL,0001H
+        PUSH    HL
+        JP  BACK1
+
+CGTR    CALL    CSETUP
+        JP      C,PSHFLS1
+        JP      NZ,PSHTRU1
+        JP      PSHFLS1
+
+CLEQ    CALL    CSETUP
+        JP      C,PSHTRU1
+        JP      NZ,PSHFLS1
+        JP      PSHTRU1
+
+CLSS    CALL    CSETUP
+        JP      C,PSHTRU1
+        JP      PSHFLS1
+
+CGEQ    CALL    CSETUP
+        JP      C,PSHFLS1
+        JP      PSHTRU1
+
+; Find out the type of things being compared, jump to
+;   proper routine which follows the compare stuff and set flags.
+CSETUP  LD      A,(BC)          ; A := type of stuff to compare
+        INC     BC
+        SAVIPC
+        LD      E,A             ; branch off to proper routine
+        LD      D,00H
+        LD      HL,CMPTBL
+        ADD     HL,DE
+        LD      E,(HL)
+        INC     HL
+        LD      D,(HL)
+        EX      DE,HL
+        JP      (HL)
+
+CMPTBL  .EQU     $-2
+        .WORD    REALC
+        .WORD    STRGC
+        .WORD    BOOLC
+        .WORD    POWRC
+        .WORD    BYTEC
+        .WORD    WORDC
+
+STRGC   ; Lexicographic string compare
+        ;   Compare up to min(length(a), length(b)).  if still equal,
+        ;   compare sizes
+LENA    .EQU     BYTE1
+        POP     HL
+        POP     DE
+        EX      (SP),HL
+        EX      DE,HL           ; HL = ^b, DE = ^a, (SP) = return_address
+        ; See if either HL or DE (but not both at the same time) is
+        ;   really a single char...handle as in SAS
+        LD      A,H
+        TSTA
+        JP      NZ,$03
+        ; HL is a disguised character !
+        LD      A,L
+        LD      (LTSTRNG+1),A
+        LD      HL,LTSTRNG
+        JP      $06
+$03     LD      A,D
+        TSTA
+        JP      NZ,$06
+        ; DE is a char
+        LD      A,E
+        LD      (LTSTRNG+1),A
+        LD      DE,LTSTRNG
+$06     LD      C,(HL)          ; C := length(b)
+        LD      A,(DE)          ; B := (LENA) := length(a)
+        LD      (LENA),A
+        LD      B,A
+        CP      C               ; B := min(length(a), length(b))
+        JP      C,$10
+        LD      B,C
+        LD      A,C
+$10     TSTA                    ; check for min = 0
+        JP      Z,$30
+$20     INC     HL
+        INC     DE
+        LD      A,(DE)
+        CP      (HL)
+        RET     NZ
+        DJNZM   $20
+$30     ; Strings are equal up to length of smallest, so compare sizes
+        LD      A,(LENA)
+        CP      C
+        RET
+
+BYTEC   ; Byte array compare
+        CALL    GBDE            ; DE := number of bytes to compare
+        SAVIPC
+        LD      C,E
+        LD      B,D
+        JP      GPTRS
+
+WORDC   ; Word array or multiple word record compare
+        CALL    GBDE            ; DE := number of words to compare
+        SAVIPC
+        EX      DE,HL           ; DE := # bytes to compare
+        ADD     HL,HL
+        LD      C,L
+        LD      B,H
+GPTRS   ; Set DE := ^a, HL := ^b
+        POP     HL
+        POP     DE
+        EX      (SP),HL
+        EX      DE,HL
+        JP      SWEQ
+
+; Scan while equal.
+;   DE = ^b, HL = ^a, BC = # bytes to compare
+;   Scans until unequal comparison or compared all the bytes.
+;   Flags left set by last comparison
+
+        .IF Z80
+SWEQ1    INC    DE
+SWEQ     LD     A,(DE)
+         CPI
+         JP     PO,$20          ; if Parity Odd, BC = 0 and things
+                                ; are equal throughout
+         JP     Z,SWEQ1         ; if Zero, both bytes were equal
+$20      DEC    HL              ; set flags as result of last compare
+         CP     (HL)
+         RET
+        .ENDC
+
+        .IF ~Z80
+SWEQ     CALL   NEGBC           ; BC := -BC
+$10      LD     A,(DE)
+         CP     (HL)
+         RET    NZ
+         INC    HL
+         INC    DE
+         INC    C               ; loop control
+         JP     NZ,$10
+         INC    B
+         JP     NZ,$10
+         CLRA                   ; equal, so set flags accordingly
+         RET
+        .ENDC
+
+BOOLC   ; Boolean compare.  Only look at bit 0.
+        POP     HL              ; HL := a, DE := b
+        POP     DE
+        EX      (SP),HL
+        LD      A,E             ; get low bit of b
+        AND     01H
+        LD      E,A
+        LD      A,L             ; same for a
+        AND     01H
+        CP      E
+        RET
+
+NEGBC   CLRA
+        SUB     C
+        LD      C,A
+        LD      A,00H
+        SBC     A,B
+        LD      B,A
+        RET
+
+; End-of-File ARITH

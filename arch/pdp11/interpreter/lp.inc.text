@@ -1,0 +1,192 @@
+;
+; UCSD PASCAL - Version II.0
+; Copyright (C) 1978, 1979 Regents of the University of California
+; All Rights Reserved
+;
+; Permission to use, copy, modify and distribute any part of UCSD
+; PASCAL solely authored by UC authors before June 1, 1979 for
+; educational, research and non-profit purposes, without fee, and
+; without a written agreement is hereby granted, provided that the
+; above copyright notice, this paragraph and the following three
+; paragraphs appear in all copies.
+;
+; Those desiring to incorporate UCSD PASCAL into commercial products or
+; use for commercial purposes should contact the Technology Transfer &
+; Intellectual Property Services, University of California, San Diego,
+; 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+; Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+;
+; IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+; FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+; INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+; THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+; DAMAGE.
+;
+; THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+; OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+; UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+; MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+; EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+; WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+; THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+; OTHER RIGHTS.
+;
+; Case Number: SD1991-807 (2006)
+; http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+;
+;;; Source: http://bitsavers.org/bits/UCSD_Pascal/ucsd_II.0/
+;;;     U121.2_LSI-11_P-CODE_SOURCE.raw.gz
+;;; Description: LP11 line printer driver.
+;;; Date: 1979-02-06
+        .TITLE  LP-11 PRINTER HANDLER
+        ; FOR VERSION I.5, II.0 INTERPS.
+        ;
+        ; COPYRIGHT (C) 1978 REGENTS OF THE UNIVERSTIY OF CALIFORNIA.
+        ; PERMISSION TO COPY OR DISTRIBUTE THIS SOFTWARE OR DOCUMEN-
+        ; TATION IN HARD COPY OR SOFT COPY GRANTED ONLY BY WRITTEN LICENSE
+        ; OBTAINED FROM THE INSTITUTE OF INFORMATION SYSTEMS.  ALL RIGHTS
+        ; RESERVED.  NO PART OF THIS PUBLICATION MAY BE REPRODUCED, STORED
+        ; IN A RETRIEVAL SYSTEM ( E.G., IN MEMORY, DISK, OR CORE) OR BE
+        ; TRANSMITTED BY ANY MEANS, ELECTRONIC, MECHANICAL, PHOTOCOPY,
+        ; RECORDING, OR OTHERWISE, WITHOUT PRIOR WRITTEN PERMISSION FROM THE
+        ; PUBLISHER.
+        ;
+        ;
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                                                                   ;
+;                       SYSTEM TABLE CONTENTS                       ;
+;                                                                   ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+        .ASECT          ; INTERRUPT HANDLER LOCATION IN VECTORS
+.=200
+        LP$INT
+        200
+
+        .CSECT  TABLES
+        .BLKW   128.    ; OPERATOR XFER TABLE
+        .REPT   6
+        .BLKW   3
+        .ENDR
+        .WORD   OUTBIT,LPSTRT,LPABRT
+        .PAGE
+        .CSECT  LPDRVR
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                                                                   ;
+;               PRINTER OUTPUT HANDLER                              ;
+;                                                                   ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+LPUNIT: .WORD   0
+LPBUFA: .WORD
+LPLENG: .WORD
+DLEFLG: .WORD   0
+LP.COL: .WORD   0
+LPCSR:  .WORD   177514
+LPBUF:  .WORD   177516
+CRFLG:  .BYTE   0
+LFFLG:  .BYTE   0
+
+LPOFST  = 4
+LPSTRT: ; THIS CODE STARTS IO'S TO THE PRINTER DEVICE
+        TST     LPUNIT          ; SEE IF AN IO ALREADY IN PROGRESS
+        BNE     LPSTRT          ; IF SO LOOP UNTIL THE IO IS COMPLETE
+        MTPS    #200            ; NO INTERRUPTS PLEASE
+        MOV     R1,LPUNIT       ; MARK HANDLER AS BUSY
+        BIS     #BSYBIT,(R1)    ; MARK LOGICAL UNIT AS BUSY
+        CLR     (SP)            ; SET UP RETURN STUFF ON STACK...PR-0 PS
+        TST     (R3)+           ; SKIP R3 OVER IO INFO WORD
+        MOV     R3,-(SP)        ; NOW THE RETURN ADDRESS
+        MOV     <UBUFFR+LPOFST>(SP),LPBUFA      ; GRAB USER BUFFER ADDR
+        MOV     <URLENG+LPOFST>(SP),LPLENG      ; AND REQUESTED IO LENGTH
+LP$INT: BIC     #100,@LPCSR     ; DISABLE INTERRUPTS
+        TST     LPUNIT          ; ANY IO'S IN PROGRESS
+        BEQ     LPEXIT          ; IF NOT JUST FORGET IT
+        TST     LPLENG          ; ANY CHARS LEFT TO BE SENT?
+        BEQ     LPQUIT          ; IF NOT THEN FINISH UP IO
+        MOV     R0,-(SP)        ; STASH REG
+        CLR     R0
+        TST     CRFLG           ; IF LFFLG AND CRFLG NOT SET THEN
+        BEQ     9$              ; NO EXTRA LF OR NULL IS SENT.
+        BPL     8$              ; IF LFFLG SET THEN
+        CLRB    LFFLG           ; CLEAR LFFLG AND
+        MOVB    #LF,R0          ; SEND A LF.
+        BR      7$
+8$:     CLRB    CRFLG           ; CRFLG SET SO CLEAR CRFLG AND
+        MOVB    #00,R0          ; SEND A NULL.
+7$:     DEC     LPBUFA          ; NO CHARACTER IS TAKEN FROM UBUFFR SO
+        INC     LPLENG          ; ADJUST THESE TWO VALUES ACCORDINGLY.
+        BR      2$
+9$:     BISB    @LPBUFA,R0      ; GRAB CHAR FROM USER BUFFER
+        BEQ     3$              ; A NULL? RESET TABS STOPS
+        TST     DLEFLG          ; DLE EXPANSION IN PROGRESS?
+        BEQ     10$             ; IF =0 THEN NORMAL STATE
+        CLR     DLEFLG
+        SUB     #32.,R0
+        BLE     12$
+11$:    TSTB    @LPCSR
+        BPL     11$
+        MOVB    #' ,@LPBUF
+        INC     LP.COL
+        SOB     R0,11$
+        BR      2$
+10$:    CMPB    R0,#DLE
+        BNE     15$
+        COM     DLEFLG
+12$:    CLR     R0
+        BR      2$
+15$:    CMPB    R0,#FF          ; FORM - FEED?
+        BEQ     3$
+        CMPB    R0,#HT
+        BNE     4$
+        JSR     PC,LPTABR
+4$:     INC     LP.COL
+        CMPB    R0,#CR          ; AN END-OF-LINE CHAR?
+        BNE     1$
+        COMB    LFFLG           ; SET LFFLG AND
+        MOVB    #CR,R0          ; SEND A CR.
+        BR      3$
+1$:     CMPB    R0,#21          ; A DC1??  (USED TO DO UNDERLINING)
+        BNE     2$
+        COMB    CRFLG           ; SET CRFLG AND
+        MOVB    #CR,R0          ; SEND A CR.
+3$:     CLR     LP.COL
+2$:     TSTB    @LPCSR          ; TEST DONE BIT
+        BPL     2$              ; AND HANG TIL READY
+13$:    TST     @LPCSR          ; TEST ERROR BIT
+        BMI     13$             ; AND HANG TIL READY
+        MOVB    R0,@LPBUF       ; SEND CHAR TO DL
+        MOV     (SP)+,R0        ; RESTORE TEMP REG
+        BIS     #100,@LPCSR     ; ALLOW INTERRUPT
+        INC     LPBUFA          ; BUMP BUFFER POINTER TO NEXT CHAR
+        DEC     LPLENG          ; ALSO REFLECT ONE FEWER CHAR TO SEND
+        JMP     @#INTRTN        ; THIS STRUCTURE IMPLIES AN IO IS NOT
+                                ; DONE UNTIL THE LAST INTERRUPT IS RECEIVED
+LPQUIT: BIC     #BSYBIT,@LPUNIT ; CLEAR BUSY BIT IN IO UNIT TABLE
+        CLR     LPUNIT          ; MARK HANDLER AS NOT BUSY NOW
+LPEXIT: JMP     INTRTN          ; AND BACK NOW TO WHEREVER
+
+LPTABR: ; LITTLE SUBROUTINE TO TAB
+        MOV     R1,-(SP)
+        MOV     #' ,R0
+        MOV     LP.COL,R1
+        BIS     #7,LP.COL
+        SUB     LP.COL,R1
+        BEQ     3$
+1$:     MOVB    R0,@LPBUF
+2$:     TSTB    @LPCSR
+        BPL     2$
+        INC     R1
+        BNE     1$
+3$:     MOV     (SP)+,R1
+        RTS     PC
+
+LPABRT: MTPS    #200
+        TST     LPUNIT
+        BEQ     1$
+        BIC     #BSYBIT,@LPUNIT
+        CLR     LPUNIT
+1$:     MTPS    #0
+        RTS     PC

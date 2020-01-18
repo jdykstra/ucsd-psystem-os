@@ -1,0 +1,374 @@
+;
+; UCSD PASCAL - Version II.0
+; Copyright (C) 1978, 1979 Regents of the University of California
+; All Rights Reserved
+;
+; Permission to use, copy, modify and distribute any part of UCSD
+; PASCAL solely authored by UC authors before June 1, 1979 for
+; educational, research and non-profit purposes, without fee, and
+; without a written agreement is hereby granted, provided that the
+; above copyright notice, this paragraph and the following three
+; paragraphs appear in all copies.
+;
+; Those desiring to incorporate UCSD PASCAL into commercial products or
+; use for commercial purposes should contact the Technology Transfer &
+; Intellectual Property Services, University of California, San Diego,
+; 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+; Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+;
+; IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+; FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+; INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+; THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+; DAMAGE.
+;
+; THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+; OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+; UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+; MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+; EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+; WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+; THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+; OTHER RIGHTS.
+;
+; Case Number: SD1991-807 (2006)
+; http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+;
+;;; Source: http://bitsavers.org/bits/UCSD_Pascal/ucsd_II.0/
+;;;     U121.2_LSI-11_P-CODE_SOURCE.raw.gz
+;;; Description: 8510a screen emulator.
+;;; Date: 1979-02-06
+        .TITLE  TERAK SCREEN HANDLER
+        ; FOR VERSION I.5, II.0 INTERPS.
+        ;
+        ; COPYRIGHT (C) 1978 REGENTS OF THE UNIVERSTIY OF CALIFORNIA.
+        ; PERMISSION TO COPY OR DISTRIBUTE THIS SOFTWARE OR DOCUMEN-
+        ; TATION IN HARD COPY OR SOFT COPY GRANTED ONLY BY WRITTEN LICENSE
+        ; OBTAINED FROM THE INSTITUTE OF INFORMATION SYSTEMS.  ALL RIGHTS
+        ; RESERVED.  NO PART OF THIS PUBLICATION MAY BE REPRODUCED, STORED
+        ; IN A RETRIEVAL SYSTEM ( E.G., IN MEMORY, DISK, OR CORE) OR BE
+        ; TRANSMITTED BY ANY MEANS, ELECTRONIC, MECHANICAL, PHOTOCOPY,
+        ; RECORDING, OR OTHERWISE, WITHOUT PRIOR WRITTEN PERMISSION FROM THE
+        ; PUBLISHER.
+        ;
+        ;
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                                                                   ;
+;                       SYSTEM TABLE CONTENTS                       ;
+;                                                                   ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+        .ASECT          ; INTERRUPT HANDLER LOCATION IN VECTORS
+.=100
+        KW$INT          ; KW-11 (MAYBE REFRESH HARDWARE!) CLOCK HANDLER
+        300             ; PR-6
+.=164
+        EM$INT          ; DATA MEDIA EMULATOR TRAP
+        341             ; PR-7...SEE TERAK DOCUMENTATION
+                        ; C-BIT FLAGS FIRST CALL FROM CONSOLE DEV
+.=174
+        EM$INT          ; SAME THING...ALTERNATE IV
+                        ; NO C-BIT...LEAVE EMPTR AS AUXILIARY
+.=472
+        .WORD   ^B0001111
+        .WORD   0
+        .BYTE   0,EM,VT,GS,FS,US,BS,0,0,14
+.=512
+        .WORD   24.,80.
+        .BYTE   032,014,027,013
+.=526
+        .BYTE   BS
+.=532
+        .BYTE   0,03,010
+
+        .CSECT  TABLES
+        .BLKW   128.    ; OPERATOR XFER TABLE
+        .REPT   3
+        .BLKW   3
+        .ENDR
+        .WORD   OUTBIT,KWSTRT,KWABRT
+        .PAGE
+        .CSECT  TKDRVR
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                                                                   ;
+;               KW-11 IO HANDLER (GRAPHICS REFRESH)                 ;
+;                                                                   ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+KWUNIT: .WORD   0
+BELREG: .WORD   0       ; SHIFT REG...<> 0 IF BELL IS ON
+VCRVAL: .WORD   0       ; VIDEO CONTROL REG...SET IN KWDRVR
+GARVAL: .WORD   20000   ; REFRESH ADDRESS FOR GRAPHICS
+
+GAR = 177740    ; GRAPHICS ADDRESS REGISTER
+VIR = 177742    ; VIDEO INDEX...SCAN LINE, BUFFLINE
+VCR = 177744    ; VIDEO CONTROL REGISTER
+
+KW$INT: CMP     QHEAD,QTAIL     ; ANY CHARS IN EMULATOR QUEUE?
+        BEQ     1$              ; SKIP EMULATOR CALL IF NONE
+        JSR     PC,EMULAT       ; DATAMEDIA EMULATOR
+1$:     ADD     #1,@#LOTIME     ; BUMP LINE CLOCK COUNTER
+        ADC     @#HITIME
+        ASR     BELREG          ; UPDATE BELL COUNTER
+        BNE     2$              ; IF BELL STILL ON THEN SKIP TURNOFF
+        BCC     2$              ; IF BELL WAS OFF THEN SKIP TOO
+        BIC     #4000,@#VCR     ; ELSE WAS ON...ZAP 780 HZ TONE BIT IN VCR
+2$:     TST     KWUNIT
+        BEQ     3$
+        MOV     GARVAL,@#GAR
+        MOV     VCRVAL,@#VCR
+        BIC     #BSYBIT,@KWUNIT
+        CLR     KWUNIT
+3$:     JMP     @#INTRTN
+
+KWSTRT: TST     KWUNIT
+        BNE     KWSTRT
+        MTPS    #300
+        MOV     R1,KWUNIT
+        BIS     #BSYBIT,@R1
+        TST     (SP)+
+        TST     (R3)+
+        MOV     UBUFFR(SP),GARVAL
+        MOV     URLENG(SP),VCRVAL
+        MTPS    #0
+        JMP     @R3
+
+KWABRT: MTPS    #300
+        TST     KWUNIT
+        BEQ     1$
+        BIC     #BSYBIT,@KWUNIT
+        CLR     KWUNIT
+1$:     MOV     #7,VCRVAL
+        MOV     #7,@#VCR
+        MTPS    #0
+        RTS     PC
+        .PAGE
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                                                                   ;
+;               CRT EMULATOR INPUT-OUTPUT HANDLER                   ;
+;                                                                   ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+EM$BUF: .WORD   177766  ; EMULATOR DATA BUF ADDRESS
+
+EM$INT: ; THIS IS THE INTERRUPT HANDLER FOR THE TERAK DATA MEDIA
+        ; EMULATOR.  WE TAKE CHARS FROM THE OTHER SIDE OF THE "DL"
+        ; DEVICE AND QUEUE THEM FOR OUTPUT INSIDE OF EMULAT
+        BCC     1$              ; CARRY SET ON FIRST CALL FROM CONSOLE
+        MOV     #177566,EM$BUF  ; RELOCATE EMULATOR ADDR
+        DEC     @#166           ; AND CLEAR CARRY FOR NXT INT
+1$:     MOVB    @EM$BUF,@QTAIL  ; GRAB CHAR FROM OTHER SIDE OF DL...QU IT
+        INC     QTAIL           ; BUMP QUEUE POINTER
+        CMP     QTAIL,#QSTART+QSIZE     ; QUEUE WRAPAROUND?
+        BNE     2$
+        MOV     #QSTART,QTAIL   ; IF SO THEN POINT AT Q START
+2$:     RTT
+
+QSIZE = 100     ; ALLOW 64 BYTES IN QUEUE
+QSTART: .BLKB   QSIZE
+QHEAD:  .WORD   QSTART  ; CHARS TAKEN FROM HERE IN EMULAT (CALLED IN KW$INT)
+QTAIL:  .WORD   QSTART  ; BYTES PUT IN HERE IN EM$INT
+
+HOMADR: .WORD   160000  ; CURRENT SCREEN HOME CHAR IN CHAR BUF
+CURADR: .WORD   160000  ;    "       "   CURSOR LOCATION IN CHAR BUF
+CURCHR: .WORD   BLANK   ; CHAR UNDER CURSOR
+
+.MACRO  DEQUR1  ?L      ; REMOVES CHARS FROM QUEUE (JUST A CONVENIENCE)
+        MOVB    (R1)+,R0
+        CMP     R1,#QSTART+QSIZE
+        BNE     L
+        MOV     #QSTART,R1
+L:
+.ENDM   DEQUR1
+
+EMULAT: ; THIS IS THE ACTUAL SCREEN EMULATOR...WE GRAB CHARS FROM
+        ; THE CIRCULAR QUEUE QSTART AND DO WHAT IS NEEDED FOR THOSE
+        ; CHARS.  R1 ALWAYS POINTS AT THE NEXT CHAR TO FETCH (STARTING
+        ; AT QHEAD).  R2 IS CURADR IN THE UPDATED STATE.  THE
+        ; CORE VERIONS OF THESE VALUES ARE SET UPON EMEXIT.
+        MOV     R0,-(SP)        ; STASH REGS FOR TEMP USAGE
+        MOV     R1,-(SP)        ; R1 SET FROM QHEAD...GRAB CHARS FROM HERE
+        MOV     R2,-(SP)        ; R2 IS CURSOR ADDRESS (NEWEST VERSION)
+        MOV     @#VCR,-(SP)     ; EVEN SAVE THIS SO WE CAN TURN
+        BIC     #7,@#VCR        ; OFF CHAR MODE TO PREVENT POPCORN
+        MOV     CURADR,R2       ; R2 IS ALWAYS NEW CURSOR ADDRESS
+        MOVB    CURCHR,@R2      ; RESTORE CHAR UNDER CURSOR
+        MOV     QHEAD,R1        ; ALL POINTERS SET NOW BEGIN
+EMLOOP: DEQUR1                  ; GRAB CHAR FROM CIRCULAR QUEUE INTO R0
+        CMPB    R0,#BLANK       ; CHECK IF IN CONTROL RANGE
+        BHIS    1$              ; IF IT IS THEN USING CHAR,
+        ASL     R0              ; DO CASE JUMP INTO CONTROL TABLE
+        JMP     @CTLTBL(R0)     ; FOR EACH SPECIAL CHARACTER
+1$:     MOVB    R0,(R2)+        ; ELSE MOVE CHAR ONTO SCREEN
+$NUL:
+$BAD:
+EMNEXT: CMP     R1,QTAIL        ; HAVE WE EATEN UP CHARS IN QUEUE?
+        BNE     EMLOOP          ; IF NOT THEN GO FOR MORE
+EMEXIT: MOV     R1,QHEAD        ; ELSE RETURN... UPDATE PERM POINTERS
+        MOV     R2,CURADR       ; FOR NEXT INTERRUPT ENTRY
+        MOVB    @R2,CURCHR      ; SAVE FOR RESTORE NEXT TIME
+        CMPB    @R2,#'          ; IS THE CHAR UNDER CURS A BLANK?
+        BNE     1$              ; IF NOT THEN MESSY INVERSING ELSE
+        MOVB    #177,@R2        ; WE CAN USE DEL CHAR OF STD SET
+        BR      3$              ; (COURTESY TERRY MILLER)
+1$:     MOV     #7000,R0        ; MESS...SET UP CHAR GEN ADDR FOR SCANLINES
+        BISB    @R2,R0          ; PUT CHAR IN LOW BYTE AND THEN
+        ASH     #4,R0           ; SHIFT INTO FINAL ADDR FORMAT
+        MOVB    #377,@R2        ; SET CHAR IN BUFFER TO INV DEL
+        MOV     #167760,R1      ; ADDRESS OF INVERSE DEL CHAR
+        MOV     #12,R2          ; AND LOOP COUNTER
+        MOV     #200,@#VCR      ; SET VCR INTO CHAR GEN MODE
+2$:     MOVB    (R0)+,@R1       ; CHANGE INV DEL TO INV CHAR
+        COMB    (R1)+           ; PATTERN
+        SOB     R2,2$           ; DO ALL 10 SCAN LINES
+3$:     MOV     (SP)+,@#VCR     ; RESTORE VIDEO CONTROL REG
+        MOV     (SP)+,R2        ; RESTORE REGS NOW
+        MOV     (SP)+,R1
+        MOV     (SP)+,R0
+        RTS     PC              ; RETURN TO KW$INT FOR PROPER RETURN
+
+; HERE ARE THE ROUTINES FOR SPECIAL CONTROL FUNCTIONS
+; THEY HANDLE THE VARIABLES CURADR (IN R2) AND HOMADR
+; IN SOME CASES.  MESSY THINGS ARE THE 25 LINE CHAR BUF
+; WRAPAROUND (HANDLED IN LF ETC).
+
+$CR:    ; CARRIAGE RETURN...MOVE TO COLUMN 0
+        BIC     #177,R2         ; SET COLUMN FIELD TO 0
+        BR      EMNEXT
+$HT:    ; HORIZONTAL TAB...GOTO NEXT 8TH COLUMN
+        BIS     #7,R2
+        INC     R2
+        BR      EMNEXT
+$BS:    ; BACK SPACE
+        BIT     #177,R2         ; ARE WE ALREADY IN COLUMN 0?
+        BEQ     EMNEXT          ; IF SO THEN SPLIT
+        DEC     R2
+        BR      EMNEXT
+$EM:    ; HOME CURSOR
+        MOV     HOMADR,R2       ; POINT CURADR AT HOM ADR
+        BR      EMNEXT
+$FF:    ; HOME AND CLEAR
+        CLR     @#VIR           ; SET SCANNING TO TOP OF BUFFER
+        MOV     #160000,R2      ; RESET SCREEN ADDRESSING
+        MOV     R2,HOMADR       ; HOME CURSOR AND CLEAR SCREEN
+        BR      $VT             ; ERASE TO END-OF-SCREEN
+$GS:    ; ERASE-END-OF-LINE
+        MOV     R2,-(SP)        ; SAVE CURSOR LOCATION
+        JSR     PC,CLRROW       ; BLANK OUT REMAINDER OF LINE
+        MOV     (SP)+,R2        ; RESTORE
+        BR      EMNEXT
+$FS:    ; FORWARD SHIFT...NON-DESTRUCTIVE FORWARD SPACE
+        INC     R2
+        BR      EMNEXT
+$BEL:   ; BELL...SET BEEP BIT IN VCR
+        BIS     #4000,@SP       ; START BEEP AT EXIT...(OLD VCR ON TOS)
+        BIS     #1000,BELREG    ; SET UP SHIFT REG FOR 8 TICKS
+        BR      EMNEXT
+$VT:    ; VERTICAL TAB...ERASE-END-OF-SCREEN
+        MOV     R2,-(SP)        ; SAVE CURRENT PLACE ON SCREEN
+VTLOOP: JSR     PC,CLRROW       ; CLEAR ROW FROM R2 POINTER
+        ADD     #60,R2          ; POINT R2 AT NEXT LINE IN BUFF
+        CMP     R2,#166200      ; ARE WE POINTING AT LINE 25?
+        BNE     1$
+        MOV     #160000,R2      ; POINT BACK AT LINE 0
+1$:     CMP     R2,HOMADR       ; HAVE WE CLEARED THRU HOME?
+        BNE     VTLOOP          ; GO ZAP NEXT LINE (DOES INVISIBLE TOO)
+        MOV     (SP)+,R2        ; RESTORE OLD CURSOR LOC
+..NEXT: BR      EMNEXT
+BACKUP: ; GO HERE TO BACKUP R1 AND EXIT IN CASE OF
+        ; DLE OR RS WHICH DOESNT HAVE ENOUGH CHARS
+        ; TO COMPLETE ITS WORK
+        DEC     R1              ; REPOINT R1 AT CHAR IN QUESTION
+        CMP     R1,#QSTART      ; CHECK FOR REVERSE WRAPAROUND
+        BHIS    EMEXIT
+        MOV     #QSTART+QSIZE-1,R1
+        BR      EMEXIT          ; GO AWAY UNTIL NEXT TICK
+$RS:    ; X-Y ADDRESS... RS (X+32,Y+32)
+        MOV     QTAIL,R0        ; GRAB TAIL PTR...SEE IF 2 CHARS QUEUED
+        SUB     R1,R0           ; R0 IS # CHARS IN QUEUE
+        BPL     1$              ; WITH POSSIBLE WRAP
+        ADD     #QSIZE,R0
+1$:     CMP     R0,#2           ; AT LEAST 2 CHARS LEFT (X Y PARAMS)?
+        BLT     BACKUP          ; IF NOT THEN BACKUP AND EXIT
+        BIC     #177,R2         ; OK...START OUT IN COL 0
+        DEQUR1                  ; GRAB X VALUE FROM STREAM
+        SUB     #32.,R0         ; NORMALIZE IT TO REAL COLUMN #
+
+        BIC     #177200,R0      ; ZAP ALL BUT LOW 7 BITS
+        MOV     R0,-(SP)        ; AND SAVE FOR FINAL MASKING IN
+        DEQUR1                  ; NOW GET ROW #
+        BIC     #177740,R0      ; ZAP ALL BUT LOW 5 BITS
+        CMP     R0,#24.         ; ROW 24 MEANS NO CHANGE...SKIP STUFF
+        BEQ     2$
+        MOV     HOMADR,R2       ; CHANGE ROW...START AT HOME
+        ASH     #7,R0           ; SHIFT ROW # INTO ROW ADDRESS FIELD
+        ADD     R0,R2           ; MOVE TO NEW ROW # (COL IN R2 ALRDY 0)
+        CMP     R2,#166200      ; WRAPPED AROUND SCREEN BUF?
+        BLO     2$
+        SUB     #6200,R2        ; RELOCATE IT TO OTHER END OF BUF
+2$:     BIS     (SP)+,R2        ; MASK IN COLUMN NUMBER
+        BR      ..NEXT
+$LF:    ; LINE FEED...MAYBE SCROLLS
+        ADD     #200,R2         ; BUMP R2 TO NEXT SCAN LINE
+        CMP     R2,#166200      ; IS IT PAST THE LEGIT CHAR BUFFER?
+        BLO     1$              ; IF SO FINE
+        BIC     #7600,R2        ; ELSE WRAP TO LINE 0
+1$:     MOV     R2,R0           ; NOW FIND CURR ROW #
+        MOV     R3,-(SP)
+        MOV     HOMADR,R3       ; GRAB ROW #S OF HOME AND CURRENT
+        ASH     #-7,R0
+        ASH     #-7,R3
+        SUB     R3,R0           ; SUBTRACT HOME ROW FROM CUR ROW
+        BPL     2$              ; CHECK WRAP AGAIN
+        ADD     #25.,R0
+2$:     MOV     (SP)+,R3
+        CMP     R0,#24.         ; LINE DIF 24 LINES?
+        BNE     ..NEXT          ; IF NOT THEN EASY...NO SCROLL
+        MOV     R2,-(SP)        ; ELSE STASH R2 FOR CLEAR
+        BIC     #177,R2         ; CLEAR LINE...SET "COL" TO ZERO
+        JSR     PC,CLRROW
+        MOV     (SP)+,R2
+        ADD     #400,@#VIR      ; BUMP SCAN ROW #
+        CMP     @#VIR,#25.*256. ; WRAPED AROUND ON HARD SCAN ROW?
+        BLO     3$
+        CLR     @#VIR
+3$:     ADD     #200,HOMADR     ; FINALLY BUMP HOME ADDRESS
+        CMP     HOMADR,#166200  ; WRAP FOR THIS TOO
+        BLO     ..NEXT
+        BIC     #7600,HOMADR
+        BR      ..NEXT
+$US:    ; UP SHIFT- REVERSE LINE FEED
+        MOV     R2,R0           ; GRAB CURRENT CURSOR LOC
+        BIC     #177,R0         ; ZAP COLUMN # TO ZERO
+        CMP     R0,HOMADR       ; ARE WE AT TOP LINE?
+        BEQ     ..NEXT          ; IF SO THEN DO NOTHIN
+        SUB     #200,R2         ; ELSE GO BACKWARDS 1 LINE
+        CMP     R2,#160000      ; CHECK REVERSE WRAPAROUND
+        BHIS    ..NEXT
+        ADD     #6200,R2        ; BUMP BACK INTO REALITY
+        BR      ..NEXT
+
+CTLTBL: ; TRANSFER TABLE INDEXED BY CONTROL CHAR
+        ; DISPATCHES TO PROPER ROUTINE.
+
+        .WORD   $NUL,$BAD,$BAD,$BAD,$BAD,$BAD,$BAD,$BEL
+        .WORD   $BS ,$HT ,$LF ,$VT ,$FF ,$CR ,$BAD,$BAD
+        .WORD   $BAD,$BAD,$BAD,$BAD,$BAD,$BAD,$BAD,$BAD
+        .WORD   $BAD,$EM ,$BAD,$NUL,$FS ,$GS ,$RS ,$US
+
+CLRROW: ; HANDY ROUTINE TO CLEAR FROM CURRENT POINTER IN
+        ; R2 TO END OF THE CURRENT LINE.  R2 RETURNED POINTING
+        ; AND 80TH (ILLEGAL) COLUMN.  R0 DESTROYED. R1 UNTOUCHED.
+        MOV     R3,-(SP)        ; NEED A REG
+        MOV     #80.,R0         ; CALCULATE # CHARS LEFT IN LINE
+        MOV     R2,R3           ; GRAB CURRENT BUFFER POINTER
+        BIC     #177600,R3      ; CLEAR ALL BUT COLUMN BITS
+        SUB     R3,R0           ; R0 NOW HAS CHARS REMAINING
+        BLE     2$              ; JUST IN CASE OF LAME CALL
+        MOV     #BLANK,R3       ; USE A REG AS SOURCE...MUCH FASTER
+1$:     MOVB    R3,(R2)+        ; PUT BLANK IN BUFFER
+        SOB     R0,1$
+2$:     MOV     (SP)+,R3        ; RESTORE
+        RTS     PC              ; AND RETURN

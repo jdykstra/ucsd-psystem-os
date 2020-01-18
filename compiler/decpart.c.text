@@ -1,0 +1,460 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+(*
+ * UCSD p-System Operating System
+ * Copyright (C) 2010 Peter Miller
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of the ucsd-psystem-os project nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *)
+
+    PROCEDURE PROCDECLARATION(FSY: SYMBOL; SEGDEC: BOOLEAN);
+      VAR LSY: SYMBOL; LCP,LCP1: CTP; LSP: STP;
+          EXTONLY,FORW: BOOLEAN;
+          LCM: ADDRRANGE;
+          LLEXSTK: LEXSTKREC;
+
+      PROCEDURE PARAMETERLIST(FSY: SETOFSYS; VAR FPAR: CTP; FCP: CTP);
+        VAR LCP,LCP1,LCP2,LCP3: CTP; LSP: STP; LKIND: IDKIND;
+          LLC,LEN : ADDRRANGE; COUNT : INTEGER;
+      BEGIN LCP1 := NIL; LLC := LC;
+        IF NOT (SY IN FSY + [LPARENT]) THEN
+          BEGIN ERROR(7); SKIP(FSYS + FSY + [LPARENT]) END;
+        IF SY = LPARENT THEN
+          BEGIN IF FORW THEN ERROR(119);
+            INSYMBOL;
+            IF NOT (SY IN [IDENT,VARSY]) THEN
+              BEGIN ERROR(7); SKIP(FSYS + [IDENT,RPARENT]) END;
+            WHILE SY IN [IDENT,VARSY] DO
+              BEGIN
+                IF SY = VARSY THEN
+                  BEGIN LKIND := FORMAL; INSYMBOL END
+                ELSE LKIND := ACTUAL;
+                LCP2 := NIL;
+                COUNT := 0;
+                REPEAT
+                  IF SY <> IDENT THEN ERROR(2)
+                  ELSE
+                    BEGIN
+                      NEW(LCP,FORMALVARS,FALSE); (*MAY BE ACTUAL(SAME SIZE)*)
+                      WITH LCP^ DO
+                        BEGIN NAME := ID; IDTYPE := NIL; NEXT := LCP2;
+                          IF LKIND = FORMAL THEN KLASS := FORMALVARS
+                          ELSE KLASS := ACTUALVARS; VLEV := LEVEL
+                        END;
+                      ENTERID(LCP);
+                      LCP2 := LCP; COUNT := COUNT + 1;
+                      INSYMBOL
+                    END;
+                  IF NOT (SY IN FSYS + [COMMA,SEMICOLON,COLON]) THEN
+                    BEGIN ERROR(7);
+                      SKIP(FSYS + [COMMA,SEMICOLON,RPARENT,COLON])
+                    END;
+                  TEST := SY <> COMMA;
+                  IF NOT TEST THEN INSYMBOL
+                UNTIL TEST;
+                LSP := NIL;
+                IF SY = COLON THEN
+                  BEGIN INSYMBOL;
+                    IF SY = IDENT THEN
+                      BEGIN
+                        SEARCHID([TYPES],LCP);
+                        INSYMBOL;
+                        LSP := LCP^.IDTYPE;
+                        LEN := PTRSIZE;
+                        IF LSP <> NIL THEN
+                          IF LKIND = ACTUAL THEN
+                            IF LSP^.FORM = FILES THEN ERROR(121)
+                            ELSE
+                              IF LSP^.FORM <= POWER THEN LEN := LSP^.SIZE;
+                        LC := LC + COUNT * LEN
+                      END
+                    ELSE ERROR(2)
+                  END
+                ELSE
+                  IF LKIND = FORMAL THEN
+                    EXTONLY := TRUE
+                  ELSE ERROR(5);
+                IF NOT (SY IN FSYS + [SEMICOLON,RPARENT]) THEN
+                  BEGIN ERROR(7); SKIP(FSYS + [SEMICOLON,RPARENT]) END;
+                LCP3 := LCP2; LCP := NIL;
+                WHILE LCP2 <> NIL DO
+                  BEGIN LCP := LCP2;
+                    WITH LCP2^ DO
+                      BEGIN IDTYPE := LSP;
+                        LCP2 := NEXT
+                      END
+                  END;
+                IF LCP <> NIL THEN
+                  BEGIN LCP^.NEXT := LCP1; LCP1 := LCP3 END;
+                IF SY = SEMICOLON THEN
+                  BEGIN INSYMBOL;
+                    IF NOT (SY IN FSYS + [IDENT,VARSY]) THEN
+                      BEGIN ERROR(7); SKIP(FSYS + [IDENT,RPARENT]) END
+                  END
+              END (*WHILE*) ;
+            IF SY = RPARENT THEN
+              BEGIN INSYMBOL;
+                IF NOT (SY IN FSY + FSYS) THEN
+                  BEGIN ERROR(6); SKIP(FSY + FSYS) END
+              END
+            ELSE ERROR(4);
+            FCP^.LOCALLC := LC; LCP3 := NIL;
+            WHILE LCP1 <> NIL DO
+              WITH LCP1^ DO
+                BEGIN LCP2 := NEXT; NEXT := LCP3;
+                  IF (IDTYPE <> NIL) THEN
+                    IF KLASS = FORMALVARS THEN
+                      BEGIN VADDR := LLC; LLC := LLC + PTRSIZE END
+                    ELSE
+                      IF KLASS = ACTUALVARS THEN
+                        IF (IDTYPE^.FORM <= POWER) THEN
+                          BEGIN VADDR := LLC; LLC := LLC + IDTYPE^.SIZE END
+                        ELSE
+                          BEGIN VADDR := LC;
+                            LC := LC + IDTYPE^.SIZE;
+                            LLC := LLC + PTRSIZE
+                          END;
+                  LCP3 := LCP1; LCP1 := LCP2
+                END;
+            FPAR := LCP3
+          END
+            ELSE FPAR := NIL
+    END (*PARAMETERLIST*) ;
+
+    BEGIN (*PROCDECLARATION*)
+      IF SEGDEC THEN (* SEGMENT DECLARATION *)
+        BEGIN
+          IF CODEINSEG THEN
+            BEGIN ERROR(399); SEGINX:=0; CURBYTE:=0; END;
+          WITH LLEXSTK DO
+            BEGIN
+              DOLDSEG:=SEG;
+              SEG:=NEXTSEG;
+              SOLDPROC:=NEXTPROC;
+            END;
+          NEXTPROC:=1;
+          LSY:=SY;
+          IF SY IN [PROCSY,FUNCSY] THEN INSYMBOL
+          ELSE BEGIN ERROR(399); LSY:=PROCSY END;
+          FSY:=LSY;
+        END;
+      LLEXSTK.DLLC := LC; LC := LCAFTERMARKSTACK;
+      IF FSY = FUNCSY THEN LC := LC + REALSIZE;
+      LINEINFO := LC; DP := TRUE; EXTONLY := FALSE;
+      IF SY = IDENT THEN
+        BEGIN
+          IF USING OR INMODULE AND ININTERFACE THEN FORW := FALSE
+          ELSE
+            BEGIN SEARCHSECTION(DISPLAY[TOP].FNAME,LCP);
+              IF LCP <> NIL THEN
+                BEGIN
+                  IF LCP^.KLASS = PROC THEN
+                    FORW := LCP^.FORWDECL AND (FSY = PROCSY)
+                            AND (LCP^.PFKIND = ACTUAL)
+                  ELSE
+                    IF LCP^.KLASS = FUNC THEN
+                      FORW := LCP^.FORWDECL AND (FSY = FUNCSY)
+                              AND (LCP^.PFKIND = ACTUAL)
+                    ELSE FORW := FALSE;
+                  IF NOT FORW THEN ERROR(160)
+                END
+              ELSE FORW := FALSE
+            END;
+          IF NOT FORW THEN
+            BEGIN
+              IF FSY = PROCSY THEN
+                IF INMODULE THEN NEW(LCP,PROC,DECLARED,ACTUAL,TRUE)
+                ELSE NEW(LCP,PROC,DECLARED,ACTUAL,FALSE)
+              ELSE
+                IF INMODULE THEN NEW(LCP,FUNC,DECLARED,ACTUAL,TRUE)
+                ELSE NEW(LCP,FUNC,DECLARED,ACTUAL,FALSE);
+              WITH LCP^ DO
+                BEGIN NAME := ID; IDTYPE := NIL; LOCALLC := LC;
+                  PFDECKIND := DECLARED; PFKIND := ACTUAL;
+                  INSCOPE := FALSE; PFLEV := LEVEL;
+                  PFNAME := NEXTPROC; PFSEG := SEG;
+                  IF USING THEN PROCTABLE[NEXTPROC] := 0;
+                  IF INMODULE THEN
+                    IF USING THEN IMPORTED := TRUE
+                    ELSE IMPORTED := FALSE;
+                  IF SEGDEC THEN
+                    BEGIN
+                      IF NEXTSEG > MAXSEG THEN ERROR(250);
+                      NEXTSEG := NEXTSEG+1;
+                      SEGTABLE[SEG].SEGNAME := ID
+                    END;
+                  IF NEXTPROC = MAXPROCNUM THEN ERROR(251)
+                  ELSE NEXTPROC := NEXTPROC + 1;
+                  IF FSY = PROCSY THEN KLASS := PROC
+                  ELSE KLASS := FUNC
+                END;
+              ENTERID(LCP)
+            END
+          ELSE
+            BEGIN LCP1 := LCP^.NEXT;
+              WHILE LCP1 <> NIL DO
+                BEGIN
+                  WITH LCP1^ DO
+                    IF IDTYPE = NIL THEN
+                      EXTONLY := TRUE
+                    ELSE
+                      IF KLASS = FORMALVARS THEN
+                        BEGIN
+                          LCM := VADDR + PTRSIZE;
+                          IF LCM > LC THEN LC := LCM
+                        END
+                      ELSE
+                        IF KLASS = ACTUALVARS THEN
+                          BEGIN
+                            LCM := VADDR + IDTYPE^.SIZE;
+                            IF LCM > LC THEN LC := LCM
+                          END;
+                  LCP1 := LCP1^.NEXT
+                END;
+              IF SEG <> LCP^.PFSEG THEN
+                BEGIN
+                  SEG := LCP^.PFSEG; NEXTPROC := 2;
+                  IF NOT SEGDEC THEN ERROR(399)
+                END
+            END;
+          INSYMBOL
+        END
+      ELSE
+        BEGIN ERROR(2); LCP := UPRCPTR END;
+      WITH LLEXSTK DO
+        BEGIN DOLDLEV:=LEVEL;
+          DOLDTOP:=TOP;
+          POLDPROC:=CURPROC;
+          DFPROCP:=LCP;
+        END;
+      CURPROC := LCP^.PFNAME;
+      IF LEVEL < MAXLEVEL THEN LEVEL := LEVEL + 1 ELSE ERROR(251);
+      IF TOP < DISPLIMIT THEN
+        BEGIN TOP := TOP + 1;
+          WITH DISPLAY[TOP] DO
+            BEGIN
+              IF FORW THEN FNAME := LCP^.NEXT
+              ELSE FNAME := NIL;
+              FLABEL := NIL; FFILE := NIL; OCCUR := BLCK
+            END
+        END
+      ELSE ERROR(250);
+      IF FSY = PROCSY THEN
+        BEGIN PARAMETERLIST([SEMICOLON],LCP1,LCP);
+          IF NOT FORW THEN LCP^.NEXT := LCP1
+        END
+      ELSE
+        BEGIN PARAMETERLIST([SEMICOLON,COLON],LCP1,LCP);
+          IF NOT FORW THEN LCP^.NEXT := LCP1;
+          IF SY = COLON THEN
+            BEGIN INSYMBOL;
+              IF SY = IDENT THEN
+                BEGIN IF FORW THEN ERROR(122);
+                  SEARCHID([TYPES],LCP1);
+                  LSP := LCP1^.IDTYPE;
+                  LCP^.IDTYPE := LSP;
+                  IF LSP <> NIL THEN
+                    IF NOT (LSP^.FORM IN [SCALAR,SUBRANGE,POINTER]) THEN
+                      BEGIN ERROR(120); LCP^.IDTYPE := NIL END;
+                  INSYMBOL
+                END
+              ELSE BEGIN ERROR(2); SKIP(FSYS + [SEMICOLON]) END
+            END
+          ELSE
+            IF NOT FORW THEN ERROR(123)
+        END;
+      IF SY = SEMICOLON THEN INSYMBOL ELSE ERROR(14);
+      LCP^.EXTURNAL := FALSE;
+      IF (SY = EXTERNLSY)
+         OR ((USING) AND (LSEPPROC)) THEN
+        BEGIN
+          IF LEVEL <> 2 THEN
+            ERROR(183) (*EXTERNAL PROCS MUST BE IN OUTERMOST BLOCK*);
+          IF INMODULE THEN
+            IF ININTERFACE AND NOT USING THEN
+              ERROR(184); (*NO EXTERNAL DECL IN INTERFACE*)
+          IF SEGDEC THEN ERROR(399);
+          WITH LCP^ DO
+            BEGIN EXTURNAL := TRUE; FORWDECL := FALSE;
+              WRITELN(OUTPUT); WRITELN(OUTPUT,NAME,' [',MEMAVAIL:5,' words]');
+              WRITE(OUTPUT,'<',SCREENDOTS:4,'>')
+            END;
+          PROCTABLE[CURPROC] := 0;
+          DLINKERINFO := TRUE;
+          IF SY = EXTERNLSY THEN
+            BEGIN INSYMBOL;
+              IF SY = SEMICOLON THEN INSYMBOL ELSE ERROR(14);
+              IF NOT (SY IN FSYS) THEN
+                BEGIN ERROR(6); SKIP(FSYS) END
+            END
+        END
+      ELSE
+        IF USING THEN
+          BEGIN LCP^.FORWDECL := FALSE;
+          END
+        ELSE
+          IF (SY = FORWARDSY) OR INMODULE AND ININTERFACE THEN
+            BEGIN
+              IF FORW THEN ERROR(161)
+              ELSE LCP^.FORWDECL := TRUE;
+              IF SY = FORWARDSY THEN
+                BEGIN INSYMBOL;
+                  IF SY = SEMICOLON THEN INSYMBOL ELSE ERROR(14)
+                END;
+              IF NOT (SY IN FSYS) THEN
+                BEGIN ERROR(6); SKIP(FSYS) END
+            END
+          ELSE
+            BEGIN
+              IF EXTONLY THEN
+                ERROR(7);
+              NEWBLOCK:=TRUE;
+              NOTDONE:=TRUE;
+              WITH LLEXSTK DO
+                BEGIN
+                  MARK(DMARKP);
+                  WITH LCP^ DO
+                    BEGIN FORWDECL := FALSE; INSCOPE := TRUE;
+                      EXTURNAL := FALSE END;
+                  BFSY:=SEMICOLON;
+                  ISSEGMENT:=SEGDEC;
+                  PREVLEXSTACKP:=TOS;
+                 END;
+              NEW(TOS);
+              TOS^:=LLEXSTK;
+              EXIT(PROCDECLARATION);
+            END;
+      WITH LLEXSTK DO  (* FORWARD OR EXTERNAL DECLARATION, SO RESTORE STATE *)
+        BEGIN
+          LEVEL:=DOLDLEV;
+          TOP:=DOLDTOP;
+          LC:=DLLC;
+          CURPROC:=POLDPROC;
+          IF SEGDEC THEN
+            BEGIN
+              NEXTPROC:=SOLDPROC;
+              SEG:=DOLDSEG;
+            END;
+        END;
+     END; (* PROCDECLARATION *)
+
+
+  BEGIN (*DECLARATIONPART*)
+    IF (NOSWAP) AND (STARTINGUP) THEN
+      BEGIN
+        STARTINGUP:=FALSE; (* ALL SEGMENTS ARE IN BY THIS TIME *)
+        BLOCK(FSYS);
+        EXIT(DECLARATIONPART);
+      END;
+    IF NOISY THEN
+      BEGIN
+        {
+        This is some kind of voodoo to get at tome text presumably setup
+        to the memavail call.  We comment it out because the cross
+        compiler (correctly) diagnoses it as broken.
+        UNITWRITE(3,DUMMYVAR[-1600],35); (*ADJUST DISPLAY OF STACK AND HEAP*)
+        }
+      END;
+    REPEAT
+      NOTDONE:=FALSE;
+      IF USERINFO.STUPID THEN
+        IF NOT CODEINSEG THEN
+          IF (LEVEL = 1) AND (NEXTSEG = 10) THEN
+            IF NOT(INMODULE OR USING) THEN USESDECLARATION(TRUE);
+            (*To get turtle graphics*)
+      IF SY = USESSY THEN
+        BEGIN INSYMBOL; USESDECLARATION(FALSE) END;
+      IF SY = LABELSY THEN
+        BEGIN
+          IF INMODULE AND ININTERFACE THEN
+            BEGIN ERROR(186); SKIP(FSYS - [LABELSY]) END
+          ELSE INSYMBOL; LABELDECLARATION END;
+      IF SY = CONSTSY THEN
+        BEGIN INSYMBOL; CONSTDECLARATION END;
+      IF SY = TYPESY THEN
+        BEGIN INSYMBOL; TYPEDECLARATION END;
+      IF SY = VARSY THEN
+        BEGIN INSYMBOL; VARDECLARATION END;
+      IF LEVEL = 1 THEN GLEV := TOP;
+      IF SY IN [PROCSY,FUNCSY,PROGSY] THEN
+        BEGIN
+          IF INMODULE THEN
+            IF ININTERFACE AND NOT USING THEN PUBLICPROCS := TRUE;
+          REPEAT
+            LSY := SY; INSYMBOL;
+            IF LSY = PROGSY THEN
+              IF INMODULE THEN
+                BEGIN ERROR(185 (*SEG DEC NOT ALLOWED IN UNIT*));
+                  PROCDECLARATION(PROCSY,FALSE)
+                END
+              ELSE PROCDECLARATION(LSY,TRUE)
+            ELSE PROCDECLARATION(LSY,FALSE);
+          UNTIL NOT (SY IN [PROCSY,FUNCSY,PROGSY])
+        END;
+      IF (SY <> BEGINSY) THEN
+       IF NOT ((USING OR INMODULE) AND (SY IN [IMPLESY,ENDSY]))
+          AND NOT( SY IN [SEPARATSY,UNITSY]) THEN
+         IF (NOT (INCLUDING OR NOTDONE))
+            OR
+            NOT(SY IN BLOCKBEGSYS) THEN
+           BEGIN ERROR(18); SKIP(FSYS - [UNITSY,INTERSY]); END;
+    UNTIL (SY IN (STATBEGSYS + [SEPARATSY,UNITSY,IMPLESY,ENDSY]));
+    NEWBLOCK:=FALSE;
+  END (*DECLARATIONPART*) ;

@@ -1,0 +1,492 @@
+;
+; UCSD PASCAL - Version I.5
+; Copyright (C) 1978, 1979 Regents of the University of California
+; All Rights Reserved
+;
+; Permission to use, copy, modify and distribute any part of UCSD
+; PASCAL solely authored by UC authors before June 1, 1979 for
+; educational, research and non-profit purposes, without fee, and
+; without a written agreement is hereby granted, provided that the
+; above copyright notice, this paragraph and the following three
+; paragraphs appear in all copies.
+;
+; Those desiring to incorporate UCSD PASCAL into commercial products or
+; use for commercial purposes should contact the Technology Transfer &
+; Intellectual Property Services, University of California, San Diego,
+; 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+; Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+;
+; IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+; FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+; INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+; THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+; DAMAGE.
+;
+; THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+; OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+; UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+; MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+; EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+; WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+; THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+; OTHER RIGHTS.
+;
+; Case Number: SD1991-807 (2006)
+; http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+;
+;;; Source: http://bitsavers.org/bits/UCSD_Pascal/ucsd_II.0/
+;;;     U120_Z80_P-CODE_SOURCE.raw.gz
+;;; Date: 1979-Jan-18
+;
+; Copyright (c) 1978
+;   by Regents of the University of California
+;   San Diego
+
+; Start of file PROC2
+
+CXP     ; Call external (different segment) procedure
+        ; Find or read in desired seg, then CIP it
+        LD      A,(BC)          ; A := seg_num
+        INC     BC
+        LD      HL,(SEGP)       ; are we already in this seg. (can happen
+        CP      (HL)            ;   when op sys does calls to read, etc.)
+        JP      Z,CIP
+        AND     A               ; is this a call to the op sys (seg 0) ?
+        JP      NZ,$10
+        ; this IS a call to op sys
+        INC     A               ; indicate CXP via a 1 in A...
+        PUSH    AF              ; ...and push Carry = false, to inidicate no
+                                ;   code has been read in
+        LD      HL,(INTSEGT)    ; bump up refcount, and set
+        INC     HL              ;     (NEWSEG) := MEMTOP
+        LD      (INTSEGT),HL
+        LD      HL,(MEMTOP)
+        LD      (NEWSEG),HL
+        CALL    BLDXNL
+        JP      CBPXNL
+
+$10     ; Call to arbitrary, different segment
+        SAVIPC
+        ; A = segnumber, so
+        CALL    GETSEG          ; get segment into memory
+        LD      A,1             ; indicate this is a CXP call
+        PUSH    AF              ; carry flag set or reset by GETSEG
+        GETIPC                  ; get back ipc, bu don't touch DE
+        EX      DE,HL           ; HL := ^seg just read in
+$20     LD      (NEWSEG),HL
+        CALL    BLDXNL          ; build a MSCW
+        JP      CIPXNL          ; then set up stat link
+
+
+READSEG ; read in segment from disk, setting newseg, segbot
+        ; use seg_num as index into segment directory...
+        LD      HL,(SEGNUM)     ; HL := 6*seg_num
+        LD      H,00H
+        ADD     HL,HL
+        LD      E,L
+        LD      D,H
+        ADD     HL,HL
+        ADD     HL,DE
+        LD      DE,SEGTBL+04H   ; HL := ^seg_len
+        ADD     HL,DE
+        LD      (SEGTP),HL
+        LD      E,(HL)          ; DE := seg_len
+        INC     HL
+        LD      D,(HL)
+        LD      A,E             ; if seg_len = 0 then seg non-existent
+        OR      D
+        JP      Z,NOPROC
+        LD      HL,0            ; (NEWSEG) := SP, as that is where proc
+        ADD     HL,SP           ; table will end up (remember ret addr.)
+        LD      (NEWSEG),HL
+        POP     BC              ; grab ret addr.
+        SUBHLDE                 ; extend stack by seg_len
+        INC     L               ; compensate for ret. addr. messing up
+        INC     HL              ;   above calculations
+        LD      SP,HL
+        PUSH    BC              ; restash ret addr.
+        LD      (SEGBOT),HL
+        ; push parameters on stack for read routine...
+        LD      HL,(SEGTP)      ; unit number
+        DEC     HL
+        DEC     HL
+        DEC     HL
+        LD      B,(HL)
+        DEC     HL
+        LD      C,(HL)
+        PUSH    BC
+        LD      HL,04H          ; beginning address
+        ADD     HL,SP
+        PUSH    HL
+        LD      HL,0            ; index
+        PUSH    HL
+        PUSH    DE              ; seg_len
+        LD      HL,(SEGTP)      ; block on disk code is at
+        DEC     HL
+        LD      B,(HL)
+        DEC     HL
+        LD      C,(HL)
+        PUSH    BC
+        CALL    SYSRD
+        LD      A,(IORSLT)      ;validate the code
+        AND     A
+        JP      NZ,SYIOER
+        LD      HL,(NEWSEG)
+        LD      A,(SEGNUM)
+        CP      (HL)
+        JP      NZ,NOPROC
+        RET                     ; everything appears to be okay
+
+
+RLLIST  ; relocate a bunch of locations pointed to by a list of
+        ;   self-relative pointers to memory.
+        ; Passed DE = (^number of nodes) + 2
+        ;        HL = relocation delta (amount to add to each mem loc)
+        ; Returns HL = ^last node
+        LD      (RLDELTA),HL
+        EX      DE,HL
+        DEC     HL              ; BC := number of nodes in list
+        LD      B,(HL)
+        DEC     L
+        LD      C,(HL)
+$10     LD      A,C             ; done yet ?
+        OR      B
+        RET     Z
+        ; nope.  set DE := ^word that needs relocating
+        DEC     HL
+        LD      D,(HL)          ; nodes are self-relative pointers
+        DEC     L
+        LD      A,L
+        SUB     (HL)
+        LD      E,A
+        LD      A,H
+        SBC     A,D
+        LD      D,A
+        PUSH    HL              ; save node pointer until next time around
+        EX      DE,HL           ; do the relocation
+        LD      A,(RLDELTA)
+        ADD     A,(HL)
+        LD      (HL),A
+        INC     HL
+        LD      A,(RLDELTA+1)
+        ADC     A,(HL)
+        LD      (HL),A
+        POP     HL              ; get back node pointer...
+        DEC     BC              ; ...and try another round
+        JP      $10
+
+RLSEG   ; Relocate an entire segment.
+        ; Given newseg = ^segment, segbot = ^ bottom of segment,
+        ;   rlbased0 = ^ base to use in base relocation
+        ; Each proc has its own entric to relocate pc relative stuff.
+        ; While we're at it, turn all assembly self-relative entrics
+        ;   into absolute addresses
+
+        ; A := # of procedures in seg
+        LD      HL,(NEWSEG)
+        INC     L
+        LD      A,(HL)
+        DEC     L               ; leave HL = 2 + ^proc 1 jtab pointer
+$10    ; relocate one procedures worth
+        PUSH    AF              ; save number of procs left
+        ; DE := ^jtab for proc.
+        DEC     HL
+        LD      D,(HL)
+        DEC     L
+        LD      A,L
+        SUB     (HL)
+        LD      E,A
+        LD      A,H
+        SBC     A,D
+        LD      D,A
+        PUSH    HL              ; save ^proc jtab pointer
+        ; is relocation needed ? proc # = zero means assembly proc.
+        EX      DE,HL
+        LD      A,(HL)
+        TSTA
+        JP      NZ,$20
+        ; too bad. Change entric to an absolute mem address, and store
+        ;   that address in (PROCBOT)
+        DEC     HL
+        DEC     L
+        LD      A,L
+        SUB     (HL)
+        LD      (HL),A
+        LD      E,A
+        INC     L
+        LD      A,H
+        SBC     A,(HL)
+        LD      (HL),A
+        LD      D,A
+        DEC     L
+        EX      DE,HL
+        LD      (PROCBOT),HL
+        ; relocate base relative stuff
+        LD      HL,(RLBASE)
+        CALL    RLLIST
+        ; relocate seg relative stuff
+        EX      DE,HL
+        LD      HL,(SEGBOT)
+        CALL    RLLIST
+        ; relocate proc relative stuff
+        EX      DE,HL
+        LD      HL,(PROCBOT)
+        CALL    RLLIST
+        ; that wasn't so bad.  get back old proc pointer, and # of procs
+$20     POP     HL
+        POP     AF
+        DEC     A
+        JP      NZ,$10
+        ; what a relief.  All done
+        RET
+
+
+GETSEG  ; callable routine to insure a segment is in memory
+        ; takes: A = segnum
+        ; returns: DE = ^seg, carry set if code read in
+
+        ; look in internal table to get refcount for seg
+        ; if refcount > 0, seg in memory, and so increment refcount.
+        ;  otherwise we have to open a space on the stack, read in seg,
+        ;  relocate any assembly language stuff according to strange and
+        ;  mysterious conditions, make the refcount for the seg 1, and
+        ;  fill in the entry telling where the seg is.
+
+
+        POP     HL            ; save return address
+        LD      (RETADR2),HL
+        LD      (SEGNUM),A
+        LD      L,A            ; calc address of desired refcount
+        LD      H,0
+        ADD     HL,HL
+        ADD     HL,HL
+        LD      DE,INTSEGT+1    ; HL := 1 + ^intsegt[segnum].refcount
+        ADD     HL,DE
+        LD      A,(HL)
+        LD      D,A             ; save high byte, on the offchance refcount > 0
+        DEC     L
+        OR      (HL)
+        JP      Z,GSGREAD
+        ; whew...segment is in core.
+        LD      E,(HL)          ; increment refcount
+        INC     DE
+        LD      (HL),E
+        INC     L
+        LD      (HL),D
+        INC     HL              ; now set DE = ^seg
+        LD      E,(HL)
+        INC     L
+        LD      D,(HL)
+        CLRCF                   ; indicate no code read in
+        JP      GSGXIT
+GSGREAD ; need to bring in seg off disk
+        ; HL points to low byte of refcount
+        LD      (REFP),HL       ; so stash HL, as info handy later
+        CALL    READSEG         ; bring in the segment off disk
+        ; Decide how to calc base relocation info...
+        ;   if we are loading in a base segment procedure,
+        ;     then calc future base,
+        ;     else use current base, as will not change when seg is called
+        LD      HL,(NEWSEG)
+        DEC     HL              ; DE := ^proc1's jtab
+        LD      D,(HL)
+        DEC     L
+        LD      A,L
+        SUB     (HL)
+        LD      E,A
+        LD      A,H
+        SBC     A,D
+        LD      D,A
+        ; if assembly procedure then relocate against old BASE
+        ;   (note that seg 1 disallowed from having BASE relocate stuff
+        ;   so it doesn't matter how its base stuff is relocated)
+        EX      DE,HL
+        LD      A,(HL)
+        TSTA
+        JP      Z,$05
+        ; look at proc 1's lex level, if zero then this is a BASE procedure
+        INC     HL              ; point HL at lex level
+        LD      A,(HL)
+        TSTA
+        JP      Z,$10
+$05     ; use current base as relocation
+        LD      HL,(BASE)
+        JP      $20
+$10     ; calculate what base will be
+        ; (Crystal Ball, so many things I need to know.  --Styx)
+        LD      DE,-6           ; HL := 1 + ^parmsize
+        ADD     HL,DE
+        LD      D,(HL)          ; DE := parmsize, BC := datasz
+        DEC     L
+        LD      E,(HL)
+        DEC     HL
+        LD      B,(HL)
+        DEC     L
+        LD      C,(HL)
+        EX      DE,HL           ; set HL := SP-(datasz+parmsize+mscwsize)
+        ADD     HL,BC
+        LD      BC,MSCWSIZE
+        ADD     HL,BC
+        CLRA
+        SUB     L
+        LD      L,A
+        LD      A,0
+        SBC     A,H
+        LD      H,A
+        ADD     HL,SP
+$20     LD      (RLBASE),HL     ; and stash information in a safe place
+        CALL    RLSEG           ; relocate the sucker.
+        ; fill in intsegt entries correctly
+        LD      HL,(NEWSEG)
+        EX      DE,HL
+        LD      HL,(REFP)
+        INC     (HL)            ; refcount := 1
+        INC     L
+        INC     HL
+        LD      (HL),E          ; and point at new seg
+        INC     L
+        LD      (HL),D
+        SCF                     ; and indicate that code was read in
+GSGXIT  ; leave routine
+        LD      HL,(RETADR2)
+        JP      (HL)
+
+
+
+GSEG    ; Standard procedure getseg.
+        ; loads in a segment if it isn't in already
+        ; segnum is on tos.
+        POP     HL
+        LD      A,L
+        CALL    GETSEG          ; With A = segnum
+        CALL    STKCHK          ; make sure we didn't wipe out heap
+        JP      BACK1
+
+RSEG    ; Standard procedure releaseseg
+        ;   bumps down refcount, then junks seg if count goes to 0
+        POP     HL
+        LD      A,L
+        CALL    DECREF          ; Decrement refcount for segment # HL
+        JP      NZ,BACK1
+        ; HL = ^entry in intsegt
+        INC     HL               ; refcount = 0.  set DE := ^seg
+        LD      E,(HL)
+        INC     L
+        LD      D,(HL)
+        EX      DE,HL           ; then set SP := ^seg+2
+        INC     L
+        INC     HL
+        LD      SP,HL
+        JP      BACK1
+
+
+EXIT    ; Exit a specified procedure
+        ; fix IPC of current executing procedure to point to exit code.
+        ; if current proc is the one to exit from, JP BACK1
+        ; otherwise...
+        ;   calculate parent of (BASE), ie., MSCW of PROGRAM pascalsystem.
+        ;   BC := (MP)
+        ;   repeat
+        ;     if BC = system MSCW then die for exitting procedure not called
+        ;     change IPC of this MSCW to point to exit code for proc
+        ;     done := proc and seg of this MSCW match passed parameters
+        ;     BC := MSDYN(BC)
+        ;   until done;
+PROCNUM .EQU    WORD1
+SYSMSCW .EQU    WORD2
+        POP     HL              ; param_proc_num
+        LD      (PROCNUM),HL
+        POP     HL              ; param_seg_num
+        LD      (SEGNUM),HL
+        ; fix IPC of current proc
+        LD      HL,(JTAB)       ; HL := ^exitic
+        LD      DE,EXITIC
+        ADD     HL,DE
+        LD      E,(HL)          ; DE := exitic (unmodified)
+        INC     HL
+        LD      D,(HL)
+        SCF                     ; negative self-relative
+        LD      A,L
+        SBC     A,E
+        LD      L,A
+        LD      A,H
+        SBC     A,D
+        LD      H,A
+        LD      (IPCSAV),HL
+        ; done yet ?
+        LD      HL,(JTAB)       ; check proc num
+        LD      A,(PROCNUM)
+        CP      (HL)
+        JP      NZ,$10
+        LD      HL,(SEGP)       ; check seg num
+        LD      A,(SEGNUM)
+        CP      (HL)
+        JP      Z,BACK1
+$10     LD      HL,(BASE)       ; (SYSMSCW) := ^PASCALSYTEM MSCW
+        LD      E,(HL)
+        INC     HL
+        LD      D,(HL)
+        EX      DE,HL
+        LD      (SYSMSCW),HL
+        LD      HL,(MP)                 ; start at current proc
+        LD      C,L
+        LD      B,H
+$20     LD      HL,(SYSMSCW)            ; about to exit pascalsystem ?
+        LD      A,L
+        SUB     C
+        JP      NZ,$30
+        LD      A,H
+        SBC     A,B
+        JP      Z,NOEXIT
+$30     ; nope, it's cool. change this MSCW's IPC
+        LD      HL,MSJTAB               ; DE := ^proc_num
+        ADD     HL,BC
+        LD      E,(HL)
+        INC     HL
+        LD      D,(HL)
+        PUSH    DE                      ; for later use
+        LD      HL,EXITIC               ; DE := exitic (unmodified)
+        ADD     HL,DE
+        LD      E,(HL)
+        INC     HL
+        LD      D,(HL)
+        SCF                             ; DE := exitic (self-relatived)
+        LD      A,L
+        SBC     A,E
+        LD      E,A
+        LD      A,H
+        SBC     A,D
+        LD      D,A
+        LD      HL,MSIPC                ; HL := ^MSIPC
+        ADD     HL,BC
+        LD      (HL),E          ; stash new IPC
+        INC     HL
+        LD      (HL),D
+        DEC     HL              ; HL := ^MSSEG
+        DEC     HL
+        DEC     HL
+        EX      DE,HL
+        ; done yet ?
+        POP     HL              ; HL = ^proc_num
+        LD      A,(PROCNUM)
+        CP      (HL)
+        JP      NZ,$40
+        EX      DE,HL           ; HL := ^MSSEG
+        LD      E,(HL)
+        INC     HL
+        LD      D,(HL)
+        EX      DE,HL
+        LD      A,(SEGNUM)
+        CP      (HL)
+        JP      Z,BACK1         ; (yea!)
+$40    ; go up dynamic link
+        LD      L,C
+        LD      H,B
+        INC     HL
+        INC     HL
+        LD      C,(HL)
+        INC     HL
+        LD      B,(HL)
+        JP      $20
+
+        ; end of file PROC2

@@ -1,0 +1,592 @@
+;
+; UCSD PASCAL - Version I.5
+; Copyright (C) 1978, 1979 Regents of the University of California
+; All Rights Reserved
+;
+; Permission to use, copy, modify and distribute any part of UCSD
+; PASCAL solely authored by UC authors before June 1, 1979 for
+; educational, research and non-profit purposes, without fee, and
+; without a written agreement is hereby granted, provided that the
+; above copyright notice, this paragraph and the following three
+; paragraphs appear in all copies.
+;
+; Those desiring to incorporate UCSD PASCAL into commercial products or
+; use for commercial purposes should contact the Technology Transfer &
+; Intellectual Property Services, University of California, San Diego,
+; 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+; Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+;
+; IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+; FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+; INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+; THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+; DAMAGE.
+;
+; THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+; OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+; UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+; MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+; EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+; WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+; THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+; OTHER RIGHTS.
+;
+; Case Number: SD1991-807 (2006)
+; http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+;
+;;; Source: http://bitsavers.org/bits/UCSD_Pascal/ucsd_II.0/
+;;;     U120_Z80_P-CODE_SOURCE.raw.gz
+;;; Date: 1979-Feb-08
+
+        .IF ~LSTIO
+         .NOLIST
+        .ELSE
+         .LIST
+        .ENDC
+
+;Copyright (c)  1978  by the
+;  Regents of the University of California
+;  San Diego Campus
+
+; Start of file CPMIO
+
+;**********************************************************
+
+ABORT   JP      ABORT
+
+TIM     ; Time(var hitime, lotime:integer) - Roger Ramjet strikes again
+        ; Presumably the real-time clock increments the two words
+        ;   LOTIME and HITIME every 1/60th of a second
+        POP     DE
+        LD      HL,(LOTIME)
+        EX      DE,HL
+        LD      (HL),E
+        INC     HL
+        LD      (HL),D
+        POP     DE
+        LD      HL,(HITIME)
+        EX      DE,HL
+        LD      (HL),E
+        INC     HL
+        LD      (HL),D
+        RETURN
+
+
+;******************UNITIO
+
+
+MAXU    .EQU    07H
+INBIT   .EQU    01H
+OUTBIT  .EQU    02H
+CLRBIT  .EQU    04H
+ALLBIT  .EQU    INBIT|OUTBIT|CLRBIT
+
+ASYBIT  .EQU    1
+DSKBIT  .EQU    2
+EOFBIT  .EQU    4
+DLEBIT  .EQU    4
+CRLFBIT .EQU    8
+
+
+; the unittable unithandler vectors
+
+UNITBL  .EQU    $-04H
+        .WORD   ALLBIT          ; Unit 1: CONSOLE:
+        .WORD   CHDRVR
+        .WORD   ALLBIT          ; Unit 2: SYSTERM: (non-echoing keyboard)
+        .WORD   CHDRVR
+        .WORD   00H,00H         ; Unit 3: GRAPHICS:
+        .WORD   ALLBIT          ; Unit 4: drive 0
+        .WORD   DR0DRVR
+        .WORD   ALLBIT          ; Unit 5: drive 1
+        .WORD   DR1DRVR
+        .WORD   OUTBIT|CLRBIT   ; Unit 6: PRINTER:
+        .WORD   CHDRVR1
+        .WORD   INBIT|CLRBIT    ; Unit 7: REMIN:
+        .WORD   CHDRVR1
+        .WORD   OUTBIT|CLRBIT   ; Unit 8: REMOUT:
+
+
+; General IO temporaries
+UPTR    .EQU    TIO             ;points into UNITBL for specific unit
+UREQ    .EQU    UPTR+2          ;denotes read or write operation
+UNIT    .EQU    UREQ+1          ;set to LUN of operation
+UBUF    .EQU    UNIT+1          ;user's buffer address
+ULEN    .EQU    UBUF+2          ;user's buffer length
+UBLK    .EQU    ULEN+2          ;block number, for disk I/O
+UASY    .EQU    UBLK+2          ;async boolean
+ASNCBIT .EQU    01H             ;applies to the async param
+DRCTBIT .EQU    02H             ;applies to the async param
+URTN    .EQU    UASY+2          ;
+
+; Disk IO temporaries
+DSCT0   .EQU    URTN+2
+DSCT    .EQU    DSCT0+1
+DTRK    .EQU    DSCT+1
+
+; Character stream IO temporaries
+CLAST   .EQU    DTRK+1
+CIVECT  .EQU    CLAST+1
+COVECT  .EQU    CIVECT+1
+
+; Length of IO temporaries is currently 20 bytes.
+
+
+IOC     ; IO check - bomb for user IO error if IORSLT <> 0
+        LD      HL,(IORSLT)
+        LD      A,L
+        OR      H
+        JP      Z,BACK
+        JP      UIOERR
+
+IOR     ; IO result - return IORSLT
+        LD      HL,(IORSLT)
+        PUSH    HL
+        RETURN
+
+
+GETU    ;get logical unit number and validate
+        XOR     A       ;assume operation is going to be valid
+        LD      (IORSLT),A
+        POP     HL      ; get LUN from under the retn adrs
+        EX      (SP),HL
+        LD      A,L     ;0 < LUN <= MAXU ...
+        AND     A
+        JP      Z,BLUN
+        CP      MAXU+1
+        JP      NC,BLUN
+        LD      (UNIT),A ;save for driver
+        ADD     A,A     ;times UNITBL elt size
+        ADD     A,A
+        LD      H,00H
+        LD      L,A
+        LD      DE,UNITBL ;index into UNITBL
+        ADD     HL,DE
+        LD      (UPTR),HL ; save this also
+        LD      A,(UREQ) ; validate request
+        AND     (HL)
+        RET     NZ      ; and return
+BDIR    LD      A,03H   ; bad I/O direction
+        JP      BOMIT
+BLUN    LD      A,02H   ; bad unit number
+BOMIT   LD      (IORSLT),A
+        POP     HL
+        JP      BACK1
+
+UBUSY   LD      HL,00H  ; assume false ...
+        EX      (SP),HL ; and insert under LUN
+        PUSH    HL
+UWAIT   LD      A,INBIT|OUTBIT
+        LD      (UREQ),A
+        CALL    GETU
+        JP      BACK1   ;Boy that was easy.
+UCLEAR  LD      A,CLRBIT
+        LD      (UREQ),A
+        LD      HL,BACK1
+        LD      (URTN),HL
+        CALL    GETU
+        JP      CALLIO
+SYSRD   LD      HL,00H
+        EX      (SP),HL
+        LD      A,INBIT
+        JP      SYSIO
+UWRITE  LD      A,OUTBIT
+        JP      UIO
+UREAD   LD      A,INBIT
+UIO     LD      HL,BACK1
+SYSIO   LD      (UREQ),A
+        LD      (URTN),HL
+        POP     HL      ; junk async param
+        LD      (UASY),HL
+        POP     HL      ; put others in param space
+        LD      (UBLK),HL
+        POP     HL
+        LD      (ULEN),HL
+        POP     DE
+        POP     HL
+        ADD     HL,DE
+        LD      (UBUF),HL
+        CALL    GETU    ; get unit number, form table adrs
+CALLIO  INC     HL      ; get driver adrs from table
+        INC     HL
+        LD      E,(HL)
+        INC     HL
+        LD      D,(HL)
+        LD      HL,(ULEN)       ; check for no bytes
+        LD      A,H
+        OR      L
+        JP      NZ,$10
+        LD      A,(UASY)
+        AND     DSKBIT
+        JP      Z,IOXIT
+$10     EX      DE,HL
+        JP      (HL)    ; GO FOR IT ||
+IOXIT   LD      HL,(URTN)
+        JP      (HL)    ; Be see'n you.
+
+
+
+;********* DISK DRIVER FOR CPM ***************************
+
+; CP/M BIOS jump equates
+HOME    .EQU    18H     ; home disk to track 0
+SELDSK  .EQU    1BH     ; select disk drive
+SETTRK  .EQU    1EH     ; set track
+SETSEC  .EQU    21H     ; set sector
+SETDMA  .EQU    24H     ; set DMA address
+READ    .EQU    27H     ; read sector
+WRITE   .EQU    2AH     ; write sector
+
+BYPS    .EQU    80H     ;Bytes per sector
+
+DR0DRVR LD      C,00H   ;select drive
+        JP      DSK0
+DR1DRVR LD      C,01H
+DSK0    LD      L,1BH   ;BIOS/SELDSK
+        CALL    BIOS
+        LD      A,(UREQ)
+        AND     CLRBIT
+        JP      Z,$08
+        LD      L,18H   ;BIOS/HOME
+        CALL    BIOS
+        JP      XDSK
+$08     LD      A,(UASY)
+        AND     DSKBIT          ; direct disk accessing ?
+        JP      Z,$10
+        ; interpret block # as an absolute sector number, decode it,
+        ;   and send out request
+        LD      HL,(UBLK)
+        LD      BC,26.
+        CALL    DIVPOS
+        PUSH    HL              ; save sector
+        LD      C,E
+        LD      L,SETTRK
+        CALL    BIOS
+        POP     BC              ; get sector
+        INC     C
+        LD      L,SETSEC
+        CALL    BIOS
+        LD      HL,(UBUF)
+        LD      C,L
+        LD      B,H
+        LD      L,SETDMA
+        CALL    BIOS
+        LD      A,(UREQ)
+        AND     INBIT
+        JP      Z, $09
+        LD      L,READ
+        CALL    BIOS
+        JP      XDSK
+$09     LD      L,WRITE
+        CALL    BIOS
+        JP      XDSK
+
+$10     ;Start initializing for the loop
+        LD      HL,(ULEN)       ;HI(ULEN) = # sectors to do
+        ADD     HL,HL
+        INC     H               ;adjust for predecr in loop
+        LD      (ULEN),HL
+        LD      HL,(UBUF)
+        LD      C,L
+        LD      B,H
+        LD      L,24H           ;BIOS/SETDMA
+        CALL    BIOS
+        LD      HL,(UBLK)       ;LSN := 4*BLOCK
+        ADD     HL,HL
+        ADD     HL,HL
+        LD      BC,1AH          ; Q,R := LSN div,mod 26
+        CALL    DIVPOS          ;  HL=R, DE=Q
+        PUSH    HL
+        PUSH    DE
+        LD      A,E
+        INC     A
+        LD      (DTRK),A
+        LD      C,A
+        LD      L,1EH           ;BIOS/SETTRK
+        CALL    BIOS
+        POP     DE
+        LD      A,06H           ; S0 := 6*Q
+        LD      HL,0000H
+$20     ADD     HL,DE
+        DEC     A
+        JP      NZ,$20
+        LD      BC,1AH          ; S0 := S0 mod 26 +1+(R>12)
+        CALL    DIVPOS
+        INC     HL
+        POP     DE              ;get R
+        LD      A,E
+        CP      0CH+1
+        JP      C,$30
+        INC     HL
+$30     LD      A,L
+        LD      (DSCT0),A
+        ADD     A,E             ; S := S0+2*R-1 mod 26 +1
+        ADD     A,E
+        DEC     A
+$40     SUB     1AH
+        JP      NC,$40
+        ADD     A,1AH+1
+        LD      (DSCT),A
+        LD      C,A
+        LD      L,21H           ;BIOS/SETSEC
+        CALL    BIOS
+$50                     ;--------LOOP ON SECTORS, Gross Control, Kludge.
+        LD      HL,(ULEN)
+        DEC     H
+        LD      (ULEN),HL
+        JP      NZ,$80
+        LD      A,L
+        RRCA
+        JP      C,$60
+        AND     A
+        JP      Z,XDSK
+        INC     H
+        INC     L
+        LD      (ULEN),HL
+        LD      A,(UREQ)        ;do whole sector anyway on output
+        AND     OUTBIT
+        JP      NZ,$80
+        LD      HL,-BYPS        ;fractional read, oh shoot.
+        ADD     HL,SP
+        LD      SP,HL
+        LD      C,L
+        LD      B,H
+        LD      L,24H   ;BIOS/SETDMA
+        CALL    BIOS
+        JP      $80
+$60     LD      A,(UREQ)        ;what happened to the fraction?
+        AND     OUTBIT
+        JP      NZ,XDSK         ;lots to do if read though
+        LD      HL,(UBUF)
+        LD      DE,-BYPS
+        ADD     HL,DE
+        EX      DE,HL
+        LD      HL,0000H
+        ADD     HL,SP
+        LD      A,(ULEN)
+        RRA
+        LD      B,A
+$70     LD      A,(HL)
+        LD      (DE),A
+        INC     HL
+        INC     DE
+        DEC     B
+        JP      NZ,$70
+        LD      HL,BYPS
+        ADD     HL,SP
+        LD      SP,HL
+        JP      XDSK
+$80     LD      A,(UREQ)        ;now finally do the I/O request
+        AND     OUTBIT
+        JP      Z,$90
+        LD      L,2AH           ;BIOS/WRITE
+        JP      $100
+$90     LD      L,27H           ;BIOS/READ
+$100    CALL    BIOS
+        AND     A               ;test for I/O errors from CPM
+        JP      Z,$110
+        LD      A,04H
+        LD      (IORSLT),A
+$110    LD      HL,(UBUF)
+        LD      DE,BYPS
+        ADD     HL,DE
+        LD      (UBUF),HL
+        LD      C,L
+        LD      B,H
+        LD      L,24H           ;BIOS/SETDMA
+        CALL    BIOS
+        LD      A,(DSCT)        ; S := S+1 mod 26 +1
+        ADD     A,02H
+        CP      1BH
+        JP      C,$120
+        SUB     1AH
+$120    LD      HL,DSCT0        ; if S = S0 then
+        CP      (HL)
+        JP      NZ,$150
+        INC     A               ;    S := S+1
+        RRCA                    ; if odd(s) then
+        RLA
+        JP      NC,$140
+        ADD     A,04H           ;       S := S+4 mod 26
+        CP      1AH+1
+        JP      C,$130
+        SUB     1AH
+$130    PUSH    AF              ;       T := T+1
+        LD      A,(DTRK)
+        INC     A
+        LD      (DTRK),A
+        LD      C,A
+        LD      L,1EH   ;BIOS/SETTRK
+        CALL    BIOS
+        POP     AF
+$140    LD      (DSCT0),A       ;    S0 := S
+$150    LD      (DSCT),A
+        LD      C,A
+        LD      L,21H   ;BIOS/SETSEC
+        CALL    BIOS
+        JP      $50     ;--------KEEP ON TRUCKIN'.
+XDSK    JP      IOXIT
+
+
+;*** ALL PURPOSE BIOS LINKER ***
+BIOS    LD      A,(0002H)       ; do YOU believe this will work
+        LD      H,A
+        JP      (HL)
+
+
+
+
+;************* DRIVER FOR ALL CHARACTER ORIENTED DEVICES ON CPM **************
+
+CTABLE  .BYTE   00H,00H
+        .BYTE   09H,0CH,09H,0CH         ;BIOS/CONIN,CONOUT
+        .BYTE   00H,00H,00H,00H,00H,00H
+        .BYTE   00H,0FH,15H,00H, 00H, 12H         ;BIOS/LIST,READER,PUNCH
+
+
+
+CHDRVR  LD      A,(UREQ)
+        AND     CLRBIT
+        JP      Z,CH01
+        ; clear out console input stream
+        XOR     A
+        LD      (CLAST),A
+        CALL    CHCLR
+        JP      CHX
+CHDRVR1 LD      A,(UREQ)
+        AND     CLRBIT
+        JP      NZ,CHX
+CH01    CALL    SETVECT         ; set up BIOS in and out vectors
+        LD      HL,(ULEN)       ;prepare for loop
+        EX      DE,HL
+        LD      HL,(UBUF)
+$10     LD      A,E     ;---LOOP---     length zero yet ?
+        OR      D
+        JP      Z,CHX
+        DEC     DE
+        LD      A,(UREQ)        ;which direction
+        AND     OUTBIT
+        JP      Z,$20
+        LD      C,(HL)          ;do output
+        CALL    ECHO
+        JP      $30
+$20     CALL    CBIS            ;do input
+        LD      C,A
+        LD      (HL),A
+        LD      A,(UASY)
+        AND     EOFBIT
+        JP      NZ,$28
+        LD      A,(SYEOF)         ; if eof char, zero out rest of request buffer
+        CP      (HL)
+        JP      NZ,$28
+        LD      A,(UNIT)
+        CP      1               ; CONSOLE: eof means zero buffer, other means
+        JP      NZ, CHX         ;   simply stop requesting chars
+        INC     DE
+$25     LD      (HL),0
+        DEC     DE
+        INC     HL
+        LD      A,E
+        OR      D
+        JP      NZ,$25
+        JP      CHX
+$28     LD      A,(UNIT)
+        CP      01H
+        CALL    Z,ECHO
+$30     INC     HL
+        JP     $10
+CHX     JP      IOXIT
+
+ECHO    ;char in the Creg is interpreted and output
+        LD      A,(UASY)
+        AND     DLEBIT
+        JP      NZ,$30
+$10     LD      A,(CLAST)
+        CP      10H     ;DLE- blank expansion
+        JP      NZ,$30
+        LD      A,C
+        SUB     20H
+        LD      (CLAST),A
+$20     LD      A,(CLAST)
+        DEC     A
+        JP      M,$40
+        LD      (CLAST),A
+        LD      C,20H
+        CALL    CBOS
+        JP      $20
+$30     LD      A,C
+        LD      (CLAST),A
+        CP      10H
+        JP      NZ,$33
+        LD      A,(UASY)
+        AND     DLEBIT
+        JP      Z,$40
+        LD      A,20H           ; lie about last char, as dle expansion can
+        LD      (CLAST),A       ;   occur across uwrite boundaries
+$33     CALL    CBOS
+        LD      A,(UASY)       ;  don't do lf after cr
+        AND     CRLFBIT
+        JP      NZ,$40
+        LD      A,(CLAST)
+        CP      0DH     ;CR- requires an LF
+        JP      NZ,$40
+        LD      A,0AH
+        LD      (CLAST),A
+        LD      C,A
+        CALL    CBOS
+$40     RET
+
+CHCLR   LD      L,06H   ;BIOS/CONST
+        CALL    BIOS
+        AND     A
+        RET     Z
+        LD      L,09H   ;BIOS/CONIN
+        CALL    BIOS
+        JP      CHCLR
+
+SETVECT LD      HL,(UNIT)       ;compute BIOS vector
+        LD      H,00H
+        ADD     HL,HL
+        LD      DE,CTABLE
+        ADD     HL,DE
+        LD      A,(HL)
+        LD      (CIVECT),A
+        INC     HL
+        LD      A,(HL)
+        LD      (COVECT),A
+        RET
+
+;routines called by the character driver.
+CBIS    LD      A,(CIVECT)
+        JP      CBIS1
+CBOS    LD      A,(COVECT)
+CBIS1   PUSH    HL
+        PUSH    DE
+        LD      L,A
+        CALL    BIOS
+        POP     DE
+        POP     HL
+        RET
+
+
+
+; Booter stuff
+        .ALIGN  2               ; must start on word boundary
+INTEND
+IOINIT  ; Set up top of memory to be just below BIOS
+        LD     HL,(0001H)      ;BIOS JUMP VECTOR
+        LD     DE,-11H         ; leave some space for shitty (Tarbell) BIOS
+        ADD    HL,DE
+        LD     (MEMTOP),HL
+
+        .IF     DDT
+        LD      HL,(6)          ;DDT Version uses bios jump
+        LD      (MEMTOP),HL     ; as top of useable memory
+        LD      A,9             ; also set mode to Pascal
+        LD      (4FH),A
+        .ENDC
+
+        RET                     ; back to booter
+
+
+; End of file CPMIO

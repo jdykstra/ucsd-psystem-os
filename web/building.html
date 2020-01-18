@@ -1,0 +1,166 @@
+.\"
+.\" UCSD p-System Operating System
+.\" Copyright (C) 2010 Peter Miller
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions are met:
+.\"
+.\"   * Redistributions of source code must retain the above copyright notice,
+.\"     this list of conditions and the following disclaimer.
+.\"   * Redistributions in binary form must reproduce the above copyright
+.\"     notice, this list of conditions and the following disclaimer in the
+.\"     documentation and/or other materials provided with the distribution.
+.\"   * Neither the name of the ucsd-psystem-os project nor the names of its
+.\"     contributors may be used to endorse or promote products derived from
+.\"     this software without specific prior written permission.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+.\" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+.\" ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+.\" BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+.\" CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+.\" SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+.\" INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+.\" CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+.\" ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+.\" POSSIBILITY OF SUCH DAMAGE.
+.\"
+.ad l
+.hy 0
+.nf
+.so version.so
+<html><head>
+<link rel="icon" href="favicon.ico" type="image/x-icon">
+<link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
+<title>Building ucsd-psystem-os \*(v)</title></head>
+<body bgcolor=white>
+<img src="icon64.png" align=left>
+<img src="icon64.png" align=right>
+<h1 align="center" >
+How to Build<br/>
+ucsd-psystem-os \*(v)
+</h1>
+<br clear=all>
+<ol>
+<li>
+  These instructions assume you are using a Linux or Unix system.
+  It is probably possible to make them work using
+  <a href="http://www.cygwin.com/" >Cygwin</a> on a Windows PC,
+  but that has not been tested.
+  <p>
+<li>
+  There is some software you are going to need before you can
+  follow the rest of these instructions.
+  <ul>
+  <li>
+    The Makefile in the tarball assumes you have GNU Make installed,
+    because it needs conditionals and some other useful features.
+  <li>
+    You will need to download, build and install the <a
+    href="http://ucsd-psystem-xc.sourceforge.net/" >cross compiler</a>
+    (version 0.8 or later), so that the Pascal sources can be cross
+    compiled (compiled on Linux and moved across to a UCSD system).
+  <li>
+    You will need to download, build and install the <a
+    href="http://ucsd-psystem-fs.sourceforge.net/" >file system tools</a>
+    (version 1.15 or later), so that the p-System executables can be loaded
+    into p-System disk images ready for use.
+  <li>
+    You will need to download, build and install the <a
+    href="http://ucsd-psystem-vm.sourceforge.net/" >virtual machine</a>
+    (version 0.11 or later), so that the p-System executables on the p-System
+    disk images can be executed.
+  </ul>
+  <p>
+<li>
+  Download the source file archive
+  <a href="ucsd-psystem-os-\*(v).tar.gz"
+  ><tt>ucsd-psystem-os-\*(v).tar.gz</tt></a>.
+  <p>
+<li>
+  Unpack the source file archive
+  <blockquote>
+  <pre>tar xzf ucsd-psystem-os-\*(v).tar.gz</pre>
+  </blockquote>
+  and change directory to the unpacked sources
+  <blockquote>
+  <pre>cd ucsd-psystem-os-\*(v)</pre>
+  </blockquote>
+  You are now ready to build the code.
+  <p>
+<li>
+  Assuming that you have installed all of the necessary software (see above),
+  all that is required to build the software is the simple command
+  <blockquote>
+  <pre>make</pre>
+  </blockquote>
+  This uses the <a
+  href="http://ucsd-psystem-xc.sourceforge.net/" >cross compiler</a>
+  to build the executables, and the <a
+  href="http://ucsd-psystem-fs.sourceforge.net/" >file system tools</a>
+  to build the disk images.
+  There will be plenty of output.
+  <p>
+<li>
+  To execute the code, use the  <a
+  href="http://ucsd-psystem-vm.sourceforge.net/" >virtual machine</a>,
+  like this:
+  <blockquote>
+  <pre>ucsdpsys_vm -f stage1/klebsch/system.vol</pre>
+  </blockquote>
+  Welcome to 1979:
+  <blockquote>
+<pre>Command: E(dit, R(un, F(ile, C(omp, L(ink, X(ecute, A(ssem, D(ebug,? [II.0]
+
+Welcome  SYSTEM,  to
+
+U.C.S.D.  Pascal  System  II.0
+http://miller.emu.id.au/pmiller/ucsd-psystem-os/ version \*(V)
+
+Current date is  21-Jun-10</pre>
+  </blockquote>
+  The project identifies itself (see the screen capture, above) to avoid any
+  suggestion that this is a completely unaltered system.
+</ol>
+<p>
+The system is far from complete.  It is able to function, the editor
+works, the compiler works,
+and several working library units are available,
+but the complete three-stage build system
+documented in the <tt>Makefile</tt> is not yet complete.
+You can expect this to advance in future releases.
+<h2>Supported Hosts</h2>
+When control of the project moved from UCSD to SofTech Microsystems,
+the newsletter written by Ken Bowles indicates that there were
+several hosts supported by the software
+<ul>
+<li> PDP-11 (LSI-11, Terak)
+<li> 8080, 8085
+<li> Z80 (it is possible that the Z80 support was a side-effect of the
+     8080 support, but accounts from that time do not read that way,
+     and the codefile MTYPE field makes a distinction)
+<li> 6502 (KIM-1, Apple, &ldquo;klebsch&rdquo;)
+<li> TMS9900 (TI-99/4)
+<li> GA-16/440
+<li> <i>several others</i>
+</ul>
+<p>
+Unfortunately, the source code for many of these interpreters
+has yet to be recovered.
+If you think you have some of the missing source code,
+the maintainer would like to hear from you.
+<p>
+A port to a new host involved several pieces of code that all
+had to be written:
+<ul>
+<li> The p-code interpreter, in assembler.
+<li> The long integer DECOPS procedure, in assembler.
+<li> Floating point TRANSCENDENTAL unit, in assembler.
+<li> Floating point TURTLEGRAPHICS unit, in assembler.
+<li> Boot sector code, in assembler, and probably tools in Pascal as well.
+<li> Hardware specific tools, such as disk formatters, <i>etc</i>
+</ul>
+For those hosts for which we have assembler sources,
+we frequently do not have complete coverage.
+</body></html>

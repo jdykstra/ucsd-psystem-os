@@ -1,0 +1,660 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+{
+*  Phase3 of the linker does all the real work of code
+*  massaging.  For each segment in seginfo to be placed
+*  into the output code file, all referenced procedures
+*  and functions are found, globals and other refs are
+*  resolved, and finally the final code segment is built.
+*  In the case of a SEPRTSEG host (eg an interpreter), then
+*  all the procs in it are put in the unresolved list and
+*  the host seg is made to appear as just another sep seg.
+*  This drags along all the original procedures and maintains
+*  their original ordering for possible ASECT integrity.
+}
+
+procedure phase3;
+  type
+      workp = ^workrec;         { all seg work is driven by these lists }
+      workrec = record
+                  next: workp;          { list link }
+                  refsym,               { symtab entry of unresolved name }
+                  defsym: symp;         {   "      "   "  resolving entry }
+                  refseg,               { seg refls point into, refrange only }
+                  defseg: segp;         { seg where defsym was found }
+                  case litypes of       { same as litype in refsym^.entry }
+                    SEPPREF,
+                    SEPFREF,
+                    GLOBREF:
+                        (defproc: workp);       { work item of homeproc }
+                    UNITREF:
+                        (defsegnum: segrange);  { resolved seg #, def = ref }
+                    PRIVREF:
+                        (newoffset: lcrange);   { newly assigned base offset }
+                    EXTPROC,
+                    EXTFUNC,
+                    SEPPROC,
+                    SEPFUNC:
+                        (needsrch: boolean;     { refs haven't been found }
+                         newproc: 0..MAXPROC)   { proc #, comp or link chosen }
+                  end { workrec } ;             { 0 implies added proc }
+
+  var s: segindex;
+      segbase: codep;   { address of current seg being crunched }
+      segleng,          { final code seg length for writeout }
+      nextblk: integer; { next available output code block }
+      uprocs,           { unresolved external proc/func work list }
+      procs,            { resolved list of above items }
+      ulocal,           { unresolved list of updates for seginfo entry }
+      local,            { resolved list of fixups that came along with seg }
+      uother,           { unresolved work list of things other than procs }
+      other: workp;     { resolved list of above }
+      sephost: boolean; { flag for interpreter host case (only seg #1) }
+      fname: string[39];{ output code file name }
+      segtbl: I5segtbl; { output code's seg table }
+      filler: array [0..143] of integer;
+                        { necessary to fill out segtbl block! }
+      map: text;        { map text output file }
+
+    {
+    *  Buildworklists is called for all segments which need to
+    *  be copied, and maybe need to have sepprocs or others stuff
+    *  fixed up within them.  The idea here is to get a list
+    *  of procs and other item needing attention, with
+    *  all the subtle implications of global defs falling
+    *  in procs which are not yet selected for linking etc.
+    *  In fact, three lists are built:
+    *     The procs list with all procs and func to be grabbed
+    *  from the various sep segs.
+    *     The local list of refs in the original segment which must
+    *  ALL be fixed up such as public or private refs in a unit seg.
+    *     The other list which has work items which have at least one
+    *  ref occuring in the procs or funcs in the procs list.
+    }
+
+    procedure buildworklists;
+      var sp: segp;
+          wp: workp;
+
+        {
+        *  Findprocs goes through symtab and builds a list of
+        *  procedure and functions which occur in the tree and
+        *  whose litype is in the okset.  The resulting list
+        *  is not ordered in any particular fashion.  It is
+        *  called to build initial uproc list.
+        }
+
+        function findprocs(okset: liset; symtab: symp): workp;
+          var work: workp;
+
+            {
+            *  procsrch recursivly searches subtrees to pick out
+            *  those symbols which are in the okset, generates
+            *  new work nodes, and puts them into local work list.
+            }
+
+            procedure procsrch(sym: symp);
+              var wp: workp;
+            begin
+              if sym <> NIL then
+                begin
+                  procsrch(sym^.llink);
+                  procsrch(sym^.rlink);
+                  procsrch(sym^.slink);
+                  if sym^.entry.litype in okset then
+                    begin { place new node in list }
+                      new(wp);
+                      wp^.refsym := sym;
+                      wp^.refseg := NIL;
+                      wp^.defsym := NIL;
+                      wp^.defseg := NIL;
+                      wp^.needsrch := TRUE;
+                      if sephost then
+                        wp^.newproc := 0  { see readsrcseg! }
+                      else
+                        wp^.newproc := sym^.entry.srcproc;
+                      wp^.next := work;
+                      work := wp
+                    end
+                end
+            end { procsrch } ;
+
+        begin { findprocs }
+          work := NIL;
+          procsrch(symtab);
+          findprocs := work
+        end { findprocs } ;
+
+        {
+        *  Findnewprocs is called to place new procedures into the
+        *  uprocs work list that are needed to resolve GLOBDEFs,
+        *  SEPPREFs, and SEPFREFs.  The other list is traversed and
+        *  for each element whose defining proc has not been added
+        *  into the uprocs list, the defining proc is located and
+        *  added into uprocs.
+        }
+
+        procedure findnewprocs;
+          var wp, wp1: workp;
+              pnum: integer;
+
+            {
+            *  Findnadd finds the procedure numbered pnum in the
+            *  symbol table symtab.  An error is given if the
+            *  required proc cannot be found. It returns a work
+            *  node for the proc once it has been found.  This
+            *  node is also added into the uprocs list.  Any procs
+            *  added this way are "invisible", dragged along because
+            *  of global refs/defs.
+            }
+
+            function findnadd(symtab: symp): workp;
+
+                {
+                *  procsrch recursivly searches the sym tree looking
+                *  for the actual symbol containing pnum.  This does
+                *  most of the work of findnadd.
+                }
+
+                procedure procsrch(sym: symp);
+                  var wp: workp;
+                begin
+                  if sym <> NIL then
+                    begin
+                      procsrch(sym^.llink);
+                      procsrch(sym^.rlink);
+                      procsrch(sym^.slink);
+                      if sym^.entry.litype in [SEPPROC, SEPFUNC] then
+                        if sym^.entry.srcproc = pnum then
+                          begin
+                            wp := uprocs;
+                            while wp <> NIL do
+                              begin
+                                if wp^.refsym = sym then
+                                  begin
+                                    findnadd := wp;
+                                    exit(findnadd)
+                                  end;
+                                wp := wp^.next
+                              end;
+                            new(wp);
+                            wp^.refsym := sym;
+                            wp^.refseg := NIL;
+                            wp^.defsym := NIL;
+                            wp^.defseg := NIL;
+                            wp^.needsrch := TRUE;
+                            wp^.newproc := 0;
+                            wp^.next := uprocs;
+                            uprocs := wp;
+                            findnadd := wp;
+                            exit(findnadd)
+                          end
+                    end
+                end { procsrch } ;
+
+            begin { findnadd }
+              findnadd := NIL;
+              procsrch(symtab);
+              { if we get here then didnt find it }
+              error('missing proc')
+            end { findnadd } ;
+
+        begin { findnewprocs }
+          wp := other;      { assume only globref, seppref, sepfref in list }
+          while wp <> NIL do
+            begin
+              if wp^.defproc = NIL then
+                begin { find proc/func needed }
+                  if wp^.refsym^.entry.litype = GLOBREF then
+                    pnum := wp^.defsym^.entry.homeproc
+                  else { assume a SEP proc/func }
+                    pnum := wp^.defsym^.entry.srcproc;
+                  wp1 := procs;
+                  while wp1 <> NIL do
+                    if wp^.defseg = wp1^.defseg then
+                      if wp1^.defsym^.entry.srcproc = pnum then
+                        begin { already gonna be linked }
+                          wp^.defproc := wp1;
+                          wp1 := NIL
+                        end
+                      else
+                        wp1 := wp1^.next
+                    else
+                      wp1 := wp1^.next;
+                  if wp^.defproc = NIL then { forcibly link it }
+                    wp^.defproc := findnadd(wp^.defseg^.symtab)
+                end;
+              wp := wp^.next
+            end { while }
+        end { findnewprocs } ;
+
+        {
+        *  Resolve removes work items from inlist, searches symtabs
+        *  for its corresponding definition symbol (error if not found),
+        *  and moves the work item into the output list.  Each flavor
+        *  of work item needs some special handling to collect extra
+        *  info related to specific things.  In general, defsym and
+        *  defseg are filled in.  The insert algorithm is special for
+        *  procedure types to make life easier on refsrch.
+        }
+
+        procedure resolve(var inlist, outlist: workp);
+          var seg: segrange;
+              err: boolean;
+              wp: workp;
+
+            {
+            *  Sepsrch sequentially search the symtabs in the seplist
+            *  to resolve the refsym of inlist^.  It basically just
+            *  calls symsrch repetively and fixes up defsym and
+            *  defseg fields.  If the name of the refsym could
+            *  not be found, an error is given.
+            }
+
+            procedure sepsrch(oktype: litypes);
+              var syp: symp;
+                  sp: segp;
+            begin
+              sp := seplist;
+              while sp <> NIL do
+                begin
+                  syp := symsrch(inlist^.refsym^.entry.name,
+                                 oktype, sp^.symtab);
+                  if syp <> NIL then
+                    begin
+                      inlist^.defsym := syp;
+                      inlist^.defseg := sp;
+                      sp := NIL
+                    end
+                  else
+                    sp := sp^.next
+                end
+            end { sepsrch } ;
+
+            {
+            *  Procinsert is called to insert work into the procs
+            *  list using a special set of sort keys so that copyin-
+            *  procs will run reasonably fast and use the disk
+            *  efficiently.  The procs list is sorted by segment,
+            *  srcbase keys.  The seg ordering is dictated by the
+            *  seplist, so user ASECTS etc will retain their original
+            *  ordering.
+            }
+
+            procedure procinsert(work: workp);
+              label 1;
+              var crnt, prev: workp;
+                  sp: segp;
+            begin
+              prev := NIL;
+              sp := seplist;
+              while sp <> outlist^.defseg do
+                if sp = work^.defseg then
+                  goto 1
+                else
+                  sp := sp^.next;
+              crnt := outlist;
+              repeat
+                if crnt^.defseg = work^.defseg then
+                  repeat
+                    if work^.defsym^.entry.place^.srcbase <
+                       crnt^.defsym^.entry.place^.srcbase then
+                      goto 1;
+                    prev := crnt;
+                    crnt := crnt^.next;
+                    if crnt = NIL then
+                      goto 1
+                  until crnt^.defseg <> work^.defseg
+                else
+                  begin
+                    prev := crnt;
+                    crnt := crnt^.next;
+                    if crnt <> NIL then
+                      while sp <> crnt^.defseg do
+                        if sp = work^.defseg then
+                          goto 1
+                        else
+                          sp := sp^.next
+                  end
+              until crnt = NIL;
+          1:
+              if prev = NIL then
+                begin
+                  work^.next := outlist;
+                  outlist := work
+                end
+              else
+                begin
+                  work^.next := prev^.next;
+                  prev^.next := work
+                end
+            end { procinsert } ;
+
+        begin { resolve }
+          while inlist <> NIL do
+            begin
+              with inlist^, refsym^.entry do
+                case litype of
+                  GLOBREF:    begin
+                                sepsrch(GLOBDEF);
+                                defproc := NIL
+                              end;
+
+                  CONSTREF:   if hostsp <> NIL then
+                                begin
+                                  defsym := symsrch(name, CONSTDEF,
+                                                hostsp^.symtab);
+                                  defseg := hostsp
+                                end;
+
+                  PUBLREF:    if hostsp <> NIL then
+                                begin
+                                  defsym := symsrch(name, PUBLDEF,
+                                                hostsp^.symtab);
+                                  defseg := hostsp
+                                end;
+
+                  PRIVREF:    begin
+                                newoffset := nextbaselc;
+                                nextbaselc := nextbaselc+nwords;
+                                if hostsp <> NIL then
+                                  defsym := refsym;
+                                defseg := hostsp
+                              end;
+                  EXTPROC,
+                  SEPPROC,
+                  SEPPREF:    begin
+                                sepsrch(SEPPROC);
+                                if litype = SEPPREF then
+                                  defproc := NIL;
+                                err := FALSE;
+                                if defsym <> NIL then
+                                  if litype = SEPPREF then
+                                    err := defsym^.entry.nparams <> nwords
+                                  else
+                                    err := defsym^.entry.nparams <> nparams;
+                                if err then
+                                  begin
+                                    write('Proc ', name);
+                                    error(' param mismatch')
+                                  end
+                              end;
+                  EXTFUNC,
+                  SEPFUNC,
+                  SEPFREF:    begin
+                                sepsrch(SEPFUNC);
+                                if litype = SEPFREF then
+                                  defproc := NIL;
+                                err := FALSE;
+                                if defsym <> NIL then
+                                  if litype = SEPFREF then
+                                    err := defsym^.entry.nparams <> nwords
+                                  else
+                                    err := defsym^.entry.nparams <> nparams;
+                                if err then
+                                  begin
+                                    write('Func ', name);
+                                    error(' param mismatch')
+                                  end
+                              end;
+
+                  UNITREF:    if unitsrch(hostfile, name, seg) = hostfile then
+                                begin { will be found in host }
+                                  defsym := refsym;
+                                  defsegnum := seg
+                                end
+                              else { "impossible" }
+                                error('unit err')
+                end { cases } ;
+
+              wp := inlist;
+              inlist := wp^.next;
+              if wp^.defsym = NIL then
+                with wp^.refsym^.entry do
+                  begin
+                    case litype of
+                      GLOBREF:  write('Global ');
+                      PUBLREF:  write('Public ');
+                      CONSTREF: write('Const ');
+                      SEPPREF,
+                      EXTPROC:  write('Proc ');
+                      SEPFREF,
+                      EXTFUNC:  write('Func ')
+                    end { cases } ;
+                    write(name);
+                    error(' undefined')
+                  end
+              else
+                if  (wp^.defsym^.entry.litype in [SEPPROC, SEPFUNC])
+                and (outlist <> NIL) then
+                  procinsert(wp)
+                else
+                  begin
+                    wp^.next := outlist;
+                    outlist := wp
+                  end
+            end { while }
+        end { resolve } ;
+
+        {
+        *  Refsrch slowly goes through all reference lists in symbols
+        *  which are in the okset to see if any "occur" within the
+        *  procedures/functions selected to be linked, that is contained
+        *  in procs list.  It is assumed that procs is sorted by defseg
+        *  so only the procs between ipl and lpl are searched.
+        *  Any symbols which have any refs in selected procs are given
+        *  work nodes and are placed in the uother list in no certain
+        *  order so resolve can be called right away.
+        }
+
+        procedure refsrch(okset: liset; sp: segp);
+          var lpl, ipl: workp;
+              diffseg: boolean;
+
+            {
+            *  Checkrefs recursivly searches sym tree to kind names
+            *  in the okset.  When one is found, each of its ref pointers
+            *  are checked to see if they fall in one of the procs
+            *  to-be-linked (between ipl & lpl).  If so, a new work item
+            *  is generated and it's put on the uother list.
+            }
+
+            procedure checkrefs(sym: symp);
+              label 1, 2;
+              var pl, wp: workp;
+                  i, n, ref: integer;
+                  rp: refp;
+            begin
+              if sym <> NIL then
+                begin
+                  checkrefs(sym^.llink);
+                  checkrefs(sym^.rlink);
+                  checkrefs(sym^.slink);
+                  with sym^.entry do
+                    if litype in okset then
+                      begin
+                        n := nrefs;
+                        rp := reflist;
+                        while rp <> NIL do
+                          begin
+                            if n > 8 then
+                              begin
+                                i := 7;
+                                n := n-8
+                              end
+                            else
+                              i := n-1;
+                            repeat { for each ref }
+                              ref := rp^.refs[i];
+                              pl := ipl;
+                              repeat { search proc list }
+                                if pl^.needsrch then
+                                  with pl^.defsym^.entry.place^ do
+                                    if ref < srcbase then
+                                      goto 2 { terminate proc search }
+                                    else
+                                      if ref < srcbase+length then
+                                        begin { occurs in proc }
+                                          new(wp);
+                                          wp^.refsym := sym;
+                                          wp^.refseg := sp;
+                                          wp^.defsym := NIL;
+                                          wp^.defseg := NIL;
+                                          wp^.next := uother;
+                                          uother := wp;
+                                          goto 1
+                                        end;
+                                pl := pl^.next
+                              until pl = lpl;
+                          2:
+                              i := i-1
+                            until i < 0;
+                            rp := rp^.next
+                          end { while }
+                      end
+                end;
+          1:
+            end { checkrefs } ;
+
+        begin { refsrch }
+          ipl := NIL;
+          lpl := procs;
+          while lpl <> NIL do
+            if (lpl^.defseg = sp)
+            and lpl^.needsrch then
+              begin
+                ipl := lpl;
+                lpl := NIL
+              end
+            else
+              lpl := lpl^.next;
+          if ipl <> NIL then
+            begin
+              lpl := ipl;
+              repeat
+                diffseg := lpl^.defseg <> ipl^.defseg;
+                if not diffseg then
+                  lpl := lpl^.next
+              until diffseg or (lpl = NIL);
+              checkrefs(sp^.symtab);
+              repeat
+                ipl^.needsrch := FALSE;
+                ipl := ipl^.next
+              until ipl = lpl
+            end
+        end { refsrch } ;
+
+        {
+        *  findlocals recursivly searches the main segs symtab to
+        *  place any unresolved things like public refs in unit
+        *  segs into the ulocal list so they can be fixed up in
+        *  fixuprefs in addition to the sep proc things.
+        }
+
+        procedure findlocals(sym: symp);
+          var wp: workp;
+        begin
+          if sym <> NIL then
+            begin
+              findlocals(sym^.llink);
+              findlocals(sym^.rlink);
+              findlocals(sym^.slink);
+              if sym^.entry.litype in [UNITREF, PUBLREF, PRIVREF] then
+                begin
+                  new(wp);
+                  wp^.refsym := sym;
+                  wp^.refseg := NIL;
+                  wp^.defsym := NIL;
+                  wp^.defseg := NIL;
+                  wp^.next := ulocal;
+                  ulocal := wp
+                end
+            end
+        end { findlocals } ;
+
+    begin { buildworklists }
+      procs := NIL;
+      local := NIL;
+      other := NIL;
+      uprocs := NIL;
+      ulocal := NIL;
+      uother := NIL;
+      with seginfo[s]^ do
+        if segkind <> LINKED then
+          begin
+            sephost := segkind = SEPRTSEG;
+            if sephost then
+              begin
+                next := seplist;
+                seplist := seginfo[s];
+                uprocs := findprocs([SEPPROC, SEPFUNC], symtab)
+              end
+            else
+              uprocs := findprocs([EXTPROC, EXTFUNC], symtab);
+            while uprocs <> NIL do
+              begin
+                resolve(uprocs, procs);
+                sp := seplist;
+                while sp <> NIL do
+                  begin
+                    refsrch([GLOBREF, SEPPREF, SEPFREF], sp);
+                    sp := sp^.next
+                  end;
+                resolve(uother, other);
+                findnewprocs
+              end;
+            if not sephost then
+              begin
+                findlocals(symtab);
+                resolve(ulocal, local)
+              end;
+            wp := procs;
+            while wp <> NIL do
+              begin
+                wp^.needsrch := TRUE;
+                wp := wp^.next
+              end;
+            sp := seplist;
+            while sp <> NIL do
+              begin
+                refsrch([PUBLREF, PRIVREF, CONSTREF], sp);
+                sp := sp^.next
+              end;
+            resolve(uother, other)
+          end
+    end { buildworklists } ;

@@ -1,0 +1,380 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+FUNCTION DIRSEARCH(*VAR FTID: TID; FINDPERM: BOOLEAN; FDIR: DIRP*);
+  VAR I: DIRRANGE; FOUND: BOOLEAN;
+BEGIN DIRSEARCH := 0; FOUND := FALSE; I := 1;
+  WHILE (I <= FDIR^[0].DNUMFILES) AND NOT FOUND DO
+    BEGIN
+      WITH FDIR^[I] DO
+        IF DTID = FTID THEN
+          IF FINDPERM = (DACCESS.YEAR <> 100) THEN
+            BEGIN DIRSEARCH := I; FOUND := TRUE END;
+      I := I+1
+    END
+END (*DIRSEARCH*) ;
+
+PROCEDURE DELENTRY(*FINX: DIRRANGE; FDIR: DIRP*);
+  VAR I: DIRRANGE;
+BEGIN
+  WITH FDIR^[0] DO
+    BEGIN
+      FOR I := FINX TO DNUMFILES-1 DO
+        FDIR^[I] := FDIR^[I+1];
+      FDIR^[DNUMFILES].DTID := '';
+      DNUMFILES := DNUMFILES-1
+    END
+END (*DELENTRY*) ;
+
+PROCEDURE INSENTRY(*VAR FENTRY: DIRENTRY; FINX: DIRRANGE; FDIR: DIRP*);
+  VAR I: DIRRANGE;
+BEGIN
+  WITH FDIR^[0] DO
+    BEGIN
+      FOR I := DNUMFILES DOWNTO FINX DO
+        FDIR^[I+1] := FDIR^[I];
+      FDIR^[FINX] := FENTRY;
+      DNUMFILES := DNUMFILES+1
+    END
+END (*INSENTRY*) ;
+
+FUNCTION ENTERTEMP(VAR FTID: TID; FSEGS: INTEGER;
+                      FKIND: FILEKIND; FDIR: DIRP): DIRRANGE;
+  VAR I,LASTI,DINX,SINX: DIRRANGE; RT11ISH: BOOLEAN;
+      SSEGS: INTEGER; LDE: DIRENTRY;
+
+  PROCEDURE FINDMAX(CURINX: DIRRANGE; FIRSTOPEN,NEXTUSED: INTEGER);
+    VAR FREEAREA: INTEGER;
+  BEGIN
+    FREEAREA := NEXTUSED-FIRSTOPEN;
+    IF FREEAREA > FSEGS THEN
+      BEGIN
+        SINX := DINX; SSEGS := FSEGS;
+        DINX := CURINX; FSEGS := FREEAREA
+      END
+    ELSE
+      IF FREEAREA > SSEGS THEN
+        BEGIN SSEGS := FREEAREA; SINX := CURINX END
+  END (*FINDMAX*) ;
+
+BEGIN (*ENTERTEMP*)
+  DINX := 0; LASTI := FDIR^[0].DNUMFILES;
+  SINX := 0; SSEGS := 0;
+  IF FSEGS <= 0 THEN
+    BEGIN RT11ISH := FSEGS < 0;
+      FOR I := 1 TO LASTI DO
+        FINDMAX(I,FDIR^[I-1].DLASTBLK,FDIR^[I].DFIRSTBLK);
+      FINDMAX(LASTI+1,FDIR^[LASTI].DLASTBLK,FDIR^[0].DEOVBLK);
+      IF RT11ISH THEN
+        IF FSEGS DIV 2 <= SSEGS THEN
+          BEGIN FSEGS := SSEGS; DINX := SINX END
+        ELSE FSEGS := (FSEGS+1) DIV 2
+    END
+  ELSE
+    BEGIN I := 1;
+      WHILE I <= LASTI DO
+        BEGIN
+          IF FDIR^[I].DFIRSTBLK-FDIR^[I-1].DLASTBLK >= FSEGS THEN
+            BEGIN DINX := I; I := LASTI END;
+          I := I+1
+        END;
+      IF DINX = 0 THEN
+        IF FDIR^[0].DEOVBLK-FDIR^[LASTI].DLASTBLK >= FSEGS THEN
+          DINX := LASTI+1
+    END;
+  IF LASTI = MAXDIR THEN DINX := 0;
+  IF DINX > 0 THEN
+    BEGIN
+      WITH LDE DO
+        BEGIN
+          DFIRSTBLK := FDIR^[DINX-1].DLASTBLK;
+          DLASTBLK := DFIRSTBLK+FSEGS;
+          DFKIND := FKIND; DTID := FTID;
+          DLASTBYTE := FBLKSIZE;
+          WITH DACCESS DO
+            BEGIN MONTH := 0; DAY := 0; YEAR := 100 END
+        END;
+      INSENTRY(LDE,DINX,FDIR)
+    END;
+  ENTERTEMP := DINX
+END (*ENTERTEMP*) ;
+
+(* FILE STATE HANDLERS *)
+
+PROCEDURE FINIT(*VAR F: FIB; WINDOW: WINDOWP; RECWORDS: INTEGER*);
+BEGIN
+  WITH F DO
+    BEGIN FSTATE := FJANDW;
+      FISOPEN := FALSE; FEOF := TRUE;
+      FEOLN := TRUE; FWINDOW := WINDOW;
+      IF (RECWORDS = 0) OR (RECWORDS = -2) THEN
+        BEGIN
+          FWINDOW^[1] := CHR(0); FRECSIZE := 1;
+          IF RECWORDS = 0 THEN FSTATE := FNEEDCHAR
+        END
+      ELSE
+        IF RECWORDS < 0 THEN
+          BEGIN FWINDOW := NIL; FRECSIZE := 0 END
+        ELSE FRECSIZE := RECWORDS+RECWORDS
+    END
+END (*FINIT*) ;
+
+PROCEDURE RESETER(VAR F:FIB);
+  VAR BIGGER: BOOLEAN;
+BEGIN
+  WITH F DO
+     BEGIN FREPTCNT := 0;
+        FEOLN := FALSE; FEOF := FALSE;
+        IF FISBLKD THEN
+          BEGIN BIGGER := FNXTBLK > FMAXBLK;
+            IF BIGGER THEN FMAXBLK := FNXTBLK;
+            IF FSOFTBUF THEN
+              BEGIN
+                IF BIGGER THEN FMAXBYTE := FNXTBYTE
+                ELSE
+                  IF FNXTBLK = FMAXBLK THEN
+                    IF FNXTBYTE > FMAXBYTE THEN
+                        BEGIN BIGGER := TRUE; FMAXBYTE := FNXTBYTE END;
+                IF FBUFCHNGD THEN
+                  BEGIN FBUFCHNGD := FALSE; FMODIFIED := TRUE;
+                    IF BIGGER THEN
+                      FILLCHAR(FBUFFER[FNXTBYTE],FBLKSIZE-FNXTBYTE,0);
+                    UNITWRITE(FUNIT,FBUFFER,FBLKSIZE,
+                                    FHEADER.DFIRSTBLK+FNXTBLK-1);
+                    IF BIGGER AND (FHEADER.DFKIND = TEXTFILE)
+                        AND ODD(FNXTBLK) THEN
+                      BEGIN FMAXBLK := FMAXBLK+1;
+                        FILLCHAR(FBUFFER,FBLKSIZE,0);
+                        UNITWRITE(FUNIT,FBUFFER,FBLKSIZE,
+                                        FHEADER.DFIRSTBLK+FNXTBLK)
+                      END
+                  END;
+                FNXTBYTE := FBLKSIZE
+              END;
+            FNXTBLK := 0;
+            IF FSOFTBUF AND (FHEADER.DFKIND = TEXTFILE) THEN
+                FNXTBLK := 2
+          END
+     END
+END (*RESETER*) ;
+
+PROCEDURE FOPEN(*VAR F: FIB; VAR FTITLE: STRING;
+                 FOPENOLD: BOOLEAN; JUNK PARAM*);
+  LABEL 1;
+  VAR LDIR: DIRP; LUNIT: UNITNUM; LINX: DIRRANGE;
+      LSEGS,NBYTES: INTEGER; LKIND: FILEKIND;
+      OLDHEAP: ^INTEGER; SWAPPED: BOOLEAN;
+      SAVERSLT: IORSLTWD; LVID: VID; LTID: TID;
+BEGIN SYSCOM^.IORSLT := INOERROR;
+  WITH F DO
+    IF FISOPEN THEN SYSCOM^.IORSLT := INOTCLOSED
+    ELSE
+      IF SCANTITLE(FTITLE,LVID,LTID,LSEGS,LKIND) THEN
+        BEGIN (*GOT AN OK TITLE*)
+          IF ORD(FOPENOLD) > 1 THEN (*OLD CODE SPECIAL CASE*)
+            FOPENOLD := (ORD(FOPENOLD) = 2) OR (ORD(FOPENOLD) = 4);
+          SWAPPED := FALSE;
+          WITH SWAPFIB^ DO
+            IF FISOPEN AND (SYSCOM^.GDIRP = NIL) THEN
+              BEGIN MARK(OLDHEAP);
+                NBYTES := ORD(SYSCOM^.LASTMP)-ORD(OLDHEAP);
+                IF (NBYTES > 0) AND (NBYTES < SIZEOF(DIRECTORY)+400) THEN
+                  BEGIN
+                    NBYTES := ORD(OLDHEAP)-ORD(EMPTYHEAP);
+                    IF (NBYTES > 0) AND (NBYTES > SIZEOF(DIRECTORY)) AND
+                        (UNITABLE[FUNIT].UVID = FVID) THEN
+                      BEGIN
+                        UNITWRITE(FUNIT,EMPTYHEAP^,SIZEOF(DIRECTORY),
+                                        FHEADER.DFIRSTBLK);
+                        RELEASE(EMPTYHEAP); SWAPPED := TRUE
+                      END
+                  END
+              END;
+          LUNIT := VOLSEARCH(LVID,TRUE,LDIR);
+          IF LUNIT = 0 THEN SYSCOM^.IORSLT := INOUNIT
+          ELSE
+            WITH UNITABLE[LUNIT] DO
+              BEGIN (*OK...OPEN UP FILE*)
+                FISOPEN := TRUE; FMODIFIED := FALSE;
+                FUNIT := LUNIT; FVID := LVID;
+                FNXTBLK := 0; FISBLKD := UISBLKD;
+                FSOFTBUF := UISBLKD AND (FRECSIZE <> 0);
+                IF (LDIR <> NIL) AND (LENGTH(LTID) > 0) THEN
+                  BEGIN (*LOOKUP OR ENTER FHEADER IN DIRECTORY*)
+                    LINX := DIRSEARCH(LTID,FOPENOLD,LDIR);
+                    IF FOPENOLD THEN
+                      IF LINX = 0 THEN
+                        BEGIN SYSCOM^.IORSLT := INOFILE; GOTO 1 END
+                      ELSE FHEADER := LDIR^[LINX]
+                    ELSE (*OPEN NEW FILE*)
+                      IF LINX > 0 THEN
+                        BEGIN SYSCOM^.IORSLT := IDUPFILE; GOTO 1 END
+                      ELSE
+                        BEGIN (*MAKE A TEMP ENTRY*)
+                          IF LKIND = UNTYPEDFILE THEN LKIND := DATAFILE;
+                          LINX := ENTERTEMP(LTID,LSEGS,LKIND,LDIR);
+                          IF (LINX > 0) AND (LKIND = TEXTFILE) THEN
+                            WITH LDIR^[LINX] DO
+                              BEGIN
+                                IF ODD(DLASTBLK-DFIRSTBLK) THEN
+                                  DLASTBLK := DLASTBLK-1;
+                                IF DLASTBLK-DFIRSTBLK < 4 THEN
+                                  BEGIN DELENTRY(LINX,LDIR); LINX := 0 END
+                              END;
+                          IF LINX = 0 THEN
+                            BEGIN SYSCOM^.IORSLT := INOROOM; GOTO 1 END;
+                          FHEADER := LDIR^[LINX]; FMODIFIED := TRUE;
+                          WRITEDIR(LUNIT,LDIR)
+                        END
+                  END
+                ELSE (*FHEADER NOT IN DIRECTORY*)
+                  BEGIN
+                    IF FOPENOLD AND (LENGTH(LTID) <> 0) THEN
+                      BEGIN
+                        SYSCOM^.IORSLT := INOFILE;
+                        GOTO 1;
+                        END;
+                    WITH FHEADER DO
+                      BEGIN (*DIRECT UNIT OPEN, SET UP DUMMY FHEADER*)
+                        DFIRSTBLK := 0; DLASTBLK := MMAXINT;
+                        IF UISBLKD THEN DLASTBLK := UEOVBLK;
+                        DFKIND := LKIND; DTID := '';
+                        DLASTBYTE := FBLKSIZE;
+                        WITH DACCESS DO
+                          BEGIN MONTH := 0; DAY := 0; YEAR := 0 END
+                      END; {of WITH}
+                    END;  {of ELSE}
+                IF FOPENOLD THEN
+                  FMAXBLK := FHEADER.DLASTBLK-FHEADER.DFIRSTBLK
+                ELSE FMAXBLK := 0;
+                IF FSOFTBUF THEN
+                  BEGIN
+                    FNXTBYTE := FBLKSIZE; FBUFCHNGD := FALSE;
+                    IF FOPENOLD THEN FMAXBYTE := FHEADER.DLASTBYTE
+                    ELSE FMAXBYTE := FBLKSIZE;
+                    WITH FHEADER DO
+                      IF DFKIND = TEXTFILE THEN
+                        BEGIN FNXTBLK := 2;
+                          IF NOT FOPENOLD THEN
+                            BEGIN (*NEW .TEXT, PUT NULLS IN FIRST PAGE*)
+                              FILLCHAR(FBUFFER,SIZEOF(FBUFFER),0);
+                              UNITWRITE(FUNIT,FBUFFER,FBLKSIZE,DFIRSTBLK);
+                              UNITWRITE(FUNIT,FBUFFER,FBLKSIZE,DFIRSTBLK+1)
+                            END
+                        END
+                  END;
+                IF FOPENOLD THEN FRESET(F)
+                ELSE RESETER(F); (*NO GET!*)
+        1:      IF SYSCOM^.IORSLT <> INOERROR THEN
+                  BEGIN FISOPEN := FALSE; FEOF := TRUE; FEOLN := TRUE END
+              END;
+          IF SWAPPED THEN
+            BEGIN RELEASE(OLDHEAP); SYSCOM^.GDIRP := NIL;
+              SAVERSLT := SYSCOM^.IORSLT;
+              UNITREAD(SWAPFIB^.FUNIT,EMPTYHEAP^,SIZEOF(DIRECTORY),
+                                SWAPFIB^.FHEADER.DFIRSTBLK);
+              SYSCOM^.IORSLT := SAVERSLT
+            END
+        END
+      ELSE SYSCOM^.IORSLT := IBADTITLE
+END (*FOPEN*) ;
+
+PROCEDURE FCLOSE(*VAR F: FIB; FTYPE: CLOSETYPE*);
+  LABEL 1;
+  VAR LINX,DUPINX: DIRRANGE; LDIR: DIRP; FOUND: BOOLEAN;
+BEGIN SYSCOM^.IORSLT := INOERROR;
+  WITH F DO
+    IF FISOPEN AND (FWINDOW <> SYSTERM^.FWINDOW) THEN
+      BEGIN
+        IF FISBLKD THEN
+          WITH FHEADER DO
+            IF LENGTH(DTID) > 0 THEN
+              BEGIN (*FILE IN A DISK DIRECTORY...FIXUP MAYBE*)
+                IF FTYPE = CCRUNCH THEN
+                  BEGIN FMAXBLK := FNXTBLK;
+                    DACCESS.YEAR := 100; FTYPE := CLOCK;
+                    IF FSOFTBUF THEN FMAXBYTE := FNXTBYTE
+                  END;
+                RESETER(F);
+                IF FMODIFIED OR (DACCESS.YEAR = 100) OR (FTYPE = CPURGE) THEN
+                  BEGIN (*HAVE TO CHANGE DIRECTORY ENTRY*)
+                    IF FUNIT <> VOLSEARCH(FVID,FALSE,LDIR) THEN
+                      BEGIN SYSCOM^.IORSLT := ILOSTUNIT; GOTO 1 END;
+                    LINX := 1; FOUND := FALSE;
+                    WHILE (LINX <= LDIR^[0].DNUMFILES) AND NOT FOUND DO
+                      BEGIN (*LOOK FOR FIRST BLOCK MATCH*)
+                        FOUND := (LDIR^[LINX].DFIRSTBLK = DFIRSTBLK) AND
+                                 (LDIR^[LINX].DLASTBLK = DLASTBLK);
+                        LINX := LINX + 1
+                      END;
+                    IF NOT FOUND THEN
+                      BEGIN SYSCOM^.IORSLT := ILOSTFILE; GOTO 1 END;
+                    LINX := LINX - 1; (*CORRECT OVERRUN*)
+                    IF ((FTYPE = CNORMAL) AND (LDIR^[LINX].DACCESS.YEAR = 100))
+                           OR (FTYPE = CPURGE) THEN
+                        DELENTRY(LINX,LDIR)  (*ZAP FILE OUT OF EXISTANCE*)
+                    ELSE
+                      BEGIN (*WELL...LOCK IN A PERM DIR ENTRY*)
+                        DUPINX := DIRSEARCH(DTID,TRUE,LDIR);
+                        IF (DUPINX <> 0) AND (DUPINX <> LINX) THEN
+                          BEGIN (*A DUPLICATE PERM ENTRY...ZAP OLD ONE*)
+                            DELENTRY(DUPINX,LDIR);
+                            IF DUPINX < LINX THEN LINX := LINX-1
+                          END;
+                        IF LDIR^[LINX].DACCESS.YEAR = 100 THEN
+                          IF DACCESS.YEAR = 100 THEN
+                            DACCESS := THEDATE
+                          ELSE (*LEAVE ALONE...FILER SPECIAL CASE*)
+                        ELSE
+                          IF FMODIFIED AND (THEDATE.MONTH <> 0) THEN
+                            DACCESS := THEDATE
+                          ELSE
+                            DACCESS := LDIR^[LINX].DACCESS;
+                        DLASTBLK := DFIRSTBLK+FMAXBLK;
+                        IF FSOFTBUF THEN DLASTBYTE := FMAXBYTE;
+                        FHEADER.FILLER1 := 0;  {This had better work, Steve}
+                        FMODIFIED := FALSE; LDIR^[LINX] := FHEADER
+                      END;
+                    WRITEDIR(FUNIT,LDIR)
+                  END
+              END;
+        IF FTYPE = CPURGE THEN
+          IF LENGTH(FHEADER.DTID) = 0 THEN
+            UNITABLE[FUNIT].UVID := '';
+1:      FEOF := TRUE; FEOLN := TRUE; FISOPEN := FALSE
+      END;
+END (*FCLOSE*) ;

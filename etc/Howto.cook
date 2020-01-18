@@ -1,0 +1,238 @@
+/*
+ * UCSD p-System Operating System
+ * Copyright (C) 2006, 2010, 2011 Peter Miller
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of the ucsd-psystem-os project nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
+
+set mkdir;
+set unlink;
+set time-adjust;
+
+awk = gawk;
+
+/*
+ * The first item in search list should be the absolute path of the
+ * current directory.  Assume that it is.
+ */
+search_list = .;
+search_tmp = [tail [split ':' [search_path]]];
+
+/*
+ * Try to shorten the search path in command lines, too.
+ *
+ * This takes a little getting used to....
+ * 1. For development builds, the search path is dev dir, then branch bl,
+ *    then ... project bl.  Thus, bl in a dev dir winds up pointing to
+ *    the branch reporitory.
+ * 2. For integration builds, Aegis deliberately omits the branch
+ *    baseline from the path, but includes the branch's parents and
+ *    ancestors.  Thus, bl in an int dir winds up pointing to the
+ *    branch's parent's reporitory.
+ * The idea is that integration builds in a branch are like a
+ * development build of the branch's dev dir.
+ */
+search_name = bl;
+loop
+{
+    search_dir = [head [search_tmp]];
+    if [not [search_dir]] then
+        loopstop;
+    search_tmp = [tail [search_tmp]];
+
+    if [not [exists [search_name]]] then
+        ln -s [search_dir] [search_name]
+            set clearstat;
+    search_list = [search_list] [search_name];
+    search_name = [search_name]bl;
+}
+
+/*
+ * determine the short version:
+ * no change or delta number
+ */
+version_short = [fromto %1.C%2 %1 [subst D C [version]]];
+
+version_shorter = [split "." [version_short]] _ _;
+version_shorter = [unsplit "." [word 1 [version_shorter]]
+    [word 2 [version_shorter]]];
+project_short = [fromto %.[version_short] % [project]];
+project_minus = [project_short]-[version_short];
+
+change_source_files = ;
+#include-cooked-nowarn etc/cook/change_files.[version]
+etc/cook/change_files.[version]:
+    set shallow nodefault
+{
+    echo "'change_source_files ='" > [target];
+    aelcf -p [project] -c [change] >> [target];
+    echo "';'" >> [target];
+}
+project_source_files = ;
+#include-cooked-nowarn etc/cook/project_files.[version]
+etc/cook/project_files.[version]:
+    set shallow nodefault
+{
+    echo "'project_source_files ='" > [target];
+    aelpf -p [project] -c [change] -terse >> [target];
+    echo "';'" >> [target];
+}
+source_files = [sort [project_source_files] [change_source_files]];
+
+/*
+ * Speed up graph building by stating the leaves explictly.
+ * This also gives more useful error messages.
+ */
+if [count [project_source_files]] then
+if [count [change_source_files]] then
+{
+    leaf_file_accept = [project_source_files] [change_source_files];
+    leaf_pattern_accept = /%0%;
+}
+
+/* ************************************************************************** */
+
+/*
+ * This is the system that is going to host the finished product.  Most
+ * of the time it is "klebsch", because we are targeting the Klebsch
+ * emulator (ucsd-psystem-xc).
+ */
+target-host = klebsch;
+
+/*
+ * The machine architecture of the host system.
+ * Most of the time this is determined automatically.
+ */
+target-arch = [collect sh [resolve etc/arch-from-host.sh] [target-host]];
+
+function print target-host \= [target-host];
+function print target-arch \= [target-arch];
+
+/* ************************************************************************** */
+
+debug = /* -g */ ;
+
+all = ;
+
+/* the right hand side is deferred until triggered */
+all: [all];
+
+integration-build-targets = ;
+integration-build-targets: [integration-build-targets];
+
+/*
+ * Howto use GNU Autoconf.
+ */
+libs = ;
+#include [resolve etc/autoconf.cook]
+
+if [match %1C%2 [version]] then
+{
+    baseline = bl;
+}
+else
+{
+    /*
+     * this is essential so that aeipass does the right thing
+     *
+     * It also means that generated files (e.g. from objen) have consistent
+     * mod-times after integration, so everything does not immediately
+     * re-build.
+     */
+    set time-adjust-back;
+    all += integration-build-targets;
+}
+
+
+/*
+ * Build the version include, but not too often.
+ */
+etc/version.so:
+    set ['if' [or [not [defined baseline] ] [not [exists bl/etc/version.so
+        ] ] ] 'then' shallow]
+{
+    copyright_years =
+        [collect
+            aegis -list version -p [project] -c [change]
+            | [awk] "-F'[[\\\\]]'" "'/^copyright_years/{print $2}'"
+        ];
+    echo "'.ds V) "[version]"'" > [target];
+    echo "'.ds v) "[version_short]"'" >> [target];
+    aegis -list version -p [project] -c [change]
+        | [awk] -F'\'"\'' "'/previous/{print $2}'"
+        | [awk] -F. "'{print \".ds w) \"$1\".\"$2}'"
+        >> [target];
+    echo "'.ds Y) "[copyright_years]"'" >> [target];
+}
+
+url = "http://miller.emu.id.au/pmiller/ucsd-psystem-os/";
+
+etc/vstamp.inc.text:
+    set ['if' [or [not [defined baseline] ] [not [exists bl/etc/vstamp.inc.text
+        ] ] ] 'then' shallow]
+{
+    echo const > [target];
+    echo [quote "project_url = '"[url]"';" ] >> [target];
+    echo [quote "version_stamp = '"[version]"';" ] >> [target];
+}
+
+etc/vstamp.asm.text:
+    set ['if' [or [not [defined baseline] ] [not [exists bl/etc/vstamp.asm.text
+        ] ] ] 'then' shallow]
+{
+    echo [quote "project_url .equ '"[url]"'" ] > [target];
+    echo [quote "version_stamp .equ '"[version]"'" ] >> [target];
+}
+
+
+#include [resolve etc/documentation.cook]
+#include [resolve etc/metrics.cook]
+#include [resolve etc/stage1.cook]
+#include [resolve etc/tags.cook]
+
+;
+#if [count [source_files]]
+
+#include-cooked etc/osmakgen.cook
+
+set no-include-cooked-warning;
+
+etc/osmakgen.cook.in: [source_files]
+    etc/version.so
+    etc/vstamp.asm.text
+    etc/vstamp.inc.text
+{
+    ucsdpsys_osmakgen -o [target] [source_files];
+}
+
+#endif
+
+/*
+ * Look for other directory-specific cookbooks.
+ */
+module_cook_list = [match_mask "%0module.cook" [source_files]];
+#if [count [module_cook_list]]
+#include-cooked [resolve [module_cook_list]]
+#endif

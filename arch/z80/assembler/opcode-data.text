@@ -1,0 +1,126 @@
+#
+# UCSD PASCAL - Version I.5
+# Copyright (C) 1978, 1979 Regents of the University of California
+# All Rights Reserved
+#
+# Permission to use, copy, modify and distribute any part of UCSD
+# PASCAL solely authored by UC authors before June 1, 1979 for
+# educational, research and non-profit purposes, without fee, and
+# without a written agreement is hereby granted, provided that the
+# above copyright notice, this paragraph and the following three
+# paragraphs appear in all copies.
+#
+# Those desiring to incorporate UCSD PASCAL into commercial products or
+# use for commercial purposes should contact the Technology Transfer &
+# Intellectual Property Services, University of California, San Diego,
+# 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+# Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+#
+# IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+# FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+# INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+# THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+# DAMAGE.
+#
+# THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+# OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+# UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+# MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+# EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+# WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+# THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+# OTHER RIGHTS.
+#
+# Case Number: SD1991-807 (2006)
+# http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+#
+{ "R",    0x004F, defir  },
+{ "I",    0x0047, defir  },
+{ "POP",  0x00E1, ops1   },
+{ "PUSH", 0x00E5, ops1   },
+{ "BC",   0x0000, defrp  },
+{ "DE",   0x0001, defrp  },
+{ "HL",   0x0002, defrp  },
+{ "SP",   0x0003, defrp  },
+{ "AF",   0x0003, defrp  },
+{ "B",    0x0000, defreg },
+{ "C",    0x0001, defreg },
+{ "D",    0x0002, defreg },
+{ "E",    0x0003, defreg },
+{ "H",    0x0004, defreg },
+{ "L",    0x0005, defreg },
+{ "A",    0x0007, defreg },
+{ "NZ",   0x0000, defcc  },
+{ "Z",    0x0001, defcc  },
+{ "NC",   0x0002, defcc  },
+{ "PO",   0x0004, defcc  },
+{ "PE",   0x0005, defcc  },
+{ "P",    0x0006, defcc  },
+{ "M",    0x0007, defcc  },
+{ "IX",   0x00DD, defabs },
+{ "IY",   0x00FD, defabs },
+{ "EX",   0x00E3, ops2   },
+{ "ADD",  0x0986, ops3   },
+{ "ADC",  0x4A8E, ops4   },
+{ "SBC",  0x429E, ops4   },
+{ "SUB",  0x0096, ops5   },
+{ "AND",  0x00A6, ops5   },
+{ "OR",   0x00B6, ops5   },
+{ "XOR",  0x00AE, ops5   },
+{ "CP",   0x00BE, ops5   },
+{ "INC",  0x2334, ops6   },
+{ "DEC",  0x2B35, ops6   },
+{ "RLC",  0x06CB, ops7   },
+{ "RL",   0x16CB, ops7   },
+{ "RRC",  0x0ECB, ops7   },
+{ "RR",   0x1ECB, ops7   },
+{ "SLA",  0x26CB, ops7   },
+{ "SRA",  0x2ECB, ops7   },
+{ "SRL",  0x3ECB, ops7   },
+{ "BIT",  0x46CB, ops8   },
+{ "SET",  0xC6CB, ops8   },
+{ "RES",  0x86CB, ops8   },
+{ "JP",   0xC3E9, ops9   },
+{ "DJNZ", 0x0010, ops10  },
+{ "JR",   0x0000, ops11  },
+{ "CALL", 0xC4CD, ops12  },
+{ "IN",   0xEDDB, ops13  },
+{ "OUT",  0xEDD3, ops14  },
+{ "EXX",  0x00D9, ops15  },
+{ "DAA",  0x0027, ops15  },
+{ "CPL",  0x002F, ops15  },
+{ "CCF",  0x003F, ops15  },
+{ "SCF",  0x0037, ops15  },
+{ "NOP",  0x0000, ops15  },
+{ "HALT", 0x0076, ops15  },
+{ "DI",   0x00F3, ops15  },
+{ "EI",   0x00FB, ops15  },
+{ "RLCA", 0x0007, ops15  },
+{ "RLA",  0x0017, ops15  },
+{ "RRCA", 0x000F, ops15  },
+{ "RRA",  0x001F, ops15  },
+{ "RET",  0xC0C9, ops20  },
+{ "IM",   0x00ED, ops16  },
+{ "RST",  0x00C7, ops17  },
+{ "LDI",  0xEDA0, ops18  },
+{ "LDIR", 0xEDB0, ops18  },
+{ "LDD",  0xEDA8, ops18  },
+{ "LDDR", 0xEDB8, ops18  },
+{ "CPI",  0xEDA1, ops18  },
+{ "CPIR", 0xEDB1, ops18  },
+{ "CPD",  0xEDA9, ops18  },
+{ "CPDR", 0xEDB9, ops18  },
+{ "NEG",  0xED44, ops18  },
+{ "RLD",  0xED6F, ops18  },
+{ "RRD",  0xED67, ops18  },
+{ "RETI", 0xED4D, ops18  },
+{ "RETN", 0xED45, ops18  },
+{ "INI",  0xEDA2, ops18  },
+{ "INIR", 0xEDB2, ops18  },
+{ "IND",  0xEDAA, ops18  },
+{ "INDR", 0xEDBA, ops18  },
+{ "OUTI", 0xEDA3, ops18  },
+{ "OTIR", 0xEDB3, ops18  },
+{ "OUTD", 0xEDAB, ops18  },
+{ "OTDR", 0xEDBB, ops18  },
+{ "LD",   0x0000, ops19  },

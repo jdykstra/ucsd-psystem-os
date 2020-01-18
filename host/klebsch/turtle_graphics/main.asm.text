@@ -1,0 +1,110 @@
+;
+; UCSD p-System Operating System
+; Copyright (C) 2000 Mario Klebsch
+; Copyright (C) 2010 Peter Miller
+;
+; This program is free software; you can redistribute it and/or modify
+; it under the terms of the GNU General Public License as published by
+; the Free Software Foundation; either version 2 of the License, or
+; (at your option) any later version.
+;
+; This program is distributed in the hope that it will be useful,
+; but WITHOUT ANY WARRANTY; without even the implied warranty of
+; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+; GNU General Public License for more details.
+;
+; You should have received a copy of the GNU General Public License along
+; with this program.  If not, see <http://www.gnu.org/licenses/>
+
+;procedure initturtle;
+        .proc   initturtle, 0
+        .ascii  "TURTLEGRAPHICS::INITTURTLE"
+        .byte   0
+
+;procedure turn(angle: integer);
+        .proc   turn, 1
+        .ascii  "TURTLEGRAPHICS::TURN"
+        .byte   0
+
+;procedure turnto(angle: integer);
+        .proc   turnto, 1
+        .ascii  "TURTLEGRAPHICS::TURNTO"
+        .byte   0
+
+;procedure move(dist: integer);
+        .proc   move, 1
+        .ascii  "TURTLEGRAPHICS::MOVE"
+        .byte   0
+
+;procedure moveto(x, y: integer);
+        .proc   moveto, 2
+        .ascii  "TURTLEGRAPHICS::MOVETO"
+        .byte   0
+
+;procedure pencolor(penmode: screencolor);
+        .proc   pencolor, 1
+        .ascii  "TURTLEGRAPHICS::PENCOLOR"
+        .byte   0
+
+;procedure textmode;
+        .proc   textmode
+        .ascii  "TURTLEGRAPHICS::TEXTMODE"
+        .byte   0
+
+;procedure grafmode;
+        .proc   grafmode
+        .ascii  "TURTLEGRAPHICS::GRAFMODE"
+        .byte   0
+
+;procedure fillscreen(fillcolor: screencolor);
+        .proc   fillscreen, 1
+        .ascii  "TURTLEGRAPHICS::FILLSCREEN"
+        .byte   0
+
+;procedure viewport(left, right, bottom, top: integer);
+        .proc   viewport, 4
+        .ascii  "TURTLEGRAPHICS::VIEWPORT"
+        .byte   0
+
+;function  turtlex: integer;
+        .func   turtlex
+        .ascii  "TURTLEGRAPHICS::TURTLEX"
+        .byte   0
+
+;function  turtley: integer;
+        .func   turtley
+        .ascii  "TURTLEGRAPHICS::TURTLEY"
+        .byte   0
+
+;function  turtleang: integer;
+        .func   turtleang
+        .ascii  "TURTLEGRAPHICS::TURTLEANG"
+        .byte   0
+
+;function  screenbit(x, y: integer): boolean;
+        .func   screenbit, 2
+        .ascii  "TURTLEGRAPHICS::SCREENBIT"
+        .byte   0
+
+;procedure drawblock(var source; rowsize, xskip, yskip, width, height,
+;                    xscreen, yscreen, mode: integer);
+        .proc   drawblock, 9
+        .ascii  "TURTLEGRAPHICS::DRAWBLOCK"
+        .byte   0
+
+;procedure wchar(ch: char);
+        .proc   wchar, 1
+        .ascii  "TURTLEGRAPHICS::WCHAR"
+        .byte   0
+
+;procedure wstring(s: string);
+        .proc   wstring, 1
+        .ascii  "TURTLEGRAPHICS::WSTRING"
+        .byte   0
+
+;procedure chartype(mode: integer);
+        .proc   chartype, 1
+        .ascii  "TURTLEGRAPHICS::CHARTYPE"
+        .byte   0
+
+        .end

@@ -1,0 +1,199 @@
+'\" t
+.\" UCSD p-System Operating System
+.\" Copyright (C) 2006, 2009, 2010 Peter Miller
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions are met:
+.\"
+.\"   * Redistributions of source code must retain the above copyright notice,
+.\"     this list of conditions and the following disclaimer.
+.\"   * Redistributions in binary form must reproduce the above copyright
+.\"     notice, this list of conditions and the following disclaimer in the
+.\"     documentation and/or other materials provided with the distribution.
+.\"   * Neither the name of the ucsd-psystem-os project nor the names of its
+.\"     contributors may be used to endorse or promote products derived from
+.\"     this software without specific prior written permission.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+.\" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+.\" ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+.\" BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+.\" CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+.\" SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+.\" INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+.\" CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+.\" ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+.\" POSSIBILITY OF SUCH DAMAGE.
+.\"
+.\" ---------------------------------------------------------------------------
+.\"
+.\" Format and print this file using the GNU groff command
+.\"     groff -s -p -t -ms -I. -I../man/man1 -I../man/man5 main.man | lpr
+.\"
+.\" Some of the formatting constructs used in this document assume GNU groff.
+.\"
+.pn -1 \" the first (unnumbered) is -1, second is 0,
+.\"       the third is 1, just like I wanted.  Sheesh!
+.so ref-toc.so \"from the etc directory
+.so version.so \"from the etc directory
+.if n .ftr CB B
+.if n .ftr CI I
+.if n .ftr CW R
+.if n .ftr C  R
+.\" ---------------------------------------------------------------------------
+.\" stuff for figuring dates
+.\"
+.lg 0
+.ds MONTH1 January
+.ds MONTH2 February
+.ds MONTH3 March
+.ds MONTH4 April
+.ds MONTH5 May
+.ds MONTH6 June
+.ds MONTH7 July
+.ds MONTH8 August
+.ds MONTH9 September
+.ds MONTH10 October
+.ds MONTH11 November
+.ds MONTH12 December
+.ds MO \\*[MONTH\n[mo]]
+.nr *year \n[yr]+1900
+.ds DY \n[dy] \*[MO] \n[*year]
+.\" ---------------------------------------------------------------------------
+\&.
+.so logo.so
+.sp 1i
+.ps 36
+.vs 38
+.ce 2
+ucsd-psystem-os
+UCSD p-System Operating System
+.ps 16
+.vs 18
+.ce 1
+.ft I
+Retro-Computing Reincarnation
+.ft P
+.sp 0.3i
+.ps 28
+.vs 30
+.ce 1
+Reference Manual
+.sp 0.6i
+.ps 14
+.vs 16
+.ce 1
+Maintained by
+.ps 18
+.vs 20
+.ce 1
+Peter Miller
+.ft I
+.ce 1
+pmiller@opensource.org.au
+.ft P
+.\" ---------------------------------------------------------------------------
+.bp
+.ps 12
+.vs 14
+\&.
+.sp 1i
+This document describes ucsd-psystem-os version \*(v)
+.br
+and was prepared \*(DY.
+.sp 3
+UCSD PASCAL - Versions I.5 and II.0
+.br
+Copyright
+.if n (C)
+.if t \(co
+1978, 1979 Regents of the University of California
+.br
+All Rights Reserved
+.sp
+Permission to use, copy, modify and distribute any part of this UCSD
+PASCAL for educational, research and non-profit purposes, without
+fee, and without a written agreement is hereby granted, provided that
+the above copyright notice, this paragraph and the following three
+paragraphs appear in all copies.
+.sp
+Those desiring to incorporate UCSD PASCAL into commercial products or
+use for commercial purposes should contact the Technology Transfer &
+Intellectual Property Services, University of California, San Diego,
+9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+.br
+Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+.sp
+IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+DAMAGE.
+.sp
+THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+UPDATES, ENHANCEMENTS, OR MODIFICATIONS.  THE UNIVERSITY OF CALIFORNIA
+MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+OTHER RIGHTS.
+.sp 3
+Portions of
+this program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
+.sp
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+.sp
+You should have received a copy of the GNU General Public License along
+with this program. If not, see <http://www.gnu.org/licenses/>.
+.\"
+.\" ----------  Include the Other Stuff  --------------------------------------
+.\"
+.nr C 1 \"continuous page numbers (see GNU groff tmac.an)
+.so README.man
+.so BUILDING.man
+.\"
+.\" ----------  Include the Manual Pages  -------------------------------------
+.\"
+.so ref-parts.so
+.\"
+.\" ----------  Include the Table of Contents  --------------------------------
+.\"
+.if o .bp \" because .TH is going to throw another one
+.nr % 1000
+.TH "Table of Contents" "ucsd-psystem-os" "ucsd-psystem-os" "Reference Manual"
+.\"
+.\"     -----
+.\" This next section redefines the page footer to use roman numbering
+.\" from ``iii'' onwards.  It is overly GNU Groff specific.
+.\" Fortunately, the page number does not appear in the page header.
+.\"
+.nr an-page-origin \n%-3
+.af an-page-letter i
+.de an-p-footer
+.ev 1
+.nr an-page-letter \\n%-\\n[an-page-origin]
+.ds an-page-string \\n[an-page-letter]
+.ie \\nD \{\
+.       if o .tl '\\*[an-extra2]'\\*[an-extra1]'\\*[an-page-string]'
+.       if e .tl '\\*[an-page-string]'\\*[an-extra1]'\\*[an-extra2]'
+.\}
+.el .tl '\\*[an-extra2]'\\*[an-extra1]'\\*[an-page-string]'
+.ev
+..
+.\"     -----
+.in 0
+.TC
+.\"
+.\" ----------  Include the Permuted Index  -----------------------------------
+.\"
+.bp
+.in 0
+.so ref-index.so

@@ -1,0 +1,32 @@
+Read Me(ucsd-psystem-os)                              Read Me(ucsd-psystem-os)
+
+
+
+NAME
+       ucsd-psystem-os - UCSD p-System file system
+
+DESCRIPTION
+       The ucsd-psystem-os package is composed of several programs which
+       collectively form the UCSD p-System operating system.
+
+ARCHIVE SITE
+       The latest version of ucsd-psystem-os is available on the Web from:
+
+           URL:    http://miller.emu.id.au/pmiller/ucsd-psystem-os/
+           File:   index.html                   # the ucsd-psystem-os home page
+           File:   ucsd-psystem-os-1.3.tar.gz   # the complete source
+
+BUILDING ucsd-psystem-os
+       Full instructions for building ucsd-psystem-os may be found on the web
+       at http://miller.emu.id.au/pmiller/ucsd-psystem-os/building.html
+
+LICENSE
+       See the LICENSE and LICENSE-UCSD files included in the source tarball.
+
+MAINTAINER
+       Peter Miller   E-Mail:   pmiller@opensource.org.au
+       /\/\*             WWW:   http://miller.emu.id.au/pmiller/
+
+
+
+Reference Manual                ucsd-psystem-os       Read Me(ucsd-psystem-os)

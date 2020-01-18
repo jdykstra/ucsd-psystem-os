@@ -1,0 +1,549 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+PROCEDURE ERROR(*ERRORNUM: INTEGER*);
+  VAR CH: CHAR; ERRSTART: INTEGER;
+      A: PACKED ARRAY [0..179] OF CHAR;
+BEGIN
+  WITH USERINFO DO
+    IF (ERRSYM <> SYMCURSOR) OR (ERRBLK <> SYMBLK) THEN
+      BEGIN ERRBLK := SYMBLK;
+        ERRSYM := SYMCURSOR; ERRNUM := ERRORNUM;
+        IF STUPID THEN CH := 'E'
+        ELSE
+          BEGIN
+            IF NOISY THEN WRITELN(OUTPUT)
+            ELSE
+              IF LIST AND (ERRORNUM <= 400) THEN
+                EXIT(ERROR);
+            IF LINESTART = 0 THEN
+              WRITE(OUTPUT,SYMBUFP^:SYMCURSOR)
+            ELSE
+              BEGIN
+                ERRSTART := SCAN(-(LINESTART-1),=CHR(EOL),
+                                    SYMBUFP^[LINESTART-2])+LINESTART-1;
+                MOVELEFT(SYMBUFP^[ERRSTART],A[0],SYMCURSOR-ERRSTART);
+                WRITE(OUTPUT,A:SYMCURSOR-ERRSTART)
+              END;
+            WRITELN(OUTPUT,' <<<<');
+            WRITE(OUTPUT,'Line ',SCREENDOTS,', error ',ERRORNUM:0,':');
+            IF NOISY THEN
+              WRITE(OUTPUT,' <sp>(continue), <esc>(terminate), E(dit');
+            WRITE(OUTPUT,CHR(7));
+            REPEAT READ(KEYBOARD,CH)
+            UNTIL (CH = ' ') OR (CH = 'E') OR (CH = 'e') OR (CH = ALTMODE)
+          END;
+        IF (CH = 'E') OR (CH = 'e') THEN
+          BEGIN ERRBLK := SYMBLK-2; EXIT(PASCALCOMPILER) END;
+        IF (ERRORNUM > 400) OR (CH = CHR(27)) THEN
+          BEGIN ERRBLK := 0; EXIT(PASCALCOMPILER) END;
+        WRITELN(OUTPUT);
+        IF NOISY THEN
+          WRITE(OUTPUT,'<',SCREENDOTS:4,'>')
+      END
+END (*ERROR*) ;
+
+PROCEDURE GETNEXTPAGE;
+BEGIN SYMCURSOR := 0; LINESTART := 0;
+  IF USING THEN
+    BEGIN
+      IF USEFILE = WORKCODE THEN
+        BEGIN
+          IF BLOCKREAD(USERINFO.WORKCODE^,SYMBUFP^,2,SYMBLK) <> 2 THEN
+            USING := FALSE
+        END
+      ELSE
+        IF USEFILE = SYSLIBRARY THEN
+          IF BLOCKREAD(LIBRARY,SYMBUFP^,2,SYMBLK) <> 2 THEN
+            USING := FALSE;
+      IF NOT USING THEN
+        BEGIN
+          SYMBLK := PREVSYMBLK; SYMCURSOR := PREVSYMCURSOR;
+          LINESTART := PREVLINESTART
+        END
+    END;
+  IF NOT USING THEN
+    BEGIN
+      IF INCLUDING THEN
+        IF BLOCKREAD(INCLFILE,SYMBUFP^,2,SYMBLK) <> 2 THEN
+          BEGIN CLOSE(INCLFILE); INCLUDING := FALSE;
+            SYMBLK := OLDSYMBLK; SYMCURSOR := OLDSYMCURSOR;
+            LINESTART := OLDLINESTART
+          END
+    END;
+  IF NOT (INCLUDING OR USING) THEN
+    IF BLOCKREAD(USERINFO.WORKSYM^,SYMBUFP^,2,SYMBLK) <> 2 THEN
+      ERROR(401);
+  IF SYMCURSOR = 0 THEN
+    BEGIN
+      IF INMODULE THEN
+        IF ININTERFACE AND NOT USING THEN WRITETEXT;
+      IF SYMBUFP^[0] = CHR(16(*DLE*)) THEN
+       SYMCURSOR := 2
+    END;
+  SYMBLK := SYMBLK+2
+END (*GETNEXTPAGE*) ;
+
+(*$I+*)
+PROCEDURE PRINTLINE;
+  VAR DORLEV,STARORC: CHAR; LENG: INTEGER;
+      A: PACKED ARRAY [0..99] OF CHAR;
+BEGIN STARORC := ':';
+  IF DP THEN DORLEV := 'D'
+  ELSE DORLEV := CHR((BEGSTMTLEV MOD 10) + ORD('0'));
+  IF BPTONLINE THEN STARORC := '*';
+  WRITE(LP,SCREENDOTS:6,SEG:4,CURPROC:5,
+            STARORC,DORLEV,LINEINFO:6,' ');
+  LENG := SYMCURSOR-LINESTART;
+  IF LENG > 100 THEN LENG := 100;
+  MOVELEFT(SYMBUFP^[LINESTART],A,LENG);
+  IF A[0] = CHR(16(*DLE*)) THEN
+    BEGIN
+      IF A[1] > ' ' THEN
+        WRITE(LP,' ':ORD(A[1])-ORD(' '));
+      LENG := LENG-2;
+      MOVELEFT(A[2],A,LENG)
+    END;
+  A[LENG-1] := CHR(EOL); (*JUST TO MAKE SURE*)
+  WRITE(LP,A:LENG);
+  WITH USERINFO DO
+    IF (ERRBLK = SYMBLK) AND (ERRSYM > LINESTART) THEN
+      WRITELN(LP,'>>>>>> Error # ',ERRNUM)
+END (*PRINTLINE*) ;
+(*$I-*)
+
+PROCEDURE ENTERID(*FCP: CTP*);
+  VAR LCP,LCP1: CTP; I: INTEGER;
+BEGIN LCP := DISPLAY[TOP].FNAME;
+  IF LCP = NIL THEN DISPLAY[TOP].FNAME := FCP
+  ELSE
+    BEGIN I := TREESEARCH(LCP,LCP1,FCP^.NAME);
+      WHILE I = 0 DO
+        BEGIN ERROR(101);
+          IF LCP1^.RLINK = NIL THEN I := 1
+          ELSE I := TREESEARCH(LCP1^.RLINK,LCP1,FCP^.NAME)
+        END;
+      IF I = 1 THEN LCP1^.RLINK := FCP ELSE LCP1^.LLINK := FCP
+    END;
+  FCP^.LLINK := NIL; FCP^.RLINK := NIL
+END (*ENTERID*) ;
+
+PROCEDURE INSYMBOL; (* COMPILER VERSION 3.4 06-NOV-76 *)
+  LABEL 1;
+  VAR LVP: CSP; X: INTEGER;
+
+PROCEDURE CHECKEND;
+BEGIN (* CHECKS FOR THE END OF THE PAGE *)
+  SCREENDOTS := SCREENDOTS+1;
+  SYMCURSOR := SYMCURSOR + 1;
+  IF NOISY THEN
+    BEGIN WRITE(OUTPUT,'.');
+      IF (SCREENDOTS-STARTDOTS) MOD 50 = 0 THEN
+        BEGIN WRITELN(OUTPUT);
+          WRITE(OUTPUT,'<',SCREENDOTS:4,'>')
+        END
+    END;
+  IF LIST THEN PRINTLINE;
+  BPTONLINE := FALSE;
+  IF SYMBUFP^[SYMCURSOR]=CHR(0) THEN GETNEXTPAGE
+  ELSE LINESTART := SYMCURSOR;
+  IF SYMBUFP^[SYMCURSOR] = CHR(12(*FF*)) THEN SYMCURSOR:=SYMCURSOR+1;
+  IF SYMBUFP^[SYMCURSOR] = CHR(16(*DLE*)) THEN
+    SYMCURSOR := SYMCURSOR+2
+  ELSE
+    BEGIN
+      SYMCURSOR := SYMCURSOR+SCAN(80,<>CHR(9),SYMBUFP^[SYMCURSOR]);
+      SYMCURSOR := SYMCURSOR+SCAN(80,<>' ',SYMBUFP^[SYMCURSOR])
+    END;
+  IF DP THEN LINEINFO := LC ELSE LINEINFO := IC
+END;
+
+PROCEDURE COMMENTER(STOPPER: CHAR);
+  VAR CH,SW,DEL: CHAR; LTITLE: STRING[40];
+
+  PROCEDURE SCANSTRING(VAR STRG: STRING; MAXLENG: INTEGER);
+    VAR LENG: INTEGER;
+  BEGIN SYMCURSOR := SYMCURSOR+2;
+    LENG := SCAN(MAXLENG,=STOPPER,SYMBUFP^[SYMCURSOR]);
+    STRG[0] := CHR(LENG);
+    MOVELEFT(SYMBUFP^[SYMCURSOR],STRG[1],LENG);
+    SYMCURSOR := SYMCURSOR+LENG+1
+  END (*SCANSTRING*) ;
+
+BEGIN
+  SYMCURSOR := SYMCURSOR+1; (* POINT TO THE FIRST CH PAST "(*" *)
+  IF SYMBUFP^[SYMCURSOR]='$' THEN
+     IF SYMBUFP^[SYMCURSOR+1] <> STOPPER THEN
+        REPEAT
+          CH := SYMBUFP^[SYMCURSOR+1];
+          SW := SYMBUFP^[SYMCURSOR+2];
+          DEL := SYMBUFP^[SYMCURSOR+3];
+          IF (SW = ',') OR (SW = STOPPER) THEN
+            BEGIN DEL := SW; SW := '+';
+              SYMCURSOR := SYMCURSOR-1
+            END;
+          CASE CH OF
+          'C': BEGIN
+                 IF LEVEL > 1 THEN ERROR(194);
+                 NEW(COMMENT); SCANSTRING(COMMENT^,80); EXIT(COMMENTER)
+               END;
+          'D': DEBUGGING := (SW='+');
+          'F': FLIPBYTES := (SW='+');
+          'G': GOTOOK := (SW='+');
+          'I': IF (SW='+') OR (SW='-') THEN IOCHECK := (SW='+')
+               ELSE
+                 BEGIN SCANSTRING(LTITLE,40);
+                   IF STOPPER = '*' THEN
+                     SYMCURSOR := SYMCURSOR+1;
+                   IF LIST THEN
+                     BEGIN
+                       SYMCURSOR := SYMCURSOR + 1;
+                       PRINTLINE;
+                       SYMCURSOR := SYMCURSOR - 1;
+                     END;
+                   IF INCLUDING OR INMODULE AND ININTERFACE THEN
+                     BEGIN ERROR(406); EXIT(COMMENTER) END;
+                   OPENOLD(INCLFILE,LTITLE);
+                   IF IORESULT <> 0 THEN
+                     BEGIN OPENOLD(INCLFILE,CONCAT(LTITLE,'.TEXT'));
+                        IF IORESULT <> 0 THEN ERROR(403)
+                     END;
+                   INCLUDING := TRUE;
+                   OLDSYMCURSOR := SYMCURSOR;
+                   OLDLINESTART := LINESTART;
+                   OLDSYMBLK := SYMBLK-2;
+                   SYMBLK := 2; GETNEXTPAGE;
+                   INSYMBOL; EXIT(INSYMBOL)
+                 END;
+          'L': IF (SW='+') OR (SW='-') THEN
+                 BEGIN LIST := (SW='+');
+                   IF LIST THEN OPENNEW(LP,'*SYSTEM.LST.TEXT')
+                 END
+               ELSE
+                 BEGIN SCANSTRING(LTITLE,40);
+                   OPENNEW(LP,LTITLE);
+                   LIST := IORESULT = 0;
+                   EXIT(COMMENTER)
+                 END;
+          'Q': NOISY := (SW='-');
+          'P': WRITE(LP,CHR(12(*FF*)));
+          'R': RANGECHECK := (SW='+');
+          'S': NOSWAP:=(SW='-');
+          'T': TINY := (SW='+');
+          'U': IF (SW='+') OR (SW='-') THEN
+                 BEGIN SYSCOMP := (SW = '-');
+                   RANGECHECK := NOT SYSCOMP;
+                   IOCHECK := RANGECHECK;
+                   GOTOOK := SYSCOMP
+                 END
+               ELSE
+                 IF NOT USING THEN
+                   BEGIN SCANSTRING(SYSTEMLIB,40);
+                     CLOSE(LIBRARY); LIBNOTOPEN := TRUE;
+                     EXIT(COMMENTER)
+                   END
+          END (*CASES*);
+          SYMCURSOR := SYMCURSOR+3;
+        UNTIL DEL <> ',';
+  SYMCURSOR := SYMCURSOR-1; (* ADJUST *)
+  REPEAT
+    REPEAT
+      SYMCURSOR := SYMCURSOR+1;
+      WHILE SYMBUFP^[SYMCURSOR] = CHR(EOL) DO CHECKEND
+    UNTIL SYMBUFP^[SYMCURSOR]=STOPPER;
+  UNTIL (SYMBUFP^[SYMCURSOR+1]=')') OR (STOPPER='}');
+  SYMCURSOR := SYMCURSOR+1;
+END (*COMMENTER*);
+
+PROCEDURE STRING;
+LABEL 1;
+VAR
+  T: PACKED ARRAY [1..80] OF CHAR;
+  TP,NBLANKS,L: INTEGER;
+  DUPLE: BOOLEAN;
+
+BEGIN
+  DUPLE := FALSE; (* INDICATES WHEN '' IS PRESENT *)
+  TP := 0; (* INDEX INTO TEMPORARY STRING *)
+  REPEAT
+    IF DUPLE THEN SYMCURSOR := SYMCURSOR+1;
+    REPEAT
+      SYMCURSOR := SYMCURSOR+1;
+      TP := TP+1;
+      IF SYMBUFP^[SYMCURSOR] = CHR(EOL) THEN
+        BEGIN ERROR(202); CHECKEND; GOTO 1 END;
+      T[TP] := SYMBUFP^[SYMCURSOR];
+    UNTIL SYMBUFP^[SYMCURSOR]='''';
+    DUPLE := TRUE;
+  UNTIL SYMBUFP^[SYMCURSOR+1]<>'''';
+1:  TP := TP-1; (* ADJUST *)
+  SY := STRINGCONST; OP := NOOP;
+  LGTH := TP; (* GROSS *)
+  IF TP=1 (* SINGLE CHARACTER CONSTANT *)
+    THEN
+      VAL.IVAL := ORD(T[1])
+    ELSE
+      WITH SCONST^ DO
+        BEGIN
+          CCLASS := STRG;
+          SLGTH := TP;
+          MOVELEFT(T[1],SVAL[1],TP);
+          VAL.VALP := SCONST
+        END
+END(*STRING*);
+
+PROCEDURE NUMBER;
+VAR
+  EXPONENT,ENDI,ENDF,ENDE,SIGN,IPART,FPART,EPART,
+  ISUM:  INTEGER;
+  TIPE: (REALTIPE,INTEGERTIPE);
+  RSUM: REAL;
+  NOTLONG: BOOLEAN;
+  K,J: INTEGER;
+BEGIN
+  (* TAKES A NUMBER AND DECIDES WHETHER IT'S REAL
+     OR INTEGER AND CONVERTS IT TO THE INTERNAL
+     FORM. *)
+  TIPE := INTEGERTIPE;
+  ENDI := 0;
+  ENDF := 0;
+  ENDE := 0;
+  SIGN := 1;
+  NOTLONG := TRUE;
+  EPART := 9999; (* OUT OF REACH *)
+  IPART := SYMCURSOR; (* INTEGER PART STARTS HERE *)
+  REPEAT
+    SYMCURSOR := SYMCURSOR+1
+  UNTIL (SYMBUFP^[SYMCURSOR]<'0') OR (SYMBUFP^[SYMCURSOR]>'9');
+  (* SYMCURSOR NOW POINTS AT FIRST CHARACTER PAST INTEGER PART *)
+  ENDI := SYMCURSOR-1; (* MARK THE END OF IPART *)
+  IF SYMBUFP^[SYMCURSOR]='.'
+    THEN
+      IF SYMBUFP^[SYMCURSOR+1]<>'.'  (* WATCH OUT FOR '..' *)
+        THEN
+          BEGIN
+            TIPE := REALTIPE;
+            SYMCURSOR := SYMCURSOR+1;
+            FPART := SYMCURSOR; (* BEGINNING OF FPART *)
+            WHILE (SYMBUFP^[SYMCURSOR] >= '0') AND
+                  (SYMBUFP^[SYMCURSOR] <= '9') DO
+              SYMCURSOR := SYMCURSOR+1;
+            IF SYMCURSOR = FPART THEN ERROR(201);
+            ENDF := SYMCURSOR-1;
+          END;
+  IF SYMBUFP^[SYMCURSOR]='E'
+    THEN
+      BEGIN
+        TIPE := REALTIPE;
+        SYMCURSOR := SYMCURSOR+1;
+        IF SYMBUFP^[SYMCURSOR]='-'
+          THEN
+            BEGIN
+              SYMCURSOR := SYMCURSOR+1;
+              SIGN := -1;
+            END
+          ELSE
+            IF SYMBUFP^[SYMCURSOR]='+'
+              THEN
+                SYMCURSOR := SYMCURSOR+1;
+        EPART := SYMCURSOR; (* BEGINNING OF EXPONENT *)
+        WHILE (SYMBUFP^[SYMCURSOR]>='0') AND (SYMBUFP^[SYMCURSOR]<='9') DO
+          SYMCURSOR := SYMCURSOR+1;
+        ENDE := SYMCURSOR-1;
+        IF ENDE<EPART THEN ERROR(201); (* ERROR IN REAL CONSTANT *)
+      END;
+  (* NOW CONVERT TO INTERNAL FORM *)
+  IF TIPE=INTEGERTIPE THEN
+    BEGIN
+      ISUM := 0;
+      FOR J := IPART TO ENDI DO
+        BEGIN
+          IF (ISUM>MAXINT DIV 10) OR ((ISUM=MAXINT DIV 10) AND
+                      (ORD(SYMBUFP^[J]) - ORD('0') > MAXINT MOD 10)) THEN
+              BEGIN NOTLONG := FALSE; K := J; J := ENDI END
+          ELSE ISUM := ISUM*10+(ORD(SYMBUFP^[J])-ORD('0'));
+        END;
+        IF NOTLONG THEN
+          BEGIN
+            SY := INTCONST;  OP := NOOP;
+            VAL.IVAL := ISUM;
+          END
+        ELSE
+          BEGIN
+            IF ENDI - IPART >= MAXDEC THEN
+              BEGIN ERROR(203); IPART := ENDI; K := ENDI END;
+            NEW(LVP,LONG);
+            WITH LVP^ DO
+              BEGIN CCLASS := LONG; J := 4; LLENG := 0;
+                WHILE K <= ENDI DO
+                  BEGIN
+                    IF J = 4 THEN
+                      BEGIN LLENG := LLENG + 1;
+                        LONGVAL[LLENG] := ISUM;
+                        ISUM := 0;
+                        J := 0
+                      END;
+                    ISUM := ISUM * 10 + ORD(SYMBUFP^[K])-ORD('0');
+                    K := K + 1; J := J + 1
+                  END;
+                LLAST := J;
+                IF J > 0 THEN
+                  BEGIN LLENG := LLENG + 1;
+                    LONGVAL[LLENG] := ISUM
+                  END;
+              END;
+            SY := LONGCONST; OP := NOOP;
+            LGTH := ENDI - IPART + 1;
+            VAL.VALP := LVP
+          END;
+    END (*TIPE = INTEGERTIPE*)
+  ELSE
+    BEGIN (* REAL NUMBER HERE *)
+      RSUM := 0;
+      FOR J := IPART TO ENDI DO
+        BEGIN
+          RSUM := RSUM*10+(ORD(SYMBUFP^[J])-ORD('0'));
+        END;
+      FOR J := ENDF DOWNTO FPART DO
+        RSUM := RSUM+(ORD(SYMBUFP^[J])-ORD('0'))/PWROFTEN(J-FPART+1);
+      EXPONENT := 0;
+      FOR J := EPART TO ENDE DO
+        EXPONENT := EXPONENT*10+ORD(SYMBUFP^[J])-ORD('0');
+      IF SIGN=-1 THEN
+        RSUM := RSUM/PWROFTEN(EXPONENT)
+      ELSE
+        RSUM := RSUM*PWROFTEN(EXPONENT);
+      SY := REALCONST;  OP := NOOP;
+      NEW(LVP,REEL);
+      LVP^.CCLASS := REEL;
+      LVP^.RVAL := RSUM;
+      VAL.VALP := LVP;
+    END;
+  SYMCURSOR := SYMCURSOR-1; (* ADJUST FOR POSTERITY *)
+END (*NUMBER*) ;
+
+BEGIN (* INSYMBOL *)
+  IF GETSTMTLEV THEN BEGIN BEGSTMTLEV := STMTLEV; GETSTMTLEV := FALSE END;
+  OP := NOOP;
+1:  SY := OTHERSY; (* IF NO CASES EXERCISED BLOW UP *)
+  IF SYMBUFP^[SYMCURSOR] IN [' ', CHR(9), CHR(12)] THEN BEGIN
+    SYMCURSOR := SYMCURSOR+1;
+    GOTO 1
+  END;
+  CASE SYMBUFP^[SYMCURSOR] OF
+  '''':STRING;
+  '0','1','2','3','4','5','6','7','8','9':
+       NUMBER;
+  'A','B','C','D','E','F','G','H','I','J','K','L','M',
+  'N','O','P','Q','R','S','T','U','V','W','X','Y','Z',
+  'a','b','c','d','e','f','g','h','i','j','k','l','m',
+  'n','o','p','q','r','s','t','u','v','w','x','y','z':
+       IDSEARCH(SYMCURSOR,SYMBUFP^); (* MAGIC PROC *)
+  '{': BEGIN COMMENTER('}'); GOTO 1 END;
+  '(': BEGIN
+         IF SYMBUFP^[SYMCURSOR+1]='*' THEN
+             BEGIN
+                SYMCURSOR := SYMCURSOR+1;
+                COMMENTER('*');
+                SYMCURSOR := SYMCURSOR+1;
+                GOTO 1; (* GET ANOTHER TOKEN *)
+             END
+           ELSE
+             SY := LPARENT;
+       END;
+  ')': SY := RPARENT;
+  ',': SY := COMMA;
+  ' ': BEGIN SYMCURSOR := SYMCURSOR+1; GOTO 1; END;
+  '.': BEGIN
+         IF SYMBUFP^[SYMCURSOR+1]='.'
+           THEN
+             BEGIN
+               SYMCURSOR := SYMCURSOR+1;
+               SY := COLON
+             END
+           ELSE
+             SY := PERIOD;
+       END;
+  ':': IF SYMBUFP^[SYMCURSOR+1]='='
+         THEN
+           BEGIN
+             SYMCURSOR := SYMCURSOR+1;
+             SY := BECOMES;
+          END
+        ELSE
+           SY := COLON;
+  ';': SY := SEMICOLON;
+  '^': SY := ARROW;
+  '[': SY := LBRACK;
+  ']': SY := RBRACK;
+  '*': BEGIN SY := MULOP; OP := MUL END;
+  '+': BEGIN SY := ADDOP; OP := PLUS END;
+  '-': BEGIN SY := ADDOP; OP := MINUS END;
+  '/': BEGIN SY := MULOP; OP := RDIV END;
+  '<': BEGIN
+         SY := RELOP;
+         OP := LTOP;
+         CASE SYMBUFP^[SYMCURSOR+1] OF
+           '>': BEGIN
+                  OP := NEOP;
+                  SYMCURSOR := SYMCURSOR+1
+                END;
+           '=': BEGIN
+                  OP := LEOP;
+                  SYMCURSOR := SYMCURSOR+1
+                END
+         END;
+       END;
+  '=': BEGIN SY := RELOP; OP := EQOP END;
+  '>': BEGIN
+         SY := RELOP;
+         IF SYMBUFP^[SYMCURSOR+1]='='
+           THEN
+             BEGIN
+               OP := GEOP;
+               SYMCURSOR := SYMCURSOR+1;
+             END
+           ELSE
+             OP := GTOP;
+       END
+  END (* CASE SYMBUFP^[SYMCURSOR] OF *);
+  IF SY=OTHERSY THEN
+    IF SYMBUFP^[SYMCURSOR] = CHR(EOL) THEN
+      BEGIN CHECKEND; GETSTMTLEV := TRUE; GOTO 1 END
+    ELSE ERROR(400);
+  SYMCURSOR := SYMCURSOR+1; (* NEXT CALL TALKS ABOUT NEXT TOKEN *)
+END (*INSYMBOL*) ;

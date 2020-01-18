@@ -1,0 +1,476 @@
+;
+; UCSD PASCAL - Version I.5
+; Copyright (C) 1978, 1979 Regents of the University of California
+; All Rights Reserved
+;
+; Permission to use, copy, modify and distribute any part of UCSD
+; PASCAL solely authored by UC authors before June 1, 1979 for
+; educational, research and non-profit purposes, without fee, and
+; without a written agreement is hereby granted, provided that the
+; above copyright notice, this paragraph and the following three
+; paragraphs appear in all copies.
+;
+; Those desiring to incorporate UCSD PASCAL into commercial products or
+; use for commercial purposes should contact the Technology Transfer &
+; Intellectual Property Services, University of California, San Diego,
+; 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+; Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+;
+; IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+; FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+; INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+; THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+; DAMAGE.
+;
+; THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+; OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+; UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+; MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+; EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+; WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+; THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+; OTHER RIGHTS.
+;
+; Case Number: SD1991-807 (2006)
+; http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+;
+;;; Source: http://bitsavers.org/bits/UCSD_Pascal/ucsd_II.0/
+;;;     U120_Z80_P-CODE_SOURCE.raw.gz
+;;; Date: 1978-Nov-29
+
+        .IF ~LSTSET
+         .NOLIST
+        .ELSE
+         .LIST
+        .ENDC
+
+; Copyright (c) 1978 by the
+;  Regents of the University of California, San Diego
+
+; start of file SET2
+
+
+;***** Set building and size adjusting
+
+SGS     ; Build a singleton set, the set [i]
+        POP     DE
+        PUSH    DE
+        PUSH    DE
+
+SRS     ; Build a subrange set, the set [i..j]
+IDIV    .EQU    BYTE1
+JDIV    .EQU    BYTE1
+        SAVIPC
+        ; are i,j valid ?
+        POP     DE              ; DE := j
+        POP     BC              ; BC := i
+        LD      A,B             ; is i<0 ?
+        TSTA
+        JP      M,$99
+        LD      HL,0F010H       ; is j >= 16*255 ?
+        ADD     HL,DE
+        JP      C,$99
+        LD      A,E             ; is j<i ?
+        SUB     C
+        LD      A,D
+        SBC     A,B
+        JP      C,$90
+
+; The algorithm used to build the set...
+;   xx := bitter[j MOD 16];  t := j DIV 16;
+;   WHILE t>i DIV 16 DO
+;     BEGIN  push(xx);  xx := <all ones>;  t := t-1  END
+;   xx := xx AND unbitr[i MOD 16];  t := i DIV 16
+;   WHILE t >= 0 DO
+;     BEGIN  push(xx);  xx := <all zeroes>;  t := t-1  END
+;   push(j DIV 16 +1)    (* set size *)
+
+; Actual code is slightly more efficient.
+
+; In the following,
+;   idiv = i DIV 16, imod = 2*(i MOD 16),
+;   jdiv = j DIV 16, jmod = 2*(j MOD 16)
+
+        ; currently BC = i, DE = j.
+        ; Compute C := imod, B := idiv
+        .IF Z80
+         LD     HL,IDIV         ; set up rotate digit environment
+         LD     (HL),C
+         LD     A,B
+         RRD                    ; Presto chango.  A = i MOD 16, (IDIV) = idiv
+         RLA                    ; A := imod
+         LD     C,A
+         LD     B,(HL)
+         ; Compute HL := BITTER+jmod
+         ; (JDIV) := jdiv;  A = jdiv
+         LD     (HL),E          ; JDIV=IDIV, so HL already set up
+         LD     A,D
+         RRD
+         RLA                    ; A = jmod, (JDIV) = jdiv
+         LD     E,A
+         LD     D,00H
+         LD     A,(HL)
+         LD     HL,BITTER
+         ADD    HL,DE
+        .ENDC
+
+        .IF ~Z80
+         LD     A,C
+         AND    0FH
+         RLA
+         LD     L,A             ; L = imod
+         LD     A,B
+         RLA
+         RLA
+         RLA
+         RLA
+         LD     H,A             ; H = 4 high bits of idiv, low 4 bits are 0
+         LD     A,C
+         AND    0F0H
+         RRA
+         RRA
+         RRA
+         RRA                    ; A = 4 low bits of idiv, high 4 bits are 0
+         OR     H               ; put 'em together
+         LD     B,A
+         LD     C,L
+         ; Compute HL := BITTER+jmod
+         ; (JDIV) := jdiv;  A := jdiv
+         LD     A,E
+         AND    0FH
+         RLA
+         LD     L,A             ; L = jmod
+         LD     A,D
+         RLA
+         RLA
+         RLA
+         RLA
+         LD     H,A             ; H = high digits of jdiv
+         LD     A,E
+         AND    0F0H
+         RRA
+         RRA
+         RRA
+         RRA
+         OR     H               ; A = jdiv
+         LD     (JDIV),A
+         LD     H,00H
+         LD     DE,BITTER
+         ADD    HL,DE
+        .ENDC
+
+        LD      E,(HL)          ; DE := bitter[jmod]
+        INC     HL
+        LD      D,(HL)
+        SUB     B               ; A := jdiv-idiv
+        ; WHILE t > i DIV 16 stuff...
+        JP      Z,$30
+        PUSH    DE
+        LD      DE,0FFFFH
+        JP      $20
+$10     PUSH    DE
+$20     DEC     A
+        JP      NZ,$10
+$30     ; DE := DE AND unbitter[imod]
+        LD      A,B             ; save idiv for a second
+        LD      B,00H
+        LD      HL,UNBITR
+        ADD     HL,BC
+        LD      B,A             ; restore idiv
+        LD      A,E
+        AND     (HL)
+        LD      E,A
+        INC     HL
+        LD      A,D
+        AND     (HL)
+        LD      D,A
+        ; WHILE t >= 0 DO stuff...
+        PUSH    DE
+        LD      DE,0000H
+        LD      A,B
+        TSTA
+        JP      Z,$50
+$40     PUSH    DE
+        DJNZM   $40
+$50     LD      A,(JDIV)        ; push set size
+        INC     A
+        LD      L,A
+        LD      H,00H
+        PUSH    HL
+        JP      BACK1
+$90     LD      HL,0000H        ; push the null set (set_size = 0)
+        PUSH    HL
+        JP      BACK1
+$99     LD      HL,0000H
+        PUSH    HL
+        JP      INVNDX
+
+UNBITR  .WORD   0FFFFH
+        .WORD   0FFFEH
+        .WORD   0FFFCH
+        .WORD   0FFF8H
+        .WORD   0FFF0H
+        .WORD   0FFE0H
+        .WORD   0FFC0H
+        .WORD   0FF80H
+        .WORD   0FF00H
+        .WORD   0FE00H
+        .WORD   0FC00H
+        .WORD   0F800H
+        .WORD   0F000H
+        .WORD   0E000H
+        .WORD   0C000H
+        .WORD   08000H
+
+ADJ     ; Fix the size of the set on the stack
+SVDIF   .EQU    WORD1
+        ; Algorithm...
+; szfinal := GETBYTE;  pop(szorig);
+; .IF szfinal <> szorig THEN
+;   .IF szorig > szfinal THEN
+;     BEGIN (* crunch set *)
+;       dst := SP+szorig-1;  src := SP+szf-1;
+;       THRU szfinal DO
+;         BEGIN  dst^ := src^;  dst := dst-1;  src := src-1  END;
+;       SP := dst+1
+;     END
+;   ELSE (* expand set *)
+;     BEGIN
+;       src := SP;  dst := SP-(szfinal-szorig);  SP := dst;
+;       THRU szorig DO
+;         BEGIN  dst^ := src^;  dst := dst+1;  src := src+1  END;
+;       THRU (szfinal-szorig) DO  BEGIN  dst^ := 0;  dst := dst+1  END  ;
+;     END
+; NOTE: no zero checking on the part of the set that is crunched out.
+
+        .IF Z80
+         LD     A,(BC)
+         INC    BC
+         LD     L,A
+         LD     H,00H
+         ADD    HL,HL
+         EX     DE,HL
+         POP    HL
+         ADD    HL,HL           ; HL := szorig (in bytes)
+         SUBHLDE                ; compare szorig-szfinal
+         JP     Z,BACK
+         ADD    HL,DE
+         SAVIPC
+         JP     M,$10
+        ; Crunch set
+         LD     C,E             ; BC := # bytes to move
+         LD     B,D
+         ADD    HL,SP           ; Compute dst := sp+szorig-1
+         DEC    HL
+         EX     DE,HL           ; DE := dst
+         ADD    HL,SP           ; Compute src := sp+szfinal-1
+         DEC    HL              ; HL := src
+         LDDR                   ; move the stuff
+         EX     DE,HL           ; and cut back the stack
+         INC    HL
+         LD     SP,HL
+         JP     BACK1
+$10     ; Expand set
+         LD     C,L             ; BC := # bytes to move
+         LD     B,H
+         SUBHLDE
+         LD     (SVDIF),HL      ; (SVDIF) := -(szfinal-szorig)
+         EX     DE,HL
+         LD     HL,0000H
+         ADD    HL,SP
+         EX     DE,HL           ; DE := sp, HL := -(szfinal-szorig)
+         ADD    HL,SP           ; HL := sp-(szfinal-szorig)
+         LD     SP,HL
+         EX     DE,HL           ; all set up for transfer
+         LD     A,C             ; but skip if szorig=0
+         OR     B
+         JP     Z,$20
+         LDIR                   ; move stuff
+$20      LD     A,(SVDIF)       ; set BC := szfinal-szorig
+         CPL
+         LD     C,A
+         LD     A,(SVDIF+1)
+         CPL
+         LD     B,A
+         INC    BC
+         LD     A,00H           ; Do zero filling...
+         LD     (DE),A
+         LD     L,E             ; Block move trickiness
+         LD     H,D
+         INC    DE
+         DEC    BC
+         LDIR
+         JP     BACK1
+        .ENDC
+
+        .IF ~Z80
+        ; for 8080, things are done in words rather than bytes
+         LD     A,(BC)          ; A := szfinal
+         INC    BC
+         POP    HL              ; L := szorig
+         CP     L               ; szfinal-szorig
+         JP     Z,BACK
+         PUSH   HL              ; so it doesn't get messed up
+         SAVIPC
+         POP    HL
+         JP     NC,$10
+         ; Crunch the set
+         LD     B,A             ; B := # words to transfer
+         ADD    HL,HL           ; HL := sp+szorig (dst+1)
+         ADD    HL,SP
+         EX     DE,HL           ; DE := sp+szorig
+         LD     L,A             ; HL := sp+szfinal
+         LD     H,0
+         ADD    HL,HL
+         ADD    HL,SP           ; HL = src+1, DE = dst+1,
+$05      DEC    HL              ;  B = # words to transfer
+         DEC    DE
+         LD     A,(HL)
+         LD     (DE),A
+         DEC    HL
+         DEC    DE
+         LD     A,(HL)
+         LD     (DE),A
+         DEC    B
+         JP     NZ,$05
+         EX     DE,HL           ; now fix up SP
+         LD     SP,HL
+         JP     BACK1
+$10      ; Expand the set
+         LD     B,L             ; B := # words to move
+         SUB    L
+         LD     C,A             ; C := # words to zero fill
+         CPL
+         INC    A               ; A := -(szfinal-szorig)
+         LD     L,A             ; HL := A, sign extended
+         LD     H,0FFH
+         ADD    HL,HL
+         ADD    HL,SP           ; HL = SP-(szfinal-szorig)
+         EX     DE,HL
+         LD     HL,0000H
+         ADD    HL,SP
+         EX     DE,HL           ; DE := SP
+         LD     SP,HL
+         LD     A,B             ; check for szorig=0
+         TSTA
+         JP     Z,$30
+$20      LD     A,(DE)          ; move stuff
+         LD     (HL),A
+         INC    DE
+         INC    HL
+         LD     A,(DE)
+         LD     (HL),A
+         INC    DE
+         INC    HL
+         DEC    B
+         JP     NZ,$20
+$30      LD     A,00H           ; now do zero filling
+$40      LD     (HL),A
+         INC    HL
+         LD     (HL),A
+         INC    HL
+         DEC    C
+         JP     NZ,$40
+         JP     BACK1
+        .ENDC
+
+INN     ;  -------------------------------------------------
+        ;  ! sza !    set_a    ! i !  rest of stack
+        ;  -------------------------------------------------
+        ;  is i in set_a ?
+
+        SAVIPC
+        POP     HL              ; E := sza
+        LD      E,L
+        ADD     HL,HL
+        ADD     HL,SP           ; HL = ^i
+        LD      C,(HL)          ; BC := i
+        INC     HL
+        LD      B,(HL)
+        INC     HL
+        PUSH    HL              ; (SP) := ^rest of stack
+        LD      HL,0F010H       ; is i >= 16*255 or < 0 ?
+        ADD     HL,BC
+        JP      C,$99
+        ; convert i to word and bit within word
+        ; B := word, C := bit
+        .IF Z80
+         LD     HL,IDIV
+         LD     (HL),C
+         LD     A,B
+         RRD                    ; A = i mod 16, (IDIV) = i div 16
+         LD     B,(HL)
+         LD     C,A
+         LD     A,B
+        .ENDC
+
+        .IF ~Z80                ; drag...
+         LD     A,C
+         AND    0FH
+         LD     L,A             ; L = i mod 16
+         LD     A,B
+         RLA
+         RLA
+         RLA
+         RLA
+         LD     H,A
+         LD     A,C             ; H = i div 16, high 4 bits
+         AND    0F0H
+         RRA
+         RRA
+         RRA
+         RRA
+         OR     H
+         LD     B,A
+         LD     C,L
+        .ENDC
+
+        CP      E               ; is set big enough to contain i ?
+        JP      NC,$20
+        LD      A,C             ; DE := bit offset in byte
+        AND     07H
+        LD      E,A
+        LD      D,00H
+        LD      HL,INMASK
+        ADD     HL,DE           ; HL = ^INMASK[i mod 8]
+        LD      A,(HL)
+        PUSH    AF              ; save mask for a bit
+        LD      L,B             ; HL := ^needed byte of set_a
+        LD      H,00H
+        INC     HL
+        INC     HL              ; take care of extra 2 word on stack
+        ADD     HL,HL
+        LD      A,C             ; now add 1 to address if in high byte of word
+        AND     08H             ; is bit 3 of i mod 16 on ?
+        JP      Z,$10
+        INC     HL
+$10     ADD     HL,SP
+        POP     AF
+        AND     (HL)            ; AND that byte and the mask
+        JP      Z,$20           ; decide what to do now
+        POP     HL
+        LD      SP,HL
+        LD      HL,0001H
+        PUSH    HL
+        JP      BACK1
+$20     POP     HL
+        LD      SP,HL
+        LD      HL,0000H
+        PUSH    HL
+        JP      BACK1
+$99     POP     HL
+        LD      SP,HL
+        LD      HL,0000H
+        PUSH    HL              ; after cleaning up stack...
+        JP      INVNDX          ; bomb the program
+
+INMASK  .BYTE   01H
+        .BYTE   02H
+        .BYTE   04H
+        .BYTE   08H
+        .BYTE   10H
+        .BYTE   20H
+        .BYTE   40H
+        .BYTE   80H
+
+; End-of-File SET2

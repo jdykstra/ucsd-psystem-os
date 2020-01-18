@@ -1,0 +1,1306 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+(*
+ * UCSD p-System Operating System
+ * Copyright (C) 2010 Peter Miller
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of the ucsd-psystem-os project nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *)
+
+{$C II0D1 Copyright(c)1979 Regents of the University of California, San Diego}
+
+    (******************************************************************)
+    (*                                                                *)
+    (*        SETUP    System reconfiguration utility                 *)
+    (*        Author:  J. Greg Davidson                               *)
+    (*        Date:    11 April, 1979                                 *)
+    (*        Time:    9:13 P.M.                                      *)
+    (*        Version: D1      (for UCSD Pascal system version II.0)  *)
+    (*        Institute for Information Systems                       *)
+    (*        University of California, San Diego                     *)
+    (*        La Jolla, California                                    *)
+    (*        Director: Kenneth L. Bowles                             *)
+    (*                                                                *)
+    (*  Copyright (c) l979 Regents of the University of California.   *)
+    (*  Permission to copy or distribute this software or documen-    *)
+    (*  tation in hard or soft copy granted only by written license   *)
+    (*  obtained from the Institute for Information Systems.          *)
+    (*                                                                *)
+    (******************************************************************)
+
+
+{$S+}
+{$U-}
+PROGRAM PASCALSYSTEM;
+CONST
+  VERSION    = '[D1]'; {Must be changed everytime new version released}
+  STARTINDEX = 29; {The first word index in miscinforec setup cares about}
+  ENDINDEX   = 47; {The last word index in miscinforec setup cares about}
+  BITINDMAX  = 15; {Bits in words are indexed 0..15}
+  WIDTHMAX   = 16; {BITINDMAX + 1}
+  WRDINDMAX  = 95; {Miscinforec is 0..95 = 96 words long}
+TYPE
+  WORD       = PACKED ARRAY[0..15] OF 0..1;
+  {As far as this program is concerned, syscom is the following unstructured
+  array of words, each of which is just a bunch of bits.  Setup merely knows,
+  for each field in syscom, what the word index is, what the bit index is
+  within the word, and how many bits wide the field is.  Fields may not overlap
+  word boundaries.  Setup may treat any such identifier as a scalar list of
+  mnemonic values (with synonyms allowed, e.g. True = T, F = False, etc.),
+  or as a packed non-negative integer, or as a character.}
+  MISCINFOREC   = ARRAY[0..WRDINDMAX] OF WORD;
+VAR
+  PSYSCOM: ^MISCINFOREC;
+
+SEGMENT PROCEDURE SETUP(III,JJJ:INTEGER{NOT USED});
+CONST
+  NEWINFO  = '*NEW.MISCINFO';
+  BS        = '/';
+  DEL       = '<';
+  ESC       = '!';
+TYPE
+  TRIGRAPH = STRING[3]; {For storing the mnemonics of ASCII non-printables}
+
+  SCALVAL  = 0..MAXINT; {Scalars must have non-negative ords}
+  {Scalar mnemonics are a linked list of mnemonic identifiers, each of
+  which has a value.  More than one identifier can have the same value,
+  allowing for synonyms.}
+  SCALARS  = ^SCALREC; SCALREC = RECORD
+               LINK: SCALARS;
+               VAL:  SCALVAL;
+               NAME: STRING {Without fail must be last field in record!}
+             END;
+
+  INDEXRANGE = 0..WRDINDMAX; {Word index range}
+  BITRANGE   = 0..BITINDMAX;
+  WIDTHRANGE = 0..WIDTHMAX;  {Range of field widths in bits}
+  {The identifiers are all entered in a tree.  Like any good tree each node
+  has left and right subtree pointers, and a name field.  As related above,
+  fields are simply a bunch of contiguous bits in a word in miscinforec, so
+  each has a wordindex, bitindex and bitwidth.  If it is to be interpreted
+  as a (non-negative) integer, VALNAMES points to the record NUMBER, if it
+  is to be interpreted as a character, VALNAMES points to the record
+  CHARACTER, otherwise, valnames points to the list of scalar mnemonic
+  identifier strings.}
+  TREE     = ^TREEREC; TREEREC = RECORD
+               WORDINDEX:  INDEXRANGE;
+               BITINDEX:   BITRANGE;
+               WIDTH:      WIDTHRANGE;
+               VALNAMES:   SCALARS;
+               LEFT,RIGHT: TREE;
+               NAME:       STRING {Without fail must be last field in record!}
+             END;
+
+VAR
+  c:          CHAR;  {All single character input is done through c}
+  DEFRADIX:    8..16;
+  ABORT:   BOOLEAN;  {True if the user typed the abort character 'ESC'}
+  {The tree of field identifiers dangles from ROOT.  All left and right
+  pointers point to the node GROUND.  Note that if name field of GROUND
+  is set to the thing one is looking for, one will always find it without
+  having to check for running off the tree within the loop.  TREEPTR is
+  used to traverse the tree, TRAIL is always pointing to the parent of
+  TREEPTR, i.e., it trails one behind.}
+  ROOT,GROUND,TREEPTR,TRAIL: TREE;
+  SCALGROUND, {The end of each list of scalar mnemonic values points to this}
+    NUMBER, {The scalar values field of all numbers points to this}
+    CHARACTER {The scalar values field of all characters points to this}
+    :  SCALARS;
+  DELTAWORD,DOTCOUNT:INTEGER;
+  {At the start of the program, syscom is copied into BUFFER.  All changes
+  specified by the user are actually only made in BUFFER.  Only if the user
+  asks for a memory update is BUFFER copied back into syscom.  If the user
+  askes for a disk update, BUFFER is written to disk under the name
+  NEW.MISCINFO.}
+  BUFFER       :MISCINFOREC;
+  {The Mnemonics of the first 34 ASCII characters are stored in LOWASCIIS}
+  LOWASCIIS:   ARRAY [0..33] OF TRIGRAPH;
+
+     PROCEDURE ASSERT(B:BOOLEAN;LOC:STRING);
+     {Assert is called when a condition B simply must be true or a bug
+     exists in setup.  It reports on where the error occured (LOC)}
+       FORWARD;
+
+     FUNCTION TREESEARCH(KEY:STRING):BOOLEAN;
+     {Looks up KEY in the tree.  TREEPTR is left pointing to the node
+     if it exists.  Otherwise, TREESEARCH returns False}
+       FORWARD;
+
+     PROCEDURE DESPACE(VAR TEMP:STRING;VAR STR:STRING);
+     {It is desirable that spaces not be significant; however, for clarity,
+     one wants to be able to use spaces in long identifiers and allow the
+     user to type them in.  Thus, when looking up identifiers in the table,
+     one first despaces them, and also despaces the keys in the tree with
+     which one compares them during the search.}
+       FORWARD;
+
+     {Adjust segment numbers so INITS will be number 10}
+        SEGMENT PROCEDURE NUMBER2;  begin end;
+        SEGMENT PROCEDURE NUMBER3;  begin end;
+        SEGMENT PROCEDURE NUMBER4;  begin end;
+        SEGMENT PROCEDURE NUMBER5;  begin end;
+        SEGMENT PROCEDURE NUMBER6;  begin end;
+        SEGMENT PROCEDURE NUMBER7;  begin end;
+        SEGMENT PROCEDURE NUMBER8;  begin end;
+        SEGMENT PROCEDURE NUMBER9;  begin end;
+
+     SEGMENT PROCEDURE INITS;
+     TYPE
+       HEAPMAGIC = RECORD
+                     CASE INTEGER OF
+                       0:(INT:INTEGER);
+                       1:(PTR:^INTEGER)
+                   END;{CASERECORD}
+     VAR
+       HEAP:HEAPMAGIC;
+       INDEX: INDEXRANGE;
+
+          PROCEDURE INITASCII;
+          VAR
+            ORDCHR:-1..32;
+
+               PROCEDURE A(MNEMONIC:TRIGRAPH);
+               BEGIN
+                 ORDCHR := ORDCHR + 1;
+                 LOWASCIIS[ORDCHR] := MNEMONIC;
+               END;
+
+          BEGIN {INITASCII}
+            ORDCHR := -1;
+            A('NUL');  A('SOH');  A('STX');  A('ETX');  A('EOT');
+            A('ENQ');  A('ACK');  A('BEL');  A('BS' );  A('HT' );
+            A('LF' );  A('VT' );  A('FF' );  A('CR' );  A('SO' );
+            A('SI' );  A('DLE');  A('DC1');  A('DC2');  A('DC3');
+            A('DC4');  A('NAK');  A('SYN');  A('ETB');  A('CAN');
+            A('EM' );  A('SUB');  A('ESC');  A('FS' );  A('GS' );
+            A('RS' );  A('US' );  A('SP' );
+          END; {INITASCII}
+
+          PROCEDURE INITTREE;
+          VAR
+            SCAL:SCALARS;
+            PWIDTH:WIDTHRANGE;
+
+          PROCEDURE CUTHEAP(STR:STRING);
+          {
+          * This procedure assumes:
+          * 1)  The last NEW statement allocated a record on the stack.
+          * 2)  The record is not a CASE record.
+          * 3)  The last field of the record is of type STRING (STRING[80]).
+          * 4)  That last field has been initialized with the string STR.
+          * 5)  That last field will never again be changed.
+          * 6)  This is the only heap diddling code in the program.
+          * The purpose of this procedure is to deallocate the unused part of
+          * the string forming the last part of that record.
+          }
+          VAR
+            HEAPTRIX: HEAPMAGIC;
+          BEGIN
+            MARK(HEAPTRIX.PTR);
+            HEAPTRIX.INT := HEAPTRIX.INT
+                                   + ((LENGTH(STR) + 1) DIV 2 - 40) * DELTAWORD;
+            RELEASE(HEAPTRIX.PTR);
+          END;
+
+          PROCEDURE ENTER(PNAME:STRING;PWRD:INDEXRANGE;PBIT:BITRANGE);
+          {Enters the indentifier whose name is PNAME into the tree, and
+          sets all of the fields of its node, some of which are passed to
+          ENTER, the rest are passed in variables global to ENTER}
+          VAR
+            B:BOOLEAN;
+            TEMP1,TEMP2:STRING;
+          BEGIN
+            WRITE('.');
+            DOTCOUNT := DOTCOUNT + 1;
+            IF DOTCOUNT = 40 THEN
+              BEGIN
+                WRITELN;
+                DOTCOUNT := 0;
+              END;
+            DESPACE(TEMP1,PNAME);
+            B := TREESEARCH(TEMP1); {Check for a duplicate entry...}
+            ASSERT(NOT B,CONCAT('ENTER ',PNAME)); {which would be an error}
+            NEW(TREEPTR);
+            WITH TREEPTR^ DO
+              BEGIN
+                NAME := PNAME;
+                CUTHEAP(NAME);
+                WORDINDEX := PWRD;
+                BITINDEX := PBIT;
+                WIDTH := PWIDTH;
+                VALNAMES := SCAL;
+                LEFT := GROUND;
+                RIGHT := GROUND;
+              END;
+            DESPACE(TEMP1,TRAIL^.NAME);
+            DESPACE(TEMP2,PNAME);
+            IF TEMP1 > TEMP2 THEN
+              TRAIL^.LEFT := TREEPTR
+            ELSE
+              TRAIL^.RIGHT := TREEPTR;
+          END;
+
+          PROCEDURE NEXT(ORDVAL:SCALVAL;STR:STRING);
+          {Assumes that SCAL points to a partially constructed list of
+          scalar mnemonics.  Adds the mnemonic STR to that list and leaves
+          SCAL pointing to the new list.  Note that the identifiers appear
+          in the list in the reverse order that they are added by NEXT.  Also
+          note that in displaying the value of a field which may have synonyms
+          for some values, the first synonym encountered on the list is
+          always displayed.  Thus, TRUE should come before T, etc. and
+          therefore one should NEXT(...T) before one does NEXT(...TRUE)}
+          VAR
+            TEMP:SCALARS;
+          BEGIN
+            NEW(TEMP);
+            WITH TEMP^ DO
+              BEGIN
+                LINK := SCAL;
+                VAL  := ORDVAL;
+                NAME := STR;
+                CUTHEAP(NAME)
+              END;
+            SCAL := TEMP;
+          END;
+
+          PROCEDURE SETUP1;
+          BEGIN
+            {Set up the boolean fields}
+              {Construct the list of mnemonics for Boolean values,
+              and leave SCAl pointing to that list}
+                SCAL := SCALGROUND;
+                NEXT(1,'T');
+                NEXT(0,'F');
+                NEXT(1,'TRUE');
+                NEXT(0,'FALSE');
+              PWIDTH := 1; {Booleans all have a width in bits of 1}
+              ENTER('HAS CLOCK',                        29, 0);
+              ENTER('HAS 8510A',                        29, 1);
+              ENTER('HAS LOWER CASE',                   29, 2);
+              ENTER('HAS RANDOM CURSOR ADDRESSING',     29, 3);
+              ENTER('HAS SLOW TERMINAL',                29, 4);
+              ENTER('STUDENT',                          29, 5);
+              ENTER('HAS BYTE FLIPPED MACHINE',         29, 9);
+              ENTER('HAS WORD ORIENTED MACHINE',        29,10);
+
+            {PREFIXED FOR CRTCTRL}
+              ENTER('PREFIXED[MOVE CURSOR UP]',                 36, 0);
+              ENTER('PREFIXED[MOVE CURSOR RIGHT]',              36, 1);
+              ENTER('PREFIXED[ERASE TO END OF LINE]',           36, 2);
+              ENTER('PREFIXED[ERASE TO END OF SCREEN]',         36, 3);
+              ENTER('PREFIXED[MOVE CURSOR HOME]',               36, 4);
+              ENTER('PREFIXED[DELETE CHARACTER]',               36, 5);
+              ENTER('PREFIXED[ERASE SCREEN]',                   36, 6);
+              ENTER('PREFIXED[ERASE LINE]',                     36, 7);
+
+            {PREFIXED FOR CRTINFO}
+              ENTER('PREFIXED[KEY TO MOVE CURSOR RIGHT]',       47,  0);
+              ENTER('PREFIXED[KEY TO MOVE CURSOR LEFT]',        47,  1);
+              { The following two entries were reversed May 14, 1979
+                by Bruce Sherman to solve the bug of them being switched}
+              ENTER('PREFIXED[KEY TO MOVE CURSOR UP]',          47,  3);
+              ENTER('PREFIXED[KEY TO MOVE CURSOR DOWN]',        47,  2);
+              ENTER('PREFIXED[NON PRINTING CHARACTER]',         47,  4);
+              ENTER('PREFIXED[KEY FOR STOP]',                   47,  6);
+              ENTER('PREFIXED[KEY FOR BREAK]',                  47,  7);
+              ENTER('PREFIXED[KEY FOR FLUSH]',                  47,  8);
+              ENTER('PREFIXED[KEY TO END FILE]',                47,  9);
+              ENTER('PREFIXED[EDITOR ESCAPE KEY]',              47, 10);
+              ENTER('PREFIXED[KEY TO DELETE LINE]',             47, 11);
+              ENTER('PREFIXED[KEY TO DELETE CHARACTER]',        47, 12);
+              ENTER('PREFIXED[EDITOR ACCEPT KEY]',              47, 13);
+          END; {SETUP1}
+
+          PROCEDURE SETUP2;
+          BEGIN
+            {Set up the integer fields}
+              PWIDTH := 16; {Integers all have a width in bits of 16}
+              SCAL := NUMBER; {Tells system that the identifier is a number}
+              ENTER('SCREEN HEIGHT',    37,0);
+              ENTER('SCREEN WIDTH',     38,0);
+
+            {Set up the character fields}
+              PWIDTH := 8; {Characters all have a width in bits of 8}
+              SCAL := CHARACTER; {TeIdentifiers are all characters}
+              ENTER('LEAD IN TO SCREEN',                31,0);
+              ENTER('MOVE CURSOR HOME',                 31,8);
+              ENTER('ERASE TO END OF SCREEN',           32,0);
+              ENTER('ERASE TO END OF LINE',             32,8);
+              ENTER('MOVE CURSOR RIGHT',                33,0);
+              ENTER('MOVE CURSOR UP',                   33,8);
+              ENTER('BACKSPACE',                        34,0);
+              ENTER('ERASE LINE',                       35,0);
+              ENTER('ERASE SCREEN',                     35,8);
+              ENTER('KEY TO MOVE CURSOR UP',            39,0);
+              ENTER('KEY TO MOVE CURSOR DOWN',          39,8);
+              ENTER('KEY TO MOVE CURSOR LEFT',          40,0);
+              ENTER('KEY TO MOVE CURSOR RIGHT',         40,8);
+              ENTER('KEY TO END FILE',                  41,0);
+              ENTER('KEY FOR FLUSH',                    41,8);
+              ENTER('KEY FOR BREAK',                    42,0);
+              ENTER('KEY FOR STOP',                     42,8);
+              ENTER('NON PRINTING CHARACTER',           43,8);
+              ENTER('KEY TO DELETE LINE',               44,0);
+              ENTER('EDITOR ESCAPE KEY',                44,8);
+              ENTER('LEAD IN FROM KEYBOARD',            45,0);
+              ENTER('EDITOR ACCEPT KEY',                45,8);
+              ENTER('KEY TO DELETE CHARACTER',          43,0);
+
+            {Set up miscellaneous fields}
+              SCAL := NUMBER;
+              ENTER('VERTICAL MOVE DELAY',  34,8); {A number 0..255}
+          END; {SETUP2}
+
+          BEGIN {INITTREE}
+            {Initialize the initially empty tree.  Note that the empty tree
+            has the node ROOT in it and that the in use part of the tree will
+            dangle from ROOT's right link.  Thus, even the first entry added
+            to the tree will have a parent, ROOT, which is important for a
+            clean search algorithm.}
+              NEW(ROOT);
+              WITH ROOT^ DO
+                BEGIN
+                  NAME := '';
+                  NEW(RIGHT);
+                END;
+              GROUND := ROOT^.RIGHT;
+            {Just as the tree has GROUND, each unused link at the end of
+            each list of mnemonic scalars points to SCALGROUND, which
+            simplifies lookup, since one simply sets the name field of
+            SCALGROUND to be the thing one is looking for and then goes
+            through the list looking for it without worrying about falling
+            off the end of the list if it isn't there}
+            NEW(SCALGROUND);
+            NEW(NUMBER);
+            CUTHEAP('');
+            NEW(CHARACTER);
+            CUTHEAP('');
+            SETUP1;
+            SETUP2;
+          END; {INITTREE}
+
+     BEGIN {INITS}
+       ASSERT(WIDTHMAX = BITINDMAX + 1,'INITS');
+       {Set DELTAWORD to be the difference in the heap pointer for the
+       allocation of one word, i.e., 1 on word addressing machines,
+       2 on byte addressed machines.}
+         MARK(HEAP.PTR);
+         DELTAWORD := HEAP.INT;
+         NEW(HEAP.PTR);
+         MARK(HEAP.PTR);
+         DELTAWORD := HEAP.INT-DELTAWORD;
+       {Copy that part of syscom in which we are interested over into BUFFER}
+         FOR INDEX := STARTINDEX TO ENDINDEX DO
+           BUFFER[INDEX] := PSYSCOM^[INDEX];
+       ABORT := FALSE;
+       INITASCII;
+       WRITE('INITIALIZING');
+       DOTCOUNT := 12;
+       INITTREE;
+       WRITELN;
+       DEFRADIX := 10; {The initial default radix is base 10}
+     END; {INITS}
+
+     FUNCTION GETCH:CHAR;
+     {All single character input is done through GETCH}
+       FORWARD;
+
+     FUNCTION CONTINUE:BOOLEAN;
+     {Asks user if he wants to continue}
+       FORWARD;
+
+     SEGMENT PROCEDURE TEACHSETUP;
+
+          PROCEDURE W(STR:STRING);
+          BEGIN
+            WRITELN(STR);
+          END;
+
+          PROCEDURE PAGE;
+          BEGIN
+            IF CONTINUE THEN
+              WRITELN
+            ELSE
+              EXIT(TEACHSETUP);
+          END;
+
+          PROCEDURE HASSLEGOTOXY;
+          BEGIN
+            {  0        1         2         3         4  }
+            {  1234567890123456789012345678901234567890  }
+            W('IF YOU HAVE A VIDEO TERMINAL AND EXPECT');
+            W('TO USE THE SCREEN ORIENTED EDITOR, THE');
+            W('CHANGES SETUP CAN MAKE WILL BE NOT BE');
+            W('SUFFICIENT.  YOU WILL ALSO HAVE TO BIND');
+            W('IN THE PROCEDURE GOTOXY IN THE OPERATING');
+            W('SYSTEM. SEE SECTION 4.7 OF THE DOCUMENT.');
+            PAGE;
+          END;
+
+          PROCEDURE PART1;
+          BEGIN
+            {  0        1         2         3         4  }
+            {  1234567890123456789012345678901234567890  }
+            W('NOTE: DISK UPDATES CREATE THE FILE:');
+            W('         NEW.MISCINFO');
+            W('ON YOUR DISK. THE NAME OF THIS FILE MUST');
+            W('BE CHANGED USING THE FILER TO: ');
+            W('         SYSTEM.MISCINFO');
+            W('IN ORDER FOR THE CHANGES YOU HAVE MADE');
+            W('TO BE LOADED AT BOOTSTRAP TIME.');
+            PAGE;
+          END;
+
+          PROCEDURE PART2;
+          VAR
+            S: STRING[40];
+          BEGIN
+            {  0        1         2         3         4  }
+            {  1234567890123456789012345678901234567890  }
+            W('ALL NON-PRINTING CHARACTERS EXCEPT');
+            W('CARRIAGE RETURN (CR) WILL ECHO AS "?".');
+         S := 'THE INPUT ABORT CHARACTER, "*", CAN BE';
+         S[29] := ESC;
+         W(S);
+            W('TYPED IN RESPONSE TO MOST REQUESTS FOR');
+            W('INPUT AND WILL ESCAPE YOU FROM THE');
+            W('SEQUENCE WHICH ASKED THE QUESTION, E.G.,');
+         S := 'WHEN CHANGING A VALUE, TYPING "*" TO THE';
+         S[32] := ESC;
+         W(S);
+            W('PROMPT "NEW VALUE" WILL ESCAPE THE');
+            W('CHANGE WITHOUT ALTERING THE VALUE.');
+            PAGE;
+          END;
+
+          PROCEDURE PART3;
+          VAR
+            S: STRING[40];
+          BEGIN
+            {  0        1         2         3         4  }
+            {  1234567890123456789012345678901234567890  }
+         S := 'THE LINE DELETE CHARACTER, "*" ALLOWS';
+         S[29] := DEL;
+         W(S);
+            W('YOU TO DELETE A RESPONSE YOU GAVE IF YOU');
+            W('HAVE NOT YET TYPED CR.  CR WILL BE SENT');
+            W('TO THE TERMINAL AND YOU WILL BE ABLE TO');
+            W('START OVER ON A NEW LINE. THE BACKSPACE');
+         S := 'CHARACTER, "*" WILL DELETE YOUR RESPONSE';
+         S[13] := BS;
+         W(S);
+            W('TO A QUESTION CHARACTER BY CHARACTER,');
+            W('ECHOING EACH CHARACTER AS IT IS DELETED.');
+            PAGE;
+            W('THE ECHOED DELETED CHARACTERS WILL BE');
+            W('ENCLOSED IN ANGLE BRACKETS. FOR EXAMPLE,');
+            W('TYPING THE SEQUENCE OF CHARACTERS');
+            W( CONCAT('CHARAQF',BS,BS,'CTER') );
+          END;
+
+          PROCEDURE PART4;
+          BEGIN
+            {  0        1         2         3         4  }
+            {  1234567890123456789012345678901234567890  }
+            W('WILL ECHO ON THE SCREEN THE SEQUENCE');
+            W('CHARAQF<FQ>CTER');
+            W('AND WILL BE UNDERSTOOD AS THE STRING');
+            W(' "CHARACTER". WHEN YOU ACCESS A FIELD,');
+            W('YOU WILL BE SHOWN ITS CURRENT VALUE.');
+            PAGE;
+            W('NUMBERS ARE GIVEN IN OCTAL, DECIMAL OR');
+            W('HEXADECIMAL RADIX, CHARACTERS ARE GIVEN');
+            W('AS THEIR ASCII VALUE AS NUMBERS AND AS');
+            W('THEIR ASCII MNEMONIC.  BOOLEANS ARE');
+            W('EITHER TRUE OR FALSE.  ENTER NUMBERS, OR');
+            W('CHARACTERS AS THEIR ASCII NUMERIC VALUE,');
+            W('ACCORDING TO THE FORMAT:');
+            PAGE;
+            W('!->O-{OCTAL}-!');
+            W('!            !');
+            W('--DEFAULT----!----------->DIGIT--->(CR)');
+            W('!            ! !      ! !        !');
+            W('!->H-{HEX}---! !->(-)-! !-DIGIT<-!');
+            W('!            !');
+            W('!->D{DECIMAL}!');
+            PAGE;
+          END;
+
+          PROCEDURE PART5;
+          BEGIN
+            {  0        1         2         3         4  }
+            {  1234567890123456789012345678901234567890  }
+            W('THE DEFAULT RADIX STARTS AS DECIMAL.');
+            W('NON-PRINTING CHARACTERS MAY BE INPUT');
+            W('BY TYPING THE KEY WHICH GENERATES THEIR');
+            W('VALUE (FOLLOWED BY CR) OR, IF THERE IS');
+            W('AN ASCII MNEMONIC FOR THAT CHARACTER,');
+            W('JUST TYPE IT IN (AND CR). BOOLEANS ARE');
+            W('INPUT BY TYPING "TRUE" OR "FALSE"');
+            W('(AND CR).  FOR MORE INFORMATION,');
+            W('PLEASE SEE THE SYSTEM DOCUMENTATION.');
+          END;
+
+          {part 6 added by Bruce Sherman May 14, 1979 }
+          PROCEDURE PART6;
+          BEGIN
+              {  0        1         2         3         4  }
+              {  1234567890123456789012345678901234567890  }
+              W('HINTS ON DEALING WITH BACKSPACING:');
+              W('THE ''KEY TO DELETE CHARACTER'' SHOULD BE');
+              W('SET TO THE KEY YOU WISH TO TYPE TO CAUSE');
+              W('A BACKSPACE.  THE ''BACKSPACE''');
+              W('CHARACTER WILL BE ECHOED TO THE TERMINAL');
+              W('WHEN THE ''KEY TO DELETE CHARACTER''');
+              W('IS TYPED.');
+          END;
+
+     BEGIN {TEACHSETUP}
+       HASSLEGOTOXY;
+       PART1;
+       PART2;
+       PART3;
+       PART4;
+       PART5;
+       PART6;
+     END;
+
+
+     PROCEDURE ASSERT{B:BOOLEAN;LOC:STRING};
+     BEGIN
+       IF NOT B THEN
+         BEGIN
+                 {  0        1         2         3         4  }
+                 {  1234567890123456789012345678901234567890  }
+           WRITELN('BUG LOCATION ',LOC);
+           WRITELN('PLEASE WRITE DOWN THIS LOCATION AND ANY');
+           WRITELN('SUPPORTING DETAILS YOU CAN, AND REPORT');
+           WRITELN('IT TO THE UCSD SUPPORT STAFF AT YOUR');
+           WRITELN('EARLIEST CONVENIENCE');
+
+     { ---> } EXIT ( SETUP ) ;
+
+         END;
+     END;
+
+     FUNCTION GETCH{:CHAR};
+     BEGIN
+       READ(KEYBOARD,c);
+       IF EOLN(KEYBOARD) THEN
+         c := CHR(13)
+       ELSE IF c IN ['a'..'z'] THEN
+         c := CHR( ORD(c) - ORD('a') + ORD('A') );
+       IF c = ESC THEN
+         ABORT := TRUE;
+       GETCH := c;
+     END;
+
+     FUNCTION GETSTR(VAR STR:STRING):BOOLEAN;
+     {All non-single-character input is done by GETSTR and is
+     terminated by a carriage return or the abort character. Returns False
+     if input was terminated by the abort character.}
+     VAR
+       BACKSPACEING:BOOLEAN;
+     BEGIN
+       GETSTR := TRUE;
+       BACKSPACEING := FALSE;
+       STR := '';
+       WHILE NOT (GETCH IN [CHR(13),ESC]) DO
+         BEGIN
+           IF (c <> BS) AND BACKSPACEING THEN
+             BEGIN
+               BACKSPACEING := FALSE;
+               WRITE('>');
+             END;
+           IF c = DEL THEN
+             BEGIN
+               STR := '';
+               WRITELN('<<ZAP>>');
+             END
+           ELSE IF c = BS THEN
+             BEGIN
+               IF LENGTH(STR) > 0 THEN
+                 BEGIN
+                   IF NOT BACKSPACEING THEN
+                     WRITE('<');
+                   BACKSPACEING := TRUE;
+                   IF STR[LENGTH(STR)] IN [' '..'~'] THEN
+                     WRITE(STR[LENGTH(STR)])
+                   ELSE
+                     WRITE('?');
+                   DELETE(STR,LENGTH(STR),1);
+                 END;
+             END
+           ELSE
+             BEGIN
+               IF c IN [' '..'~'] THEN
+                 WRITE(c)
+               ELSE
+                 WRITE('?');
+               If Length(str) < 80 Then
+                 Begin
+                   STR := CONCAT(STR,'#');
+                   STR[LENGTH(STR)] := c;
+                 End;
+             END;
+         END;
+       IF c = ESC THEN
+         GETSTR := FALSE;
+       WRITELN;
+       DESPACE(STR,STR);
+       IF LENGTH(STR) = 0 THEN
+         GETSTR := FALSE;
+     END;
+
+     FUNCTION TREESEARCH{KEY:STRING):BOOLEAN};
+     {
+     * This procedure finds the node with NAME=KEY in the tree with root ROOT
+     * and sets TREEPTR pointing to that node and TRAIL pointing to that node's
+     * parent.  Note that all nodes must have their links initialized to the
+     * sentinel GROUND and that ROOT is actually a dummy entry which is smaller
+     * than all entries.  This allows TRAIL to be set even in an empty tree
+     }
+     VAR
+       TEMP:STRING;
+     BEGIN
+       GROUND^.NAME := KEY;
+       TREEPTR := ROOT;
+       TEMP := '';
+       WHILE TEMP <> KEY DO
+         BEGIN
+           TRAIL := TREEPTR;
+           IF TEMP>KEY THEN
+             TREEPTR := TREEPTR^.LEFT
+           ELSE
+             TREEPTR := TREEPTR^.RIGHT;
+           DESPACE(TEMP,TREEPTR^.NAME);
+         END;
+       TREESEARCH := TREEPTR <> GROUND;
+     END;
+
+     PROCEDURE DESPACE{VAR TEMP:STRING;VAR STR:STRING};
+     {TEMP gets the string STR with all spaces removed.  Most of that
+     annoying initialization delay is spent in DESPACE, therefore I
+     have somewhat speed optimized it.}
+     VAR
+       INDEX:INTEGER;
+     BEGIN
+       TEMP := STR;
+{$R-}
+       INDEX := SCAN(ORD(TEMP[0]),=' ',TEMP[1]);
+       WHILE INDEX <> ORD(TEMP[0]) DO
+         BEGIN
+           MOVELEFT(TEMP[INDEX+2],TEMP[INDEX+1],ORD(TEMP[0])-INDEX);
+           TEMP[0] := PRED(TEMP[0]);
+           INDEX := SCAN(ORD(TEMP[0])-INDEX+1,=' ',TEMP[INDEX]) + INDEX - 1;
+         END;
+{$R+}
+     END;
+
+     PROCEDURE QUIT;
+     VAR
+       INDEX: INDEXRANGE;
+       OUTFILE:FILE OF MISCINFOREC;
+     BEGIN
+       REPEAT
+              {  0        1         2         3         4  }
+              {  1234567890123456789012345678901234567890  }
+         WRITELN('QUIT: D(ISK) OR M(EMORY) UPDATE,');
+         WRITELN('          R(ETURN) H(ELP) E(XIT)');
+         CASE GETCH OF
+           'D': BEGIN
+                  REWRITE(OUTFILE,NEWINFO);
+                  OUTFILE^ := BUFFER;
+                  PUT(OUTFILE);
+                  CLOSE(OUTFILE,LOCK);
+                END;
+           'M': FOR INDEX := STARTINDEX TO ENDINDEX DO
+                  PSYSCOM^[INDEX] := BUFFER[INDEX];
+           'H':BEGIN
+                       {  0        1         2         3         4  }
+                       {  1234567890123456789012345678901234567890  }
+                 WRITELN('D(ISK) UPDATE PUTS THE CURRENT SETUP ON');
+                 WRITELN('     DISK AS THE FILE "NEW.MISCINFO"');
+                 WRITELN('     WHICH MUST BE CHANGED IN THE');
+                 WRITELN('     FILER TO "SYSTEM.MISCINFO"');
+                 WRITELN('M(EMORY) UPDATE CHANGES THE SETUP IN');
+                 WRITELN('     MEMORY UNTIL THE NEXT SYSTEM');
+                 WRITELN('     INITIALIZATION');
+                 WRITELN('R(ETURN) TAKES YOU BACK INTO SETUP');
+                 WRITELN('     IF YOU''RE NOT DONE');
+                 WRITELN('E(XIT) TERMINATES THIS PROGRAM');
+               END;
+           'E':
+
+     { --> } EXIT ( SETUP ) ;
+
+         END;
+       UNTIL (c = 'R') OR ABORT;
+     END;
+
+     FUNCTION CONTINUE{:BOOLEAN};
+     BEGIN
+       REPEAT
+               {  0        1         2         3         4  }
+               {  1234567890123456789012345678901234567890  }
+         WRITELN('              C(ONTINUE)  Q(UIT)');
+       UNTIL GETCH IN ['C','Q'];
+       CONTINUE := c = 'C';
+     END;
+
+     PROCEDURE SHOWFULL(ORDCHAR:INTEGER;ISCHAR:BOOLEAN);
+     {Prints out the value of the field whose value is ORDCHAR and
+     which is either a character or a number, in a variety of
+     formats, such as OCTAL, DECIMAL and HEXADECIMAL, etc.}
+     TYPE
+       MANYRADIX = RECORD
+                     CASE RADIX:INTEGER OF
+                       8:(OCT:PACKED ARRAY[0..4] OF 0..7);
+                      10:(INT:INTEGER);
+                      16:(HEX:PACKED ARRAY[0..3] OF 0..15)
+                  END;{CASERECORD}
+     VAR
+       c:CHAR;
+       I:INTEGER;
+       TRIX:MANYRADIX;
+     BEGIN
+       WITH TRIX DO
+         BEGIN
+           INT := ORDCHAR;
+           WRITE(' OCTAL DECIMAL HEXADECIMAL');
+           IF ISCHAR THEN
+             BEGIN
+               IF ORDCHAR < 128 THEN
+                 WRITE(' ASCII');
+               IF ORDCHAR < 32 THEN
+                 WRITE(' CONTROL');
+             END;
+           WRITELN;
+           {WRITE THE OCTAL VALUE, RIGHT JUSTIFIED}
+             I := 4;
+             IF INT<0 THEN
+               WRITE('1')
+             ELSE
+               BEGIN
+                 WRITE(' ');
+                 WHILE (OCT[I] = 0) AND (I>0) DO
+                   BEGIN
+                     I := I - 1;
+                     WRITE(' ');
+                   END;
+               END;
+             WHILE I >= 0 DO
+               BEGIN
+                 WRITE(OCT[I]);
+                 I := I - 1;
+               END;
+             WRITE(' ');
+           {WRITE THE DECIMAL VALUE RIGHT JUSTIFIED}
+             WRITE(INT:6,'  ');
+           {WRITE THE HEXADECIMAL VALUE RIGHT JUSTIFIED}
+             I := 3;
+             WHILE (HEX[I] = 0) AND (I > 0) DO
+               BEGIN
+                 I := I - 1;
+                 WRITE(' ');
+               END;
+            WHILE I >= 0 DO
+              BEGIN
+                IF HEX[I] < 10 THEN
+                  WRITE(HEX[I])
+                ELSE
+                  WRITE( CHR( HEX[I] - 10 + ORD('A') ) );
+                I := I - 1;
+              END;
+            WRITE(' ':8);
+            IF ISCHAR THEN
+              BEGIN
+               IF ORDCHAR < 33 THEN
+                 WRITE(LOWASCII[ORDCHAR],' ':4+3-LENGTH(LOWASCII[ORDCHAR]))
+               ELSE IF ORDCHAR = 127 THEN
+                 WRITE('DEL',' ':4)
+               ELSE IF CHR(ORDCHAR) IN ['!'..'}'] THEN
+                 WRITE(CHR(ORDCHAR),' ':6);
+               IF ORDCHAR < 32 THEN
+                 WRITE('^',CHR( ORDCHAR + ORD('@') ));
+             END;
+           WRITELN;
+         END;
+     END;
+
+     FUNCTION GETORDSTR
+                  (VAR ORDCHAR:INTEGER;ISCHAR:BOOLEAN;LOW,HIGH:INTEGER):BOOLEAN;
+     {The user's input for a new value may be in many forms; ASCII mnemonic,
+     hex, dec or octal number, raw character from the keyboard, etc.  This
+     procedure translates it to its numerical value which it returns in ORDCHAR}
+     VAR
+       VALID,NEGATE:BOOLEAN;
+       INDEX:1..255;
+       ORDCH:0..255;
+       DIGIT:0..16;
+       RADIX:8..16;
+       OKCHS:SET OF CHAR;
+       NUMSTR:STRING;
+     BEGIN
+       VALID := TRUE;  {INITIAL ASSUMPTION}
+       WRITE('NEW VALUE: ');
+       IF NOT GETSTR(NUMSTR) THEN
+         VALID := FALSE
+       ELSE
+         IF (LENGTH(NUMSTR) = 1) AND ISCHAR AND
+                                          NOT (NUMSTR[1] IN ['0'..'9']) THEN
+           ORDCHAR := ORD(NUMSTR[1])
+         ELSE
+           BEGIN
+             IF ISCHAR AND (LENGTH(NUMSTR)<=3) THEN
+               BEGIN
+                 LOWASCIIS[33] := NUMSTR;
+                 ORDCH := 0;
+                 WHILE NUMSTR <> LOWASCIIS[ORDCH] DO
+                   ORDCH := SUCC(ORDCH);
+                 IF NUMSTR = 'DEL' THEN
+                   ORDCH := 127;
+               END;
+             IF ISCHAR AND (ORDCH <> 33) AND (LENGTH(NUMSTR) <= 3) THEN
+               ORDCHAR := ORDCH
+             ELSE
+               BEGIN
+                 IF NOT (NUMSTR[1] IN ['D','O','H']) THEN
+                   RADIX := DEFRADIX
+                 ELSE
+                   BEGIN
+                     CASE NUMSTR[1] OF
+                       'O':RADIX := 8;
+                       'D':RADIX := 10;
+                       'H':RADIX := 16
+                     END;{CASE}
+                     DELETE(NUMSTR,1,1);
+                   END;
+                 IF NUMSTR[1] = '-' THEN
+                   BEGIN
+                     NEGATE := TRUE;
+                     DELETE(NUMSTR,1,1);
+                   END
+                 ELSE
+                   NEGATE := FALSE;
+                 CASE RADIX OF
+                   8:  OKCHS := ['0'..'7'];
+                   10: OKCHS := ['0'..'9'];
+                   16: OKCHS := ['0'..'9','A'..'F']
+                 END;{CASE}
+                 IF LENGTH(NUMSTR) = 0 THEN
+                   VALID := FALSE
+                 ELSE
+                   FOR INDEX := 1 TO LENGTH(NUMSTR) DO
+                     IF NOT (NUMSTR[INDEX] IN OKCHS) THEN
+                       VALID := FALSE;
+                 IF VALID THEN
+                   BEGIN
+                     ORDCHAR := 0;
+                     INDEX := 1;
+                     IF NUMSTR[INDEX] IN ['0'..'9'] THEN
+                       DIGIT := ORD(NUMSTR[INDEX]) - ORD('0')
+                     ELSE
+                       DIGIT := ORD(NUMSTR[INDEX]) - ORD('A') + 10;
+                     REPEAT
+                       ORDCHAR := ORDCHAR * RADIX + DIGIT;
+                       INDEX := INDEX + 1;
+                       IF INDEX <= LENGTH(NUMSTR) THEN
+                         IF NUMSTR[INDEX] IN ['0'..'9'] THEN
+                           DIGIT := ORD(NUMSTR[INDEX]) - ORD('0')
+                         ELSE
+                           DIGIT := ORD(NUMSTR[INDEX]) - ORD('A') + 10;
+                     UNTIL (INDEX > LENGTH(NUMSTR))
+                                      OR (ORDCHAR > (MAXINT - DIGIT) DIV RADIX);
+                     VALID := INDEX > LENGTH(NUMSTR);
+                     IF NEGATE THEN
+                       ORDCHAR := - ORDCHAR;
+                   END;
+               END;
+           END;
+       GETORDSTR := VALID AND (ORDCHAR >= LOW) AND (ORDCHAR<=HIGH);
+     END; {GETORDSTR}
+
+     PROCEDURE NUMTEACH(ISCHAR:BOOLEAN;LOW,HIGH:INTEGER);
+     VAR
+       c: CHAR;
+     BEGIN
+             {  0        1         2         3         4  }
+             {  1234567890123456789012345678901234567890  }
+       WRITELN('INPUT VALUES IN THE DECIMAL RANGE:');
+       WRITELN(LOW,'..',HIGH,' IN THE FORMAT BELOW:');
+       WRITELN('!->O-{OCTAL}-!');
+       WRITELN('!            !');
+       WRITELN('--DEFAULT----!----------->DIGIT--->(CR)');
+       WRITELN('!            ! !      ! !        !');
+       WRITELN('!->H-{HEX}---! !->(-)-! !-DIGIT<-!');
+       WRITELN('!            !');
+       WRITELN('!->D{DECIMAL}!');
+       IF ISCHAR THEN
+         BEGIN
+                 {  0        1         2         3         4  }
+                 {  1234567890123456789012345678901234567890  }
+           WRITELN('OR IF YOUR KEYBOARD CAN GENERATE');
+           WRITELN('THE VALUE YOU WANT, JUST TYPE THE KEY');
+           WRITELN('AND THEN TYPE CARRIAGE RETURN, OR TYPE');
+           WRITELN('THE ASCII MNEMONIC FOR THE CHARACTER');
+         END;
+       WRITELN('C(ONTINUE)');
+       REPEAT
+       UNTIL GETCH = 'C';
+     END;
+
+     PROCEDURE CHANGE;
+
+          FUNCTION DOYOU:BOOLEAN;
+          BEGIN
+            IF NOT ABORT THEN
+              REPEAT
+                WRITELN('WANT TO CHANGE THIS VALUE?',
+                        ' (Y,N,',ESC,')');
+                DOYOU := GETCH = 'Y';
+              UNTIL (c IN ['Y','N']) OR ABORT
+            ELSE
+              DOYOU := FALSE;
+          END;
+
+          PROCEDURE NEWRADIX;
+
+               PROCEDURE SHOWRADIX;
+               BEGIN
+                 CASE DEFRADIX OF
+                    8: WRITE('NOW OCTAL');
+                   10: WRITE('NOW DECIMAL');
+                   16: WRITE('NOW HEXADECIMAL')
+                 END;
+               END;
+
+          BEGIN {NEWRADIX}
+            REPEAT
+              SHOWRADIX;
+              WRITELN(':  O(CT) D(EC) H(EX) Q(UIT)');
+              CASE GETCH OF
+                'O':  DEFRADIX := 8;
+                'D':  DEFRADIX := 10;
+                'H':  DEFRADIX := 16;
+              END;
+            UNTIL (c IN ['O','D','H','Q']) OR ABORT;
+            SHOWRADIX;
+            WRITELN;
+          END;
+
+          PROCEDURE DOIT(PTR:TREE);
+
+               PROCEDURE GETVAL(VAR VAL:INTEGER);
+               {GETVAL is the only place where the value of a field
+               is pulled out of the buffer and reconstructed from
+               its representation as a bunch of contiguous bits.}
+               VAR
+                 BIT:INTEGER;
+               BEGIN
+                 VAL := 0;
+                 WITH PTR^ DO
+                   FOR BIT := BITINDEX + WIDTH - 1 DOWNTO BITINDEX DO
+                     VAL := VAL + VAL + BUFFER[WORDINDEX][BIT];
+               END;
+
+               PROCEDURE UPDATE(VAL:INTEGER);
+               {UPDATE is the only place where the value of a field is
+               put into the buffer, translating it into a bunch of bits.}
+               VAR
+                 BIT:INTEGER;
+               BEGIN
+                 WITH PTR^ DO
+                   BEGIN
+                     IF VAL < 0 THEN
+                       BEGIN
+                         BUFFER[WORDINDEX][BITINDEX + WIDTH - 1] := 1;
+                         VAL := -VAL;
+                       END;
+                     FOR BIT := BITINDEX TO BITINDEX + WIDTH - 1 DO
+                       BEGIN
+                         BUFFER[WORDINDEX][BIT] := VAL MOD 2;
+                         VAL := VAL DIV 2;
+                       END;
+                   END;
+               END;
+
+               PROCEDURE NUMBERCHANGE(ISCHAR:BOOLEAN);
+               {Reads in a new value and checks that it is in range.}
+               VAR
+                 NUMBER,LOW,HIGH:INTEGER;
+                 NUMSTR:STRING;
+
+                    FUNCTION ALOG2(VAL:INTEGER):INTEGER;
+                    {Returns 2 to the power of VAL}
+                    VAR
+                      I,NUM:INTEGER;
+                    BEGIN
+                      NUM := 1;
+                      FOR I := 1 TO VAL DO
+                        NUM := NUM*2;
+                      ALOG2 := NUM;
+                    END;
+
+               BEGIN {NUMBERCHANGE}
+                 IF PTR^.WIDTH = 16 THEN
+                   BEGIN
+                     LOW := -32767-1;
+                     HIGH := 32767;
+                   END
+                 ELSE
+                   BEGIN
+                     LOW := 0;
+                     HIGH := ALOG2(PTR^.WIDTH)-1;
+                   END;
+                 GETVAL(NUMBER);
+                 SHOWFULL(NUMBER,ISCHAR);
+                 IF DOYOU THEN
+                   BEGIN
+                     REPEAT
+                       WHILE NOT GETORDSTR(NUMBER,ISCHAR,LOW,HIGH)
+                                                                AND NOT ABORT DO
+                         NUMTEACH(ISCHAR,LOW,HIGH);
+                       IF NOT ABORT THEN
+                         BEGIN
+                           SHOWFULL(NUMBER,ISCHAR);
+                           IF DOYOU THEN;
+                         END;
+                     UNTIL (c = 'N') OR ABORT;
+                     IF NOT ABORT THEN
+                       UPDATE(NUMBER);
+                   END
+               END;
+
+               PROCEDURE SCALARCHANGE;
+               {Lets you change a scalar field}
+               VAR
+                 NUMBER:INTEGER;
+                 SCALSTR:STRING;
+
+                    PROCEDURE SHOWSCALAR(NUMBER:INTEGER);
+                    {Shows the user the current scalar mnemonic value}
+                    VAR
+                      SCAL:SCALARS;
+                    BEGIN
+                      SCAL := PTR^.VALNAMES;
+                      ASSERT(SCAL<>SCALGROUND,'SHOWSCALAR');
+                      WHILE NUMBER <> SCAL^.VAL DO
+                        BEGIN
+                          SCAL := SCAL^.LINK;
+                          ASSERT(SCAL<>SCALGROUND,'SHOWSCALAR');
+                        END;
+                      WRITELN('CURRENT VALUE IS ',SCAL^.NAME);
+                    END;
+
+                    PROCEDURE SHOWALL;
+                    {Assuming the user blew it, show him all the legal values}
+                    VAR
+                      SCAL:SCALARS;
+                    BEGIN
+                      SCAL := PTR^.VALNAMES;
+                      WRITELN('ALLOWED VALUES ARE:');
+                      REPEAT
+                        ASSERT(SCAL<>SCALGROUND,'SHOWALL');
+                        WRITELN(SCAL^.NAME);
+                        SCAL := SCAL^.LINK;
+                      UNTIL SCAL = SCALGROUND;
+                    END;
+
+                    FUNCTION GETSCALVAL(VAR NUM:INTEGER;STR:STRING):BOOLEAN;
+                    {Gets the STR which is the scalar mnemonic value}
+                    VAR
+                      SCAL:SCALARS;
+                    BEGIN
+                      SCAL := PTR^.VALNAMES;
+                      SCALGROUND^.NAME := STR;
+                      WHILE SCAL^.NAME<>STR DO
+                        SCAL := SCAL^.LINK;
+                      NUMBER := SCAL^.VAL;
+                      GETSCALVAL := SCAL<>SCALGROUND;
+                    END;
+
+               BEGIN {SCALARCHANGE}
+                 GETVAL(NUMBER);
+                 SHOWSCALAR(NUMBER);
+                 IF DOYOU THEN
+                   REPEAT
+                     WRITE('NEW VALUE: ');
+                     IF GETSTR(SCALSTR) THEN
+                       BEGIN
+                         WHILE NOT (GETSCALVAL(NUMBER,SCALSTR) OR ABORT) DO
+                           BEGIN
+                             SHOWALL;
+                             WRITE('NEW VALUE: ');
+                             IF GETSTR(SCALSTR) THEN;
+                           END;
+                       END;
+                   UNTIL NOT DOYOU OR ABORT;
+                   IF NOT ABORT AND (SCALSTR<>'') THEN
+                     UPDATE(NUMBER);
+               END; {SCALARCHANGE}
+
+          BEGIN {DOIT}
+            WITH PTR^ DO
+              IF VALNAMES = CHARACTER THEN
+                NUMBERCHANGE(TRUE)
+              ELSE IF VALNAMES = NUMBER THEN
+                NUMBERCHANGE(FALSE)
+              ELSE
+                SCALARCHANGE;
+          END; {DOIT}
+
+          PROCEDURE SINGLE;
+          VAR
+            NAME:STRING;
+          BEGIN
+            WRITE('NAME OF FIELD: ');
+            IF GETSTR(NAME) THEN
+              BEGIN
+                WHILE NOT TREESEARCH(NAME) AND NOT ABORT DO
+                  BEGIN
+                    WRITELN('DIDN''T FIND ',NAME);
+                    WRITE('NAME OF FIELD: ');
+                    IF GETSTR(NAME) THEN;
+                  END;
+                IF NOT ABORT THEN
+                  DOIT(TREEPTR);
+              END;
+          END;
+
+          PROCEDURE PROMPTED(ROOT:TREE);
+          {Traverse the tree in alphabetical order}
+          BEGIN
+            IF (ROOT <> GROUND) AND NOT ABORT THEN
+              BEGIN
+                PROMPTED(ROOT^.LEFT);
+                IF NOT ABORT THEN
+                  BEGIN
+                    WRITELN;
+                    WRITELN('FIELD NAME = ',ROOT^.NAME);
+                    DOIT(ROOT);
+                    PROMPTED(ROOT^.RIGHT);
+                  END;
+              END;
+          END;
+
+     BEGIN {CHANGE}
+       REPEAT
+         ABORT := FALSE;
+         WRITELN;
+         WRITELN('CHANGE: S(INGLE) P(ROMPTED) R(ADIX)');
+         WRITELN('    H(ELP) Q(UIT)');
+         CASE GETCH OF
+           'S': SINGLE;
+           'P': PROMPTED(ROOT^.RIGHT);
+           'R': NEWRADIX;
+           'H': BEGIN
+                  WRITELN;
+                  WRITELN('S(INGLE) ALLOWS YOU TO EXAMINE 1 VALUE');
+                  WRITELN('    BY NAME');
+                  WRITELN('P(ROMPTED) TAKES YOU THROUGH ALL FIELDS');
+                  WRITELN('R(ADIX) ALLOWS YOU TO CHANGE THE ASSUMED');
+                  WRITELN('    RADIX FROM ');
+                  CASE DEFRADIX OF
+                    8:WRITE('OCTAL');
+                    10:WRITE('DECIMAL');
+                    16:WRITE('HEXADECIMAL')
+                  END;{CASE}
+                  WRITELN(' TO EITHER');
+                  WRITE('     ');
+                  CASE DEFRADIX OF
+                    8: WRITE('DECIMAL OR HEXADECIMAL');
+                    10:WRITE('OCTAL OR HEXADECIMAL');
+                    16:WRITE('OCTAL OR DECIMAL');
+                  END;{CASE}
+                  WRITELN;
+                END;
+         END;
+       UNTIL c = 'Q';
+     END; {CHANGE}
+
+BEGIN {MAIN}
+  INITS;
+  REPEAT
+           { 0        1         2         3         4 }
+           { 1234567890123456789012345678901234567890 }
+    WRITELN('SETUP: C(HANGE T(EACH H(ELP Q(UIT ',VERSION);
+    CASE GETCH OF
+      'C':  CHANGE;
+      'Q':  QUIT;
+      'T':  TEACHSETUP;
+      'H':  BEGIN
+                     { 0        1         2         3         4 }
+                     { 1234567890123456789012345678901234567890 }
+              WRITELN('C(HANGE) ALLOWS YOU TO CHANGE OR EXAMINE');
+              WRITELN('     THE VARIOUS PIECES OF INFORMATION');
+              WRITELN('     THE SYSTEM HAS ABOUT YOUR HARDWARE');
+              WRITELN('     CONFIGURATION');
+              WRITELN('T(EACH) TEACHES YOU HOW TO USE SETUP');
+              WRITELN('Q(UIT) ALLOWS YOU TO MAKE YOUR CHANGES');
+              WRITELN('     PERMANENT AND TO LEAVE THIS PROGRAM');
+            END;
+    END;{CASE}
+  UNTIL FALSE;
+END;
+
+BEGIN
+  {OPERATING SYSTEM}
+END.

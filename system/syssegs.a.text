@@ -1,0 +1,437 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+(*
+ * UCSD p-System Operating System
+ * Copyright (C) 2010 Peter Miller
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of the ucsd-psystem-os project nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *)
+
+SEGMENT PROCEDURE USERPROGRAM(INPUT,OUTPUT: FIBP);
+BEGIN FWRITELN(SYSTERM^);
+  PL := 'No user program';
+  FWRITESTRING(SYSTERM^,PL,0)
+END (*USERPROGRAM*) ;
+
+SEGMENT PROCEDURE DEBUGGER;
+BEGIN FWRITELN(SYSTERM^);
+  PL := 'No debugger in system';
+  FWRITESTRING(SYSTERM^,PL,0)
+END (*DEBUGGER*) ;
+
+SEGMENT PROCEDURE PRINTERROR(XEQERR,IORSLT: INTEGER);
+  VAR S: STRING[40];
+BEGIN S := 'Unknown run-time error';
+  CASE XEQERR OF
+    1:  S := 'Value range error';
+    2:  S := 'No proc in seg-table';
+    3:  S := 'Exit from uncalled proc';
+    4:  S := 'Stack overflow';
+    5:  S := 'Integer overflow';
+    6:  S := 'Divide by zero';
+    7:  S := 'NIL pointer reference';
+    8:  S := 'Program interrupted by user';
+    9:  S := 'System IO error';
+   10:  BEGIN S := 'unknown cause';
+          CASE IORSLT OF
+            1:  S := 'parity (CRC)';
+            2:  S := 'illegal unit #';
+            3:  S := 'illegal IO request';
+            4:  S := 'data-com timeout';
+            5:  S := 'vol went off-line';
+            6:  S := 'file lost in dir';
+            7:  S := 'bad file name';
+            8:  S := 'no room on vol';
+            9:  S := 'vol not found';
+           10:  S := 'file not found';
+           11:  S := 'dup dir entry';
+           12:  S := 'file already open';
+           13:  S := 'file not open';
+           14:  S := 'bad input format';
+           15:  S := 'ring buffer overflow';
+           16:  S := 'disk write protected';
+           17:  S := 'illegal block #';
+           18:  S := 'bad byte count';
+           19:  S := 'bad init record'
+          END (*IO ERRORS*) ;
+        INSERT('IO error: ',S,1)
+      END;
+   11:  S := 'Unimplemented instruction';
+   12:  S := 'Floating point error';
+   13:  S := 'String overflow';
+   14:  S := 'Programmed HALT';
+   15:  S := 'Programmed break-point'
+  END (*XEQ ERRORS*) ;
+  WRITELN(OUTPUT,S);
+END (*PRINTERROR*) ;
+
+SEGMENT PROCEDURE INITIALIZE;
+  VAR JUSTBOOTED: BOOLEAN; LTITLE: STRING[40];
+      MONTHS: ARRAY [0..15] OF STRING[3];
+      STARTUP : BOOLEAN;
+      STKFILL: ARRAY [0..1199] OF INTEGER;
+
+  PROCEDURE INITSYSCOM;
+    VAR TITLE: STRING;
+        F: FILE OF MISCINFOREC;
+
+    PROCEDURE INIT_FILLER(VAR  FILLER : STRING);
+      BEGIN
+        WITH SYSCOM^.CRTCTRL DO
+          BEGIN
+            IF FILLCOUNT > FILL_LEN THEN
+              FILLCOUNT := FILL_LEN;
+            FILLER[0] := CHR(FILLCOUNT);
+            FILLCHAR(FILLER[1],FILLCOUNT,CHR(0));
+            END;
+      END  {of INIT_FILLER};
+
+    BEGIN               {of INITSYSCOM}
+      INIT_FILLER(FILLER);
+      DEBUGINFO := NIL;
+      IPOT[0] := 1; IPOT[1] := 10; IPOT[2] := 100;
+      IPOT[3] := 1000; IPOT[4] := 10000; DIGITS := ['0'..'9'];
+      WITH SYSCOM^ DO
+        BEGIN
+        XEQERR := 0;    IORSLT := INOERROR;
+        BUGSTATE :=0
+        END;
+      TITLE := '*SYSTEM.MISCINFO' ;
+      RESET( F, TITLE );
+      IF IORESULT = ORD(INOERROR) THEN
+        BEGIN
+        IF NOT EOF( F ) THEN
+          WITH SYSCOM^, F^ DO
+            BEGIN
+            MISCINFO := MSYSCOM.MISCINFO;
+            CRTTYPE := MSYSCOM.CRTTYPE;
+            CRTCTRL := MSYSCOM.CRTCTRL;
+            CRTINFO := MSYSCOM.CRTINFO;
+            INIT_FILLER(FILLER);
+            END;
+        CLOSE( F, NORMAL )
+        END;
+      UNITCLEAR(1) (*GIVE BIOS NEW SOFT CHARACTERS FOR CONSOLE*)
+    END (*INITSYSCOM*) ;
+
+  PROCEDURE INITUNITABLE;
+  VAR LUNIT: UNITNUM;
+      LDIR: DIRP;
+      LFIB : FIB;
+      F : SYSFILE;
+      TEMP_NAMES : FILE_TABLE;
+      NOT_FOUND : SET OF SYSFILE;
+
+    PROCEDURE INIT_ENTRY(LUNIT : UNITNUM; UNIT_NAME : VID);
+    BEGIN
+      UNITCLEAR(LUNIT);
+      IF IORESULT = ORD(INOERROR) THEN
+        UNITABLE[LUNIT].UVID := UNIT_NAME;
+      END  {of INIT_ENTRY};
+
+  BEGIN         {of INITUNITABLE}
+    FILENAME[ASSMBLER] := ':SYSTEM.ASSMBLER';
+    FILENAME[COMPILER] := ':SYSTEM.COMPILER';
+    FILENAME[EDITOR] := ':SYSTEM.EDITOR';
+    FILENAME[FILER] := ':SYSTEM.FILER';
+    FILENAME[LINKER] := ':SYSTEM.LINKER';
+    TEMP_NAMES := FILENAME;
+    NOT_FOUND := [ASSMBLER .. LINKER];
+    FINIT(LFIB,NIL,-1);
+    FOR LUNIT := 0 TO MAXUNIT DO
+      WITH UNITABLE[LUNIT] DO
+        BEGIN
+          UVID := '';
+          UISBLKD := LUNIT IN [4,5,9..12];
+          IF UISBLKD THEN
+            BEGIN
+              UEOVBLK := MMAXINT;
+              UNITCLEAR(LUNIT);
+              IF IORESULT = ORD(INOERROR) THEN
+                IF FETCHDIR(LUNIT) THEN
+                  BEGIN
+                    UVID := SYSCOM^.GDIRP^[0].DVID;
+                    IF LUNIT = SYSCOM^.SYSUNIT THEN
+                      BEGIN
+                        SYVID := UVID;
+                        LTITLE := '*SYSTEM.STARTUP';
+                        FOPEN(LFIB,LTITLE,TRUE,NIL);
+                        STARTUP := LFIB.FISOPEN;
+                        FCLOSE(LFIB,CNORMAL);
+                        END;
+                    FOR F := ASSMBLER TO LINKER DO
+                      IF (LUNIT = SYSCOM^.SYSUNIT) OR (F IN NOT_FOUND) THEN
+                        BEGIN
+                          LTITLE := CONCAT(UVID,TEMP_NAMES[F]);
+                          FOPEN(LFIB,LTITLE,TRUE,NIL);
+                          IF LFIB.FISOPEN THEN
+                            BEGIN
+                              FILENAME[F] := LTITLE;
+                              NOT_FOUND := NOT_FOUND - [F];
+                              END;
+                          FCLOSE(LFIB,CNORMAL);
+                          END {of IF (LUNIT ...};
+                    END {of IF FETCHDIR .. } ;
+              END  {of IF UISBLKD .. };
+          END {of WITH};
+    IF JUSTBOOTED THEN
+      DKVID := SYVID;
+    LUNIT := VOLSEARCH(SYVID,FALSE,LDIR);
+    IF LDIR = NIL THEN
+      HALT;
+    THEDATE := LDIR^[0].DLASTBOOT;
+    INIT_ENTRY(1,'CONSOLE');
+    INIT_ENTRY(2,'SYSTERM');
+    INIT_ENTRY(3,'GRAPHIC');
+    INIT_ENTRY(6,'PRINTER');
+    INIT_ENTRY(7,'REMIN');
+    INIT_ENTRY(8,'REMOUT');
+    END {of INITUNITABLE};
+
+  PROCEDURE INITCHARSET;
+  TYPE CHARSET= ARRAY [32..127] OF
+                  PACKED ARRAY [0..9] OF 0..255;
+  VAR I: INTEGER;
+      DOTRITON : BOOLEAN;
+      TRIX: RECORD CASE BOOLEAN OF
+              TRUE:  (CHARADDR: INTEGER);
+              FALSE: (CHARBUFP: ^ CHAR)
+            END;
+      DISPLAY: ARRAY [0..79,0..19] OF INTEGER; (*FOR TRITON*)
+      CHARBUF: RECORD
+                   SET1: CHARSET;
+                   FILLER1: PACKED ARRAY [0..63] OF CHAR;
+                   SET2: CHARSET;
+                   FILLER2: PACKED ARRAY [0..63] OF CHAR;
+                   TRITON: ARRAY [0..63,0..3] OF INTEGER
+                 END (*CHARBUF*) ;
+      LFIB: FIB;
+  BEGIN FINIT(LFIB,NIL,-1);
+    LTITLE := '*SYSTEM.CHARSET';
+    FOPEN(LFIB,LTITLE,TRUE,NIL);
+    IF LFIB.FISOPEN THEN
+      BEGIN
+        UNITCLEAR(3);
+        IF IORESULT = ORD(INOERROR) THEN
+          BEGIN
+            UNITWRITE(3,TRIX,128);
+            WITH LFIB.FHEADER DO
+              BEGIN
+                DOTRITON := DLASTBLK-DFIRSTBLK > 4;
+                UNITREAD(LFIB.FUNIT,CHARBUF,SIZEOF(CHARBUF),DFIRSTBLK)
+              END;
+            TRIX.CHARADDR := 512-8192;  (*UNIBUS TRICKYNESS!*)
+            FOR I := 32 TO 127 DO
+              BEGIN
+                MOVERIGHT(CHARBUF.SET1[I],TRIX.CHARBUFP^,10);
+                TRIX.CHARADDR := TRIX.CHARADDR+16
+              END;
+            TRIX.CHARADDR := 512-6144;
+            FOR I := 32 TO 127 DO
+              BEGIN
+                MOVERIGHT(CHARBUF.SET2[I],TRIX.CHARBUFP^,10);
+                TRIX.CHARADDR := TRIX.CHARADDR+16
+              END;
+            IF JUSTBOOTED AND DOTRITON AND NOT STARTUP THEN
+              BEGIN (*INITIALIZE DISPLAY ARRAY*)
+                FILLCHAR(DISPLAY,SIZEOF(DISPLAY),0);
+                FOR I := 0 TO 63 DO
+                  MOVELEFT(CHARBUF.TRITON[I],DISPLAY[I,10],8);
+                UNITWRITE(3,DISPLAY[-80],23)
+                END ELSE
+                  UNITWRITE(3,DISPLAY,7);
+          END
+      END
+    ELSE
+      SYSCOM^.MISCINFO.HAS8510A := FALSE;
+    FCLOSE(LFIB,CNORMAL)
+  END (*INITCHARSET*) ;
+
+  PROCEDURE INITHEAP;
+  VAR LWINDOW: WINDOWP;
+  BEGIN (*BASIC FILE AND HEAP SETTUP*)
+    SYSCOM^.GDIRP := NIL; (* MUST PRECEDE THE FIRST "NEW" EXECUTED *)
+    NEW(SWAPFIB,TRUE,FALSE); FINIT(SWAPFIB^,NIL,-1);
+    NEW(INPUTFIB,TRUE,FALSE);  NEW(LWINDOW);
+    FINIT(INPUTFIB^,LWINDOW,0);
+    NEW(OUTPUTFIB,TRUE,FALSE);  NEW(LWINDOW);
+    FINIT(OUTPUTFIB^,LWINDOW,0);
+    NEW(SYSTERM,TRUE,FALSE);  NEW(LWINDOW);
+    FINIT(SYSTERM^,LWINDOW,0);
+    GFILES[0] := INPUTFIB; GFILES[1] := OUTPUTFIB;
+    WITH USERINFO DO
+      BEGIN
+        NEW(SYMFIBP,TRUE,FALSE); FINIT(SYMFIBP^,NIL,-1);
+        NEW(CODEFIBP,TRUE,FALSE); FINIT(CODEFIBP^,NIL,-1)
+      END;
+    MARK(EMPTYHEAP)
+  END (*INITHEAP*) ;
+
+  PROCEDURE INITWORKFILE;
+
+    PROCEDURE TRY_OPEN(VAR WORK_FIB : FIB; FIRST : FULL_ID; VAR SEC_VOL : VID;
+                       VAR SEC_NAME : TID; VAR FLAG : BOOLEAN);
+    VAR  LTITLE : FULL_ID;
+    BEGIN
+      FOPEN(WORK_FIB,FIRST,TRUE,NIL);
+      IF NOT WORK_FIB.FISOPEN THEN
+        IF SEC_NAME <> '' THEN
+          BEGIN
+            LTITLE := CONCAT(SEC_VOL,':',SEC_NAME);
+            FOPEN(WORK_FIB,LTITLE,TRUE,NIL);
+            END;
+      FLAG := WORK_FIB.FISOPEN;
+      IF FLAG THEN
+        BEGIN
+          SEC_VOL := WORK_FIB.FVID;
+          SEC_NAME := WORK_FIB.FHEADER.DTID
+          END;
+      FCLOSE(WORK_FIB,CNORMAL);
+      END;  {of TRY_OPEN}
+
+  BEGIN
+    WITH USERINFO DO
+      BEGIN (*INITIALIZE WORK FILES ETC*)
+        ERRNUM := 0; ERRBLK := 0; ERRSYM := 0;
+        IF JUSTBOOTED THEN
+          BEGIN
+            SYMTID := ''; CODETID := ''; WORKTID := '';
+            SYMVID := SYVID; CODEVID := SYVID; WORKVID := SYVID
+          END;
+        TRY_OPEN(SYMFIBP^,'*SYSTEM.WRK.TEXT',SYMVID,SYMTID,GOTSYM);
+        TRY_OPEN(CODEFIBP^,'*SYSTEM.WRK.CODE',CODEVID,CODETID,GOTCODE);
+        ALTMODE := SYSCOM^.CRTINFO.ALTMODE;
+        SLOWTERM := SYSCOM^.MISCINFO.SLOWTERM;
+        STUPID := SYSCOM^.MISCINFO.STUPID;
+      END
+  END (*INITWORKFILE*) ;
+
+PROCEDURE INITFILES;
+  BEGIN
+    FCLOSE(SWAPFIB^,CNORMAL);
+    FCLOSE(USERINFO.SYMFIBP^,CNORMAL);
+    FCLOSE(USERINFO.CODEFIBP^,CNORMAL);
+    FCLOSE(INPUTFIB^,CNORMAL);
+    FCLOSE(OUTPUTFIB^,CNORMAL);
+    LTITLE := 'CONSOLE:';
+    FOPEN(INPUTFIB^,LTITLE,TRUE,NIL);
+    FOPEN(OUTPUTFIB^,LTITLE,TRUE,NIL);
+    IF JUSTBOOTED THEN
+      BEGIN LTITLE := 'SYSTERM:';
+        FOPEN(SYSTERM^,LTITLE,TRUE,NIL)
+      END;
+    GFILES[0] := INPUTFIB;
+    GFILES[1] := OUTPUTFIB;
+    GFILES[2] := SYSTERM;
+    GFILES[3] := NIL; GFILES[4] := NIL; GFILES[5] := NIL;
+  END (*INITFILES*) ;
+
+  procedure anachronism;
+    (*
+     * anachronism: n., an artifact that belongs to another time, past
+     *              or future
+     *)
+  begin
+    (* See the vstamp.inc.text file for where these are defined. *)
+    writeln(output, project_url, ' version ', version_stamp);
+  end;
+
+BEGIN (*INITIALIZE*)
+  JUSTBOOTED := EMPTYHEAP = NIL;
+  MONTHS[ 0] := '???'; MONTHS[ 1] := 'Jan';
+  MONTHS[ 2] := 'Feb'; MONTHS[ 3] := 'Mar';
+  MONTHS[ 4] := 'Apr'; MONTHS[ 5] := 'May';
+  MONTHS[ 6] := 'Jun'; MONTHS[ 7] := 'Jul';
+  MONTHS[ 8] := 'Aug'; MONTHS[ 9] := 'Sep';
+  MONTHS[10] := 'Oct'; MONTHS[11] := 'Nov';
+  MONTHS[12] := 'Dec'; MONTHS[13] := '???';
+  MONTHS[14] := '???'; MONTHS[15] := '???';
+  IF JUSTBOOTED THEN INITHEAP
+  ELSE RELEASE(EMPTYHEAP);
+  INITUNITABLE; {and the date, filenames, *SYSTEM.STARTUP}
+  INITFILES;
+  INITSYSCOM; (*AND SOME GLOBALS*)
+  INITWORKFILE;
+  CLEARSCREEN;
+  IF SYSCOM^.MISCINFO.HAS8510A THEN
+    INITCHARSET;
+  WRITELN(OUTPUT);
+  IF JUSTBOOTED THEN
+    IF NOT STARTUP THEN
+      WITH SYSCOM^ DO
+        BEGIN
+          IF MISCINFO.HASXYCRT THEN
+            BEGIN
+              FGOTOXY(0,CRTINFO.HEIGHT DIV 3);
+              (* IF length(filler) > 0 THEN *)
+                WRITE(OUTPUT,FILLER);
+              END;
+          WRITELN(OUTPUT,'Welcome  ',SYVID,',  to');
+          WRITELN(OUTPUT);
+          WRITELN(OUTPUT,'U.C.S.D.  Pascal  System  II.0');
+          anachronism;
+          WRITELN(OUTPUT);
+          WITH THEDATE DO
+            WRITE(OUTPUT,'Current date is  ',DAY,'-',MONTHS[MONTH],'-',YEAR);
+          WRITELN(OUTPUT);
+        END ELSE {nothing}
+  ELSE
+    WRITELN(OUTPUT,'System re-initialized')
+END (*INITIALIZE*) ;

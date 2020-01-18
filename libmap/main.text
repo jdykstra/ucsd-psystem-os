@@ -1,0 +1,599 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+{$S+}
+
+{$G+,I-
+
+
+      LIBRARY MAPPER UTILITY
+
+   written in a great hurry using ....
+
+        UCSD  PASCAL  SYSTEM
+          PROGRAM  LINKER
+
+        Written September 78
+        by Robert Hofkin
+        Major portions stolen from
+        Roger T. Sumner
+
+        Revised to handle byte-flipped files
+          March 1979
+        by Gary Dismukes
+}
+
+program LIBMAP;
+
+const
+    MAXSEG = 15;        { max code seg # in code files }
+    MAXSEG1 = 16;       { MAXSEG+1, useful for loop vars }
+    MAXLC = MAXINT;     { max compiler assigned address }
+    MAXIC = 2400;       { max number bytes of code per proc }
+    MAXPROC = 160;      { max legal procedure number }
+
+type
+
+    { subranges }
+    { --------- }
+
+    segrange = 0..MAXSEG;       { seg table subscript type }
+    segindex = 0..MAXSEG1;      { wish we had const expressions! }
+    lcrange = 1..MAXLC;         { base offsets a la P-code }
+    icrange = 0..MAXIC;         { legal length for proc/func code }
+    procrange = 1..MAXPROC;     { legit procedure numbers }
+
+    { miscellaneous }
+    { ------------- }
+
+    alpha = packed array [0..7] of char;
+
+    { link info structures }
+    { ---- ---- ---------- }
+
+    placep = ^placerec;         { position in source seg }
+    placerec = record
+                 srcbase, destbase: integer;
+                 length: icrange
+               end { placerec } ;
+
+    refp = ^refnode;            { in-core version of ref lists }
+    refnode = record
+                next: refp;
+                refs: array [0..7] of integer;
+              end { refnode } ;
+
+    litypes = (EOFMARK,         { end-of-link-info marker }
+                   { ext ref types, designates      }
+                   { fields to be updated by linker }
+               UNITREF,         { refs to invisibly used units (archaic?) }
+               GLOBREF,         { refs to external global addrs }
+               PUBLREF,         { refs to BASE lev vars in host }
+               PRIVREF,         { refs to BASE vars, allocated by linker }
+               CONSTREF,        { refs to host BASE lev constant }
+                   { defining types, gives      }
+                   {  linker values to fix refs }
+               GLOBDEF,         { global addr location }
+               PUBLDEF,         { BASE var location }
+               CONSTDEF,        { BASE const definition }
+                   { proc/func info, assem }
+                   { to PASCAL and PASCAL  }
+                   { to PASCAL interface   }
+               EXTPROC,         { EXTERNAL proc to be linked into PASCAL }
+               EXTFUNC,         {    "     func "  "    "    "      "    }
+               SEPPROC,         { Separate proc definition record }
+               SEPFUNC,         {   "      func     "        "    }
+               SEPPREF,         { PASCAL ref to a sep proc }
+               SEPFREF);        {   "    ref to a sep func }
+
+    liset = set of litypes;
+    opformat = (WORD, BYTE, BIG);       { instruction operand field formats }
+
+    lientry = record    { format of link info records }
+                name: alpha;
+                case litype: litypes of
+                  SEPPREF,
+                  SEPFREF,
+                  UNITREF,
+                  GLOBREF,
+                  PUBLREF,
+                  PRIVREF,
+                  CONSTREF:
+                        (format: opformat;      { how to deal with the refs }
+                         nrefs: integer;        { words following with refs }
+                         nwords: lcrange;       { size of privates in words }
+                         reflist: refp);        { list of refs after read in }
+                  EXTPROC,
+                  EXTFUNC,
+                  SEPPROC,
+                  SEPFUNC:
+                        (srcproc: procrange;    { the procnum in source seg }
+                         nparams: integer;      { words passed/expected }
+                         place: placep);        { position in source/dest seg }
+                  GLOBDEF:
+                        (homeproc: procrange;   { which proc it occurs in }
+                         icoffset: icrange);    { its byte offset in pcode }
+                  PUBLDEF:
+                        (baseoffset: lcrange);  { compiler assign word offset }
+                  CONSTDEF:
+                        (constval: integer);    { users defined value }
+                  EOFMARK:
+                        (nextlc: lcrange)       { private var alloc info }
+                end { lientry } ;
+
+
+    { segment information }
+    { ------- ----------- }
+
+    segkinds =(LINKED,          { no work needed, executable as is }
+               HOSTSEG,         { PASCAL host program outer block  }
+               SEGPROC,         { PASCAL segment procedure, not host }
+               UNITSEG,         { library unit occurance/reference }
+               SEPRTSEG);       { library separate proc/func TLA segment }
+
+
+
+    { host/lib file access info }
+    { ---- --- ---- ------ ---- }
+
+    I5segtbl = record   { first full block of all code files }
+                 diskinfo: array [segrange] of
+                             record
+                               codeleng, codeaddr: integer
+                             end { diskinfo } ;
+                 segname: array [segrange] of alpha;
+                 segkind: array [segrange] of segkinds;
+                 textstart: array [segrange] of integer;
+                 filler: array [0..87] of integer;
+                 notice: string [79];
+               end { I5segtbl } ;
+
+
+
+
+var
+    segtbl: I5segtbl;   { disk seg table w/ source info }
+    fp: file;
+    mapfile: interactive;
+    flipped, listmap, listrefs, firsttime: boolean;
+
+
+procedure byteswap(var word: integer);
+  var  temp1,temp2: packed record
+                      case boolean of
+                        TRUE:  (val: integer);
+                        FALSE: (lowbyte: 0..255;
+                                highbyte:0..255);
+                    end;
+begin
+  temp1.val:= word;
+  temp2.lowbyte:= temp1.highbyte;
+  temp2.highbyte:= temp1.lowbyte;
+  word:= temp2.val;
+end;
+
+Function Table_flipped( var Table: I5SEGTBL ): Boolean;
+  label 1;
+  var s: segrange;
+      highbyte: 0..1;
+      int: record
+             case boolean of
+               TRUE: (val: integer);
+               FALSE:(byte: packed array [0..1] of 0..255)
+             end;
+begin
+  Table_flipped := FALSE;
+  {First determine sex of this machine}
+  int.val := 1;
+  highbyte := ord(int.byte[0] = 1);
+
+  for s:= 0 to MAXSEG do
+    with Table.diskinfo[s] do
+    begin
+      int.val:= codeaddr;
+      if int.byte[highbyte] <> 0 then
+      begin
+        Table_flipped:= TRUE;
+        goto 1;
+      end;
+    end;
+1:end;
+
+procedure fliptable(var table: I5segtbl);
+  var  s: segrange;
+       int: record
+              case boolean of
+                true: (val: integer);
+                false: (kind: segkinds)
+            end;
+begin
+  for s := 0 to MAXSEG do
+    with table, diskinfo[s] do
+    begin
+      byteswap(codeaddr);
+      byteswap(codeleng);
+      int.kind:= segkind[s];
+      byteswap(int.val);
+      segkind[s]:= int.kind;
+      byteswap(textstart[s]);
+    end;
+end;
+
+
+
+{
+*  Alphabetic returns TRUE if name contains all legal
+*  characters for PASCAL identifiers.  Used to validate
+*  segnames and link info entries.
+}
+
+function alphabetic (var name: alpha): boolean;
+  label 1;
+  var i: integer;
+begin
+  alphabetic := FALSE;
+  for i := 0 to 7 do
+    if not (name[i] in ['A'..'Z', '0'..'9', ' ', '_']) then
+      goto 1;
+  alphabetic := TRUE;
+1:
+end { alphabetic } ;
+
+
+
+procedure phase2;
+  var s: segindex;
+
+    {
+    *  Readlinkinfo reads in the link info for segment s
+    *  and builds its symtab.  Some simple disk io routines
+    *  do unblocking.
+    }
+
+    procedure readlinkinfo (s: segrange);
+      var
+          nextblk, recsleft: integer;
+          entry: lientry;
+          nointerface: boolean;
+          buf: array [0..31] of
+                 array [0..7] of integer;
+          tentry: array [0..7] of integer;
+          i: integer;
+
+
+      function copyinterface (start: integer): boolean;
+        const IMPLMTSY = 52;
+        var j: integer; { FIXED DECLARATION ORDER }
+            s: integer;
+            d: integer;
+            n: alpha;
+            last: integer;
+            done: boolean;
+            buf: packed array [0..1023] of char;
+      begin
+        copyinterface := true;
+        if (start <= 0) or (start > 200) then
+          begin
+            copyinterface := false;
+            exit (copyinterface)
+          end;
+        done := false;
+        repeat
+          if blockread (fp, buf, 2, start) <> 2 then
+            begin
+              writeln (mapfile, 'Interface read error');
+              copyinterface := false;
+              done := true
+            end
+          else
+              begin
+                start := start + 2;
+                j := 0;
+                repeat
+                  if buf [j] IN ['A'..'Z', 'a'..'z'] then
+                    begin
+                      last := j;
+                      IDSEARCH (j, buf);
+                      done := s = IMPLMTSY;
+                    end;
+                  if buf [j] = chr (13) THEN
+                    if buf [j+1] = chr (0) THEN
+                      begin
+                        last := j-1;
+                        j := 1023;
+                      end;
+                  j := j+1
+                until done or (j > 1023);
+                writeln (mapfile, buf:last)
+              end
+        until done;
+        writeln (mapfile)
+      end { copyinterface } ;
+
+{
+        *  Getentry reads an 8 word record from disk buf
+        *  sequentially.  No validity checking is done here,
+        *  only disk read errors.
+}
+
+        procedure getentry (var entry: lientry);
+          var err: boolean;
+        begin
+          err := FALSE;
+          if recsleft = 0 then
+            begin
+              recsleft := 32;
+              err := blockread (fp, buf, 1, nextblk) <> 1;
+              if err then
+                  writeln (mapfile, 'library read error!')
+              else
+                nextblk := nextblk+1
+            end;
+          moveleft(buf[32-recsleft], entry, 16);
+          if err then
+            entry.litype := EOFMARK;
+          recsleft := recsleft-1
+        end { getentry } ;
+
+        procedure ref (what: string);
+        var
+          nrecs: integer;
+          temp: lientry;
+        begin
+          with entry do
+            begin
+              if listrefs then
+                begin
+                  write (mapfile, name:12, what);
+                  case format of
+                    WORD: write (mapfile, ' word reference');
+                    BYTE: write (mapfile, ' byte reference');
+                    BIG:  write (mapfile, ' big reference');
+                  end;
+                  if nrefs <> 1 then
+                    write (mapfile, ' (', nrefs, ' times)')
+                  else
+                    write (mapfile, ' (once)');
+                  writeln (mapfile);
+                end;
+              for nrecs := 1 to (nrefs+7) div 8 do
+                getentry (temp);  { skip reference list }
+            end { with };
+        end { ref };
+
+    begin { readlinkinfo }
+
+      with segtbl do
+        begin
+          write (mapfile, segname[s]);
+          nointerface := true;
+          case segkind[s] of
+            LINKED:  begin
+                       writeln (mapfile, '  completely linked segment');
+                       exit (readlinkinfo); { rein a faire }
+                     end;
+            HOSTSEG: writeln (mapfile, '  Pascal host outer block');
+            SEGPROC: begin
+                       writeln (mapfile, '  Pascal segment');
+                       nointerface := not copyinterface (textstart[s])
+                     end;
+            UNITSEG: begin
+                       writeln (mapfile,'  library unit');
+                       nointerface := not copyinterface (textstart[s])
+                     end;
+            SEPRTSEG: writeln (mapfile, '  separate procedure segment');
+          end;
+
+          recsleft := 0;      { 8 wd recs left in buf }
+          with diskinfo[s] do
+            nextblk := codeaddr + (codeleng+511) div 512;  { seek to linkinfo }
+
+          if listmap or nointerface then
+            repeat
+             getentry(entry);
+             if flipped then
+             begin
+               moveleft(entry, tentry, 16);
+               for i:= 4 to 7 do
+                 byteswap(tentry[i]);
+               moveleft(tentry, entry, 16);
+             end;
+             with entry do
+               if litype <> EOFMARK then
+                 begin { list the entry }
+                   if alphabetic (name) then
+                     begin
+                       case litype of
+                         GLOBDEF:  if listmap then
+                                     writeln (mapfile, name:12,
+                              ' global addr    P #',homeproc,',  I #',icoffset);
+                         PUBLDEF:  if listmap then
+                                     writeln (mapfile, name:12,
+                                            ' public var  base = ', baseoffset);
+                         CONSTDEF: if listmap then
+                                     writeln (mapfile, name:12,
+                                               ' constant value of ', constval);
+                         EXTPROC,
+                         EXTFUNC:  if listrefs then
+                                     writeln (mapfile, name:12,
+                                                ' external proc  P #', srcproc);
+                         SEPPROC,
+                         SEPFUNC:  writeln (mapfile, name:12,
+                                                ' separate proc  P #', srcproc);
+                         GLOBREF: ref (' global');
+                         PUBLREF: ref (' public');
+                         CONSTREF: ref (' constant');
+                         SEPFREF,
+                         SEPPREF: ref (' separate');
+                         UNITREF: ref (' unit');
+                         PRIVREF:  ref (' private');
+                       end { case };
+                     end { if alphabetic };
+                 end { with entry };
+           until entry.litype = EOFMARK
+        end { with segtbl }
+    end { readlinkinfo } ;
+
+
+begin { phase2 }
+
+  for s := 0 to MAXSEG do
+      with segtbl, diskinfo[s] do
+        if codeleng > 0 then
+          begin
+            write (mapfile, 'Segment #', s:2, ':  ');
+            readlinkinfo (s);
+            writeln (mapfile);
+            writeln (mapfile,
+   '----------------------------------------------------------------------':75);
+            writeln (mapfile);
+          end;
+
+end { phase2 } ;
+
+
+  procedure getfile;
+  label 1;
+  var
+    s: segindex;
+    CH: char;
+    libtitle, maptitle: string;
+
+  begin
+1:  flipped:= FALSE;
+    close (fp);
+    write ('enter library name: ');
+    readln (libtitle);
+    if libtitle = '' then
+      begin
+        close (mapfile, lock);
+        exit (program);
+      end;
+
+    if libtitle = '*' then
+      libtitle := '*SYSTEM.LIBRARY';
+
+    reset (fp, libtitle);
+
+    if ioresult <> 0 then
+      begin
+        insert ('.CODE', libtitle, length(libtitle)+1);
+        reset (fp, libtitle)
+      end;
+
+    if blockread (fp, segtbl, 1, 0) <> 1 then
+      begin
+        writeln ('bad file');
+        goto 1;
+      end;
+
+    if tableflipped(segtbl) then
+    begin
+      fliptable(segtbl);
+      flipped:= TRUE;
+    end;
+    with segtbl do
+      for s := 0 to MAXSEG do
+        if (diskinfo[s].codeleng < 0) or (diskinfo[s].codeaddr < 0) or
+           (diskinfo[s].codeaddr > 300) or not alphabetic (segname[s]) then
+          begin
+            writeln ('not a code file');
+            goto 1;
+          end;
+
+     write ('list linker info table (Y/N)? ');
+     repeat
+       read (keyboard, CH)
+     until CH in ['Y', 'N', 'y', 'n', ' '];
+     writeln (CH);
+     listmap := (CH in ['Y', 'y']);
+
+     if listmap then
+       begin
+         write ('list referenced items (Y/N)? ');
+         repeat
+           read (keyboard, CH)
+         until CH in ['Y', 'N', 'y', 'n', ' '];
+         writeln (CH);
+         listrefs := (CH in ['Y', 'y'])
+       end
+     else
+       listrefs := false;
+
+     if firsttime then
+       repeat
+         write ('map output file name: ');
+         readln (maptitle);
+         if maptitle = '' then
+           maptitle := 'CONSOLE:';
+
+         if maptitle[length(maptitle)] = '.' then
+           delete (maptitle, length(maptitle), 1)
+         else
+           if maptitle[length(maptitle)] <> ':' then
+             insert ('.TEXT', maptitle, length(maptitle)+1);
+
+         rewrite (mapfile, maptitle)
+       until ioresult = 0;
+
+    writeln (mapfile);
+    writeln (mapfile, '  LIBRARY MAP FOR ', libtitle);
+    writeln (mapfile);
+
+    with segtbl do
+      if length (notice) > 0 then
+        begin
+          writeln (mapfile, ' ':5, notice);
+          writeln (mapfile);
+        end;
+    writeln (mapfile);
+  end { gettitle } ;
+
+
+begin  { main }
+
+  writeln ('Library map utility  [II.0]');
+
+  firsttime := true;
+
+  repeat
+    getfile;
+    firsttime := false;
+    phase2;
+  until false;
+
+END.

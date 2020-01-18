@@ -1,0 +1,241 @@
+'\" t
+.\" UCSD p-System Operating System
+.\" Copyright (C) 2010 Peter Miller
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions are met:
+.\"
+.\"   * Redistributions of source code must retain the above copyright notice,
+.\"     this list of conditions and the following disclaimer.
+.\"   * Redistributions in binary form must reproduce the above copyright
+.\"     notice, this list of conditions and the following disclaimer in the
+.\"     documentation and/or other materials provided with the distribution.
+.\"   * Neither the name of the ucsd-psystem-os project nor the names of its
+.\"     contributors may be used to endorse or promote products derived from
+.\"     this software without specific prior written permission.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+.\" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+.\" ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+.\" BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+.\" CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+.\" SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+.\" INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+.\" CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+.\" ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+.\" POSSIBILITY OF SUCH DAMAGE.
+.\"
+.TH Build ucsd-psystem-os ucsd-psystem-os "Reference Manual"
+.so version.so
+.if n .hy 0
+.if n .ad l
+.if n .nr IN 8n
+.SH NAME
+How to build ucsd-psystem-os
+.XX "" "How to build ucsd-psystem-os"
+.SH BEFORE YOU START
+There are a few pieces of software you may want to fetch and install before you
+proceed with your installation of the \f[I]ucsd-psystem-os\fP project.
+.TP 8n
+ucsd-psystem-fs (>= 1.15)
+The \f[I]ucsd-psystem-fs\fP package is used to create and manipulate
+UCSD p-System disk images.
+.br
+http://ucsd-psystem-fs.sourceforge.net/
+.TP 8n
+ucsd-psystem-vm (>= 0.11)
+The \f[I]ucsd-psystem-vm\fP package is used to interpret UCSD p-System
+codefiles, to execute the code present on UCSD p-System disk images.
+.br
+http://ucsd-psystem-vm.sourceforge.net/
+.TP 8n
+ucsd-psystem-xc (>= 0.8)
+The \f[I]ucsd-psystem-xc\fP package contains a cross compiler, used to
+compile UCSD Pascal source files into UCSD p-System code files.  It also
+contains a cross assembler, a linker, and other tools needed to build
+a complete UCSD p-System from source code.
+.br
+http://ucsd-psystem-xc.sourceforge.net/
+.SH SITE CONFIGURATION
+The \f[B]ucsd-psystem-os\fP package is configured using the
+\fIconfigure\fP program included in this distribution.
+.PP
+The \fIconfigure\fP shell script attempts to guess correct values for
+various system-dependent variables used during compilation, and creates
+the \fIMakefile\fP and \fIlib/config.h\fP files.  It also creates a
+shell script \fIconfig.status\fP that you can run in the future to
+recreate the current configuration.
+.PP
+Normally, you just \f[I]cd\fP to the directory containing
+\f[I]ucsd-psystem-os\fP's source code and then type
+.RS
+.ft CW
+.nf
+$ \f[CB]./configure\fP
+\fI\&...lots of output...\fP
+$
+.fi
+.ft R
+.RE
+.PP
+Running \f[I]configure\fP takes a few seconds.  While it is running,
+it prints some messages that tell what it is doing.  If you don't want
+to see the messages, run \f[I]configure\fP using the \-quiet option; for
+example,
+.RS
+.FT CW
+.nf
+$ \f[CB]./configure \-\-quiet\fP
+$
+.fi
+.ft R
+.RE
+.PP
+By default, \f[I]configure\fP will arrange for the \f[I]make install\fP
+command to install the \f[B]ucsd-psystem-os\fP package's files in
+\f[I]/usr/local/bin\fP, and \f[I]/usr/local/man\fP.  There are options which
+allow you to control the placement of these files.
+.TP 8n
+\f[CW]\-\-prefix=\fP\fIPATH\fP
+This specifies the path prefix to be used in the installation.
+Defaults to \fI/usr/local\fP unless otherwise specified.
+.PP
+The \f[I]configure\fP script ignores most other arguments that you give
+it; use the \f[CW]\-\-help\fP option for a complete list.
+.PP
+On systems that require unusual options for compilation or linking that
+the \f[I]ucsd\-psystem\-os\fP package's \f[I]configure\fP script does not
+know about, you can give \f[I]configure\fP initial values for variables by
+setting them in the environment.  In Bourne-compatible shells, you can
+do that on the command line like this:
+.RS
+.ft CW
+.nf
+$ \f[CB]CXX='g++ -traditional' LIBS=-lposix ./configure\fP
+\fI\&...lots of output...\fP
+$
+.fi
+.ft R
+.RE
+.PP
+Here are the \f[I]make\fP variables that you might want to override with
+environment variables when running \f[I]configure\fP.
+.TP 8n
+Variable: INSTALL
+Program to use to install files.  The default is \f[I]install\fP if you
+have it, \f[I]cp\fP otherwise.
+.PP
+If you need to do unusual things to compile the package, the maintainer
+encourages you to figure out how \f[I]configure\fP could check whether to
+do them, and mail diffs or instructions to the author so that they can
+be included in the next release.
+.SH BUILDING UCSD-PSYSTEM-OS
+All you should need to do is use the
+.RS
+.ft CW
+.nf
+$ \f[CB]make\fP
+\fI\&...lots of output...\fP
+$
+.fi
+.ft R
+.RE
+command and wait.  When this finishes you should see a directory called
+\f[CI]stage1/klebsch\fP containing several UCSD p-System disk images.
+.PP
+You can remove the program binaries and object files from the
+source directory by using the
+.RS
+.ft CW
+.nf
+$ \f[CB]make clean\fP
+\fI\&...lots of output...\fP
+$
+.fi
+.ft R
+.RE
+command.  To remove all of the above files, and also remove the
+\fIMakefile\fP and \fIlib/config.h\fP and \fIconfig.status\fP files, use
+the following command:
+.RS
+.ft CW
+.nf
+$ \f[CB]make distclean\fP
+\fI\&...lots of output...\fP
+$
+.fi
+.ft R
+.RE
+.PP
+The file \f[CI]etc/configure.in\fP is used to create \f[I]configure\fP
+by a GNU program called \f[I]autoconf\fP.  You only need to know this
+if you want to regenerate \fIconfigure\fP using a newer version of
+\f[I]autoconf\fP.
+.SH INSTALLING UCSD-PSYSTEM-OS
+As explained in the \f[I]SITE CONFIGURATION\fP section, above, the
+\f[I]ucsd\-psystem\-os\fP package is installed under the \f[CI]/usr/local\fP
+tree by default.  Use the \f[CW]\-\-prefix=\fP\fIPATH\fP option
+to \f[I]configure\fP if you want some other path.  More specific
+installation locations are assignable, use the \f[CW]\-\-help\fP option to
+\f[I]configure\fP for details.
+.PP
+All that is required to install the \f[I]ucsd-psystem-os\fP package is to
+use the following command:
+.RS
+.ft CW
+.nf
+$ \f[CB]make install\fP
+\fI\&...lots of output...\fP
+$
+.fi
+.ft R
+.RE
+.PP
+Control of the directories used may be found in the first
+few lines of the \f[CI]Makefile\fP file and the other files written
+by the \f[I]configure\fP script; it is best to reconfigure using the
+\f[I]configure\fP script, rather than attempting to do this by hand.
+.SH GETTING HELP
+If you need assistance with the \f[I]ucsd-psystem-os\fP package, please
+do not hesitate to contact the maintainer at
+.RS
+.ft CW
+Peter Miller <pmiller@opensource.org.au>
+.ft R
+.RE
+Any and all feedback is welcome.
+When reporting problems, please include the version number.
+.SH COPYRIGHT
+Copyright
+.if n (C)
+.if t \(co
+1979 Regents of the University of California
+.PP
+\[lq]Permission to use, copy, modify, and distribute any part of
+UCSD PASCAL solely authored by UC authors before June 1, 1979 for
+educational, research, and non-profit purposes, without fee, and without
+a written agreement is hereby granted, provided...\[rq] \f[I]etc etc etc\fP
+.br
+http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+.PP
+It may be found in the \f[I]LICENSE.UCSD\fP file included with this
+distribution.
+.PP
+Copyright
+.if n (C)
+.if t \(co
+\*(Y) Peter Miller
+.PP
+The \f[I]ucsd-psystem-os\fP package is distributed in the hope that it will
+be useful, but WITHOUT ANY WARRANTY; without even the implied warranty
+of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+The contributors license (the \[lq]three clause\[rq] license)
+may be fould in the \f[I]LICENSE\fP file included with this distribution.
+.SH MAINTAINER
+.TS
+tab(;);
+l r l.
+Peter Miller;E-Mail:;pmiller@opensource.org.au
+\f(CW/\e/\e*\fP;WWW:;http://miller.emu.id.au/pmiller/
+.TE

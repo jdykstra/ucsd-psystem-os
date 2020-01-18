@@ -1,0 +1,787 @@
+;
+; UCSD PASCAL - Version I.5
+; Copyright (C) 1978, 1979 Regents of the University of California
+; All Rights Reserved
+;
+; Permission to use, copy, modify and distribute any part of UCSD
+; PASCAL solely authored by UC authors before June 1, 1979 for
+; educational, research and non-profit purposes, without fee, and
+; without a written agreement is hereby granted, provided that the
+; above copyright notice, this paragraph and the following three
+; paragraphs appear in all copies.
+;
+; Those desiring to incorporate UCSD PASCAL into commercial products or
+; use for commercial purposes should contact the Technology Transfer &
+; Intellectual Property Services, University of California, San Diego,
+; 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+; Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+;
+; IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+; FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+; INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+; THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+; DAMAGE.
+;
+; THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+; OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+; UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+; MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+; EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+; WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+; THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+; OTHER RIGHTS.
+;
+; Case Number: SD1991-807 (2006)
+; http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+;
+;;; Source: http://bitsavers.org/bits/UCSD_Pascal/ucsd_II.0/
+;;;     U120_Z80_P-CODE_SOURCE.raw.gz
+;;; Date: 1979-Feb-06
+
+	.IF ~LSTSTP
+	 .NOLIST
+	.ELSE
+	 .LIST
+	.ENDC
+
+;Copyright (c) 1978
+;  by the Regents of the University of California, San Diego
+
+; start of file STP
+
+
+;********************************************************
+;*****************Standard Procedures*******************;
+
+CSP     ; Call standard procedure
+	; extension opcodes and assembly intrinsics.
+	LD      A,(BC)          ;get proc number
+	INC     BC
+	SAVIPC                  ;for simplicity
+	LD      E,A             ;index CSPTBL
+	LD      D,00H
+	LD      HL,CSPTBL
+	ADD     HL,DE
+	ADD     HL,DE
+	LD      E,(HL)          ; ...jump indirect if addr., CXP 0,proc
+	INC     HL              ;      if proc #
+	LD      D,(HL)
+	LD      A,D
+	TSTA
+	JP      Z,CSPTRAP
+	EX      DE,HL
+	JP      (HL)
+
+CSPTRAP ; trap CSP call into operating system
+	CLRA            ; Carry := 0, A := 1  to indicate CXP with no code
+	INC     A
+	PUSH    AF
+	LD      HL,(INTSEGT)    ; increment opsys refcount
+	INC     HL
+	LD      (INTSEGT),HL
+	LD      HL,(MEMTOP)     ; set new segment pointer
+	LD      (NEWSEG),HL
+	LD      A,E             ; get magic op sys proc#
+	CALL    BLDSTP          ; build MSCW
+	JP      CBPXNL          ; and set static link
+
+
+CSPTBL  ;Standard Procedure transfer table
+	.WORD   IOC             ; 0
+	.WORD   NEW
+	.WORD   MVL
+	.WORD   MVR
+	.WORD   EXIT
+	.WORD   UREAD           ; 5
+	.WORD   UWRITE
+	.WORD   IDS
+	.WORD   TRS
+	.WORD   TIM
+	.WORD   FLC             ; 10
+	.WORD   SCN
+	.WORD   0
+	.WORD   0
+	.WORD   0
+	.WORD   0               ; 15
+	.WORD   0
+	.WORD   0
+	.WORD   0
+	.WORD   0
+	.WORD   0               ; 20
+	.WORD   GSEG
+	.WORD   RSEG
+	.WORD   TNC
+	.WORD   RND
+	.WORD   SIN             ; 25
+	.WORD   COS
+	.WORD   LOG
+	.WORD   ATAN
+	.WORD   LN
+	.WORD   EXP             ; 30
+	.WORD   SQT
+	.WORD   MRK
+	.WORD   RLS
+	.WORD   IOR
+	.WORD   UBUSY           ; 35
+	.WORD   POT
+	.WORD   UWAIT
+	.WORD   UCLEAR
+	.WORD   HLT
+	.WORD   MEMA            ; 40
+
+
+MEMA    ;function MEMAVAIL: integer (* # words of memory left *) ;
+	LD      HL,(NP)         ;compute SP-NP
+	XOR     A
+	SUB     L
+	LD      L,A
+	LD      A,00H
+	SBC     A,H
+	LD      H,A
+	ADD     HL,SP
+	AND     A               ;convert to words
+	LD      A,H
+	RRA
+	LD      H,A
+	LD      A,L
+	RRA
+	LD      L,A
+	PUSH    HL              ;return function value
+	JP      BACK1
+
+MRK     ; mark(VAR i: ^integer)   store NP in i
+	CALL    CGDIRP          ; release GDIRP if necessary
+	POP     DE
+	LD      HL,(NP)
+	EX      DE,HL
+	LD      (HL),E
+	INC     HL
+	LD      (HL),D
+	RETURN
+
+RLS     ; release(VAR i: ^integer)   store contents of i into NP
+	POP     HL
+	LD      E,(HL)
+	INC     HL
+	LD      D,(HL)
+	EX      DE,HL
+	LD      (NP),HL
+	LD      HL,NIL          ; GDIRP := NIL
+	LD      (GDIRP),HL
+	RETURN
+
+NEW     ; new(VAR p: ^; size_p: integer)
+	; p := NP; NP := NP+size_p
+	CALL    CGDIRP          ; release GDIRP if necessary
+	POP     BC              ; BC := size_p
+	POP     DE              ; DE := ^p
+	LD      HL,(NP)         ; p := NP
+	EX      DE,HL
+	LD      (HL),E
+	INC     HL
+	LD      (HL),D
+	EX      DE,HL           ; then extend heap 
+	ADD     HL,BC
+	ADD     HL,BC
+	LD      (NP),HL
+	CALL    STKCHK          ; check for stack overflow
+	JP      NC,BACK1
+	JP      STKOVR
+
+CGDIRP  ;Check Global Directory Pointer
+	;Roger Ramjet strikes again
+	LD      HL,(GDIRP)
+	LD      A,L             ;THIS CODE RELIES ON NIL===1.!.!.!.!.!.!.
+	DEC     A
+	OR      H
+	RET     Z               ;if eql nil then nothing special
+	LD      (NP),HL         ;else release GDIRP from heap
+	LD      HL,NIL
+	LD      (GDIRP),HL
+	RET
+
+;**********Editor Intrinsics*********
+	.IF Z80
+TSTCNT   LD     A,B
+	 TSTA
+	 JP     M,$10    
+	 OR     C               ;zero count is also no good
+	 JP     Z,$10    
+	 RET
+$10      POP    HL
+	 JP     BACK1
+	.ENDC
+
+FLC     ; fillchar(buffer: ^byte; count: integer; ch: char)
+	POP     DE              ; E := char
+	POP     HL              ; HL := count
+	POP     BC              ; BC := index
+	EX      (SP),HL         ; HL := base, (SP) := count
+	ADD     HL,BC           ; HL := start address
+	POP     BC              ; BC := count
+	.IF Z80
+	 CALL   TSTCNT          ; no work to do if count <= 0
+	 LD     (HL),E          ;fill one byte
+	 DEC    BC
+	 LD     A,B             ;are we done?
+	 OR     C
+	 JP     Z,BACK1
+	 LD     E,L             ;if not then propagate char
+	 LD     D,H
+	 INC    DE
+	 LDIR
+	.ENDC
+	.IF ~Z80
+	 CALL   NEGBC           ; negate count for easier loop control
+	 JP     P,BACK1         ; and check for count <= 0
+$10      LD     (HL),E
+	 INC    HL
+	 INC    C
+	 JP     NZ,$10 
+	 INC    B
+	 JP     NZ,$10 
+	.ENDC
+	RESTORE
+
+MVBS    ; movebytes(source, dest: ^; length:integer);
+	;  NEEDS II.0 changes ************
+	POP     BC
+	POP     DE
+	POP     HL
+	LD      A,L             ; moveleft or moveright ?
+	SUB     E
+	LD      A,H
+	SBC     A,D
+	JP      C,RMOV
+	JP      LMOV
+MVL     ;moveleft
+        POP     BC              ; BC := length
+	POP     DE              ; DE := dest index
+	POP     HL              ; HL := dest base
+	ADD     HL,DE           ; HL := ^dest
+	POP     DE              ; DE := src index
+	EX      (SP),HL         ; HL := src base, (SP) := ^dest
+	ADD     HL,DE           ; HL := ^src
+	POP     DE
+LMOV    ; entry point if from generalized movebytes
+	.IF Z80
+	 CALL   TSTCNT
+	 LDIR
+	.ENDC
+	.IF ~Z80
+	 CALL   NEGBC
+	 JP     P,BACK1
+	 LD     A,C             ; move word at a time for extra speed
+	 AND    01H
+	 JP     NZ,$20  
+$10      LD     A,(HL)
+	 LD     (DE),A
+	 INC    HL
+	 INC    DE
+	 INC    C
+$20      LD     A,(HL)
+	 LD     (DE),A
+	 INC    HL
+	 INC    DE
+	 INC    C
+	 JP     NZ,$10  
+	 INC    B
+	 JP     NZ,$10  
+	.ENDC
+	RESTORE
+MVR     ;moveright
+	POP     BC              ; BC := length
+	POP     DE              ; DE := dest index
+	POP     HL              ; HL := dest base
+	ADD     HL,DE           ; HL := ^dest
+	POP     DE              ; DE := src index
+	EX      (SP),HL         ; HL := src base, (SP) := ^dest
+	ADD     HL,DE           ; HL := ^src
+	POP     DE
+RMOV    ; entry from movebytes
+	EX      DE,HL           ; start at other end of arrays
+	ADD     HL,BC
+	EX      DE,HL
+	ADD     HL,BC
+	.IF Z80
+	 CALL   TSTCNT
+	 DEC    HL
+	 DEC    DE
+	 LDDR
+	.ENDC
+	.IF ~Z80
+	 CALL   NEGBC
+	 JP     P,BACK1
+	 LD     A,C             ; move word at a time
+	 AND    01H
+	 JP     NZ,$20  
+$10      DEC    HL
+	 DEC    DE
+	 LD     A,(HL)
+	 LD     (DE),A
+	 INC    C
+$20      DEC    HL
+	 DEC    DE
+	 LD     A,(HL)
+	 LD     (DE),A
+	 INC    C
+	 JP     NZ,$10  
+	 INC    B
+	 JP     NZ,$10  
+	.ENDC
+	RESTORE
+
+SCN     ; scan(maxdisp: integer; forpast: (forch, pastch); ch: char;
+	;        start: ^; mask: PACKED ARRAY[0..7] of boolean): integer
+	; scan until either
+	;   maxdisp characters examined, or
+	;   a match (if forpast=forch) or non-match (if forpast=pastch) occurs.
+	; as function value return end_position-start
+	POP     HL              ; junk the mask (fuckin' Richard)
+	POP     DE              ; start index
+	POP     HL              ; start base
+	ADD     HL,DE
+	POP     DE              ; E := ch
+	POP     AF              ; Carry flag set if scan past
+	POP     BC              ; BC := maxdisp
+	PUSH    HL              ; (SP) := start, so as to make function
+				; value easy to calculate later
+	JP      NC,$10
+	CALL    SCPSTX
+	JP      SCOUT
+$10     CALL    SCFORX
+SCOUT   ; function return HL_final-HL_initial
+	POP     DE              ;saved initial
+	SUBHLDE
+	PUSH    HL
+	RESTORE
+
+SCFOR   ; scanfor(maxdisp:integer; ch: char; start: ^;
+	;           mask: PACKED ARRAY[0..7] OF boolean): integer
+	CALL    SPARMS
+SCFORX  INC     B               ;test for scan up or down
+	DEC     B
+	JP      M,$30   
+	CALL    NEGBC
+	RET     P               ; maxdisp = 0 ?
+	LD      A,E             ; A := ch
+$20     CP      (HL)
+	RET     Z
+	INC     HL
+	INC     C
+	JP      NZ,$20
+	INC     B
+	JP      NZ,$20   
+	RET
+$30     LD      A,E             ; A := ch
+$40     CP      (HL)
+	RET     Z
+	DEC     HL
+	INC     C
+	JP      NZ,$40 
+	INC     B
+	JP      NZ,$40
+	RET
+SCPST   ;scanpast(........
+	CALL    SPARMS
+SCPSTX  LD      A,B             ; which way to scan ?
+	TSTA
+	JP      M,$70
+	CALL    NEGBC
+	RET     P               ; done if maxdisp = 0
+	LD      A,E
+$60     CP      (HL)
+	RET     NZ
+	INC     HL
+	INC     C
+	JP      NZ,$60
+	INC     B
+	JP      NZ,$60
+	RET
+$70     LD      A,E
+$80     CP      (HL)
+	RET     NZ
+	DEC     HL
+	INC     C
+	JP      NZ,$80
+	INC     B
+	JP      NZ,$80   
+	RET
+SPARMS  ; get params for scanfor or scanpast
+	; (SP) := SCOUT; (SP+2):=HL:=start; E:=ch; BC:=maxdisp
+	POP     HL              ; return_addr
+	POP     DE              ; junk mask
+	POP     DE              ; DE := start
+	POP     BC              ; A := ch
+	LD      A,C
+	POP     BC              ; BC := maxdisp
+	PUSH    DE
+	PUSH    HL
+	EX      DE,HL
+	LD      E,A
+	RET
+
+
+
+;**********Compiler Intrinsics******
+
+; idsearch(VAR symcursor: cursrange; symbufp: ^symbufarray)
+
+; The following declaration order for the compiler is assumed, as IDSCH is
+;  passed only ^symcursor.
+;    symcursor: cursrange (* index into symbufarray *);
+;    sy: symbol (* symbol = (ident..othersy), set by info in reswrdtable *);
+;    op: operator (* more info from reswrdtable *);
+;    id: alfa (* packed array [1..8] of char, gets filled with first 8 chars
+;          of token isolated by IDSRCH if token is an identifier *);
+
+; Isolate token, converting to upper case.
+; If token in reswrdtable set sy and op from table,
+; else set st := ident, and put first 8 chars (left-justified) of
+;   token into id.
+; symcursor is left pointing to the last char of the token
+
+SYMCUR  .EQU    WORD1           ; index into symbufarray
+SYMBUFP .EQU    WORD2           ; ^symcursarray
+RESWRDP .EQU    WORD3           ; ^reswrdtable
+IDEND   .EQU    WORD4           ; loop control
+TOKEN   .EQU    BLOCK1          ; first 8 chars of isolated token goes here
+
+RESTBL  ; reswrdtable
+	; TYPE table = RECORD
+	;                indexes: ARRAY ['A'..succ('Z')] OF integer;
+	;                tokens: ARRAY [0..#] OF RECORD
+	;                          tokenname: alfa;
+	;                          tokentype: symbol;
+	;                          optype: operator
+	;                        END
+	;              END;
+; Index part
+	.WORD   0,  2,  3,  5,  8, 11., 15., 16., 16.
+	.WORD  20., 20., 20., 21., 22., 23., 25., 28., 28.
+	.WORD  30., 33., 36., 39., 40., 42., 42., 42., 42.
+; Array part
+	.ASCII  "AND     "
+	.WORD   39., 2
+	.ASCII  "ARRAY   "
+	.WORD   44., 15.
+	.ASCII  "BEGIN   "
+	.WORD   19., 15.
+	.ASCII  "CASE    "
+	.WORD   21., 15.
+	.ASCII  "CONST   "
+	.WORD   28., 15.
+	.ASCII  "DIV     "
+	.WORD   39., 3
+	.ASCII  "DO      "
+	.WORD    6., 15.
+	.ASCII  "DOWNTO  "
+	.WORD    8., 15.
+	.ASCII  "ELSE    "
+	.WORD   13., 15.
+	.ASCII  "END     "
+	.WORD    9., 15.
+	.ASCII  "EXTERNAL"
+	.WORD   53., 15.
+	.ASCII  "FOR     "
+	.WORD   24., 15.
+	.ASCII  "FILE    "
+	.WORD   46., 15.
+	.ASCII  "FORWARD "
+	.WORD   34., 15.
+	.ASCII  "FUNCTION"
+	.WORD   32., 15.
+	.ASCII  "GOTO    "
+	.WORD   26., 15.
+	.ASCII  "IF      "
+	.WORD   20., 15.
+	.ASCII  "IMPLEMEN"
+	.WORD   52., 15.
+	.ASCII  "IN      "
+	.WORD   41.,14.
+	.ASCII  "INTERFAC"
+	.WORD   51., 15.
+	.ASCII  "LABEL   "
+	.WORD   27., 15.
+	.ASCII  "MOD     "
+	.WORD   39., 4
+	.ASCII  "NOT     "
+	.WORD   38., 0
+	.ASCII  "OF      "
+	.WORD   11., 15.
+	.ASCII  "OR      "
+	.WORD   40., 7
+	.ASCII  "PACKED  "
+	.WORD   43., 15.
+	.ASCII  "PROCEDUR"
+	.WORD   31., 15.
+	.ASCII  "PROGRAM "
+	.WORD   33., 15.
+	.ASCII  "RECORD  "
+	.WORD   45., 15.
+	.ASCII  "REPEAT  "
+	.WORD   22., 15.
+	.ASCII  "SET     "
+	.WORD   42., 15.
+	.ASCII  "SEGMENT "
+	.WORD   33., 15.
+	.ASCII  "SEPARATE"
+	.WORD   54., 15.
+	.ASCII  "THEN    "
+	.WORD   12., 15.
+	.ASCII  "TO      "
+	.WORD    7., 15.
+	.ASCII  "TYPE    "
+	.WORD   29., 15.
+	.ASCII  "UNIT    "
+	.WORD   50., 15.
+	.ASCII  "UNTIL   "
+	.WORD   10., 15.
+	.ASCII  "USES    "
+	.WORD   49., 15.
+	.ASCII  "VAR     "
+	.WORD   30., 15.
+	.ASCII  "WHILE   "
+	.WORD   23., 15.
+	.ASCII  "WITH    "
+	.WORD   25., 15.
+
+; Initialize: put passed and synthesized parameters into fixed locations
+;   and blank-fill TOKEN.
+
+IDS     LD      HL,RESTBL       ;old version entry point
+	JP      IDSRCHX
+IDSRCH  POP     HL
+IDSRCHX LD      (RESWRDP),HL
+	POP     HL
+	LD      (SYMBUFP),HL
+	POP     HL
+	LD      (SYMCUR),HL
+	LD      HL,TOKEN
+	LD      A,20H           ; ' '
+	LD      B,07H           ; blank-fill last 7 chars
+$10     INC     HL
+	LD      (HL),A
+	DJNZM   $10   
+
+	; Copy the first 8 chars of the token into TOKEN and set SYMCUR
+	;   to point at the very last character.
+	LD      HL,(SYMCUR)     ; DE := ^beginning of token
+	LD      E,(HL)
+	INC     HL
+	LD      D,(HL)
+	LD      HL,(SYMBUFP)
+	ADD     HL,DE
+	EX      DE,HL
+	LD      HL,TOKEN        ; HL := ^dest
+	; HL^ :=  translate(DE^); DE := DE+1;  B := 7;
+	; WHILE translate(DE^) IN ['A'..'Z', '0'..'9'] DO
+	;   BEGIN
+	;     IF B>0 THEN
+	;       BEGIN  B := B-1; HL := HL+1; HL^ := translate(DE^)  END;
+	;     DE := DE+1
+	; END
+	LD      B,7
+	LD      A,(DE)
+	AND     7FH
+	CP      60H
+	JP      C,$20
+	SUB     20H
+$20     LD      (HL),A
+	INC     DE
+        ; the identifier scan loop
+$30     LD      A,(DE)          ;get char
+	AND     7FH             ;mask bit 7 out
+	CP      5FH             ;Underscore _ is ignored
+	JP      Z,$70
+	CP      60H             ;translated to upper case
+	JP      C,$40
+	SUB     20H
+$40     CP      41H             ; 'A'
+	JP      C,$50
+	CP      41H+26.         ; 'Z'
+	JP      C,$60
+$50     CP      30H             ; '0'
+	JP      C,SCDONE
+	CP      39H+1H          ; '9'
+	JP      NC,SCDONE
+$60     ; this is an okay character
+	DEC     B
+	JP      M,$70
+	INC     HL
+	LD      (HL),A
+$70     INC     DE              ;inc source pointer
+	JP      $30
+
+        ; we have an identifier...
+SCDONE  LD      HL,(SYMBUFP)    ;calc new SYMCUR := DE-1-(SYMBUFP)
+	SCF
+	LD      A,E
+	SBC     A,L
+	LD      E,A
+	LD      A,D
+	SBC     A,H
+	LD      D,A
+	LD      HL,(SYMCUR)     ;stash new index
+	LD      (HL),E
+	INC     HL
+	LD      (HL),D
+
+; Locate TOKEN in reswrdtable if possible
+	LD      A,(TOKEN)       ;first char as index
+	CALL    CALCAD          ; HL := ^start looking record
+	PUSH    HL
+	LD      A,(TOKEN)       ; succ(first char) as index
+	INC     A
+	CALL    CALCAD          ; (IDEND) := ^stop looking record
+	LD      (IDEND),HL
+	POP     DE
+$100    LD      A,L             ; done looking yet ?
+	SUB     E
+	JP      NZ,$110
+	LD      A,H
+	SBC     A,D
+	JP      Z,NOTOKE
+$110    PUSH    DE              ; save for next time around
+	LD      B,7             ;comp for 7 chars (first is okay)
+	LD      HL,TOKEN+1      
+$120    INC     DE
+	LD      A,(DE)
+	CP      (HL)
+	JP      NZ,$130
+	INC     HL
+	DJNZM   $120 
+	JP      IDMATCH
+$130    POP     DE              ; ^record we just looked at
+	LD      HL,0CH          ; size of each record
+	ADD     HL,DE
+	EX      DE,HL
+	LD      HL,(IDEND)
+	JP      $100
+
+IDMATCH POP     HL              ; junk ^record we're looking at
+	LD      HL,(SYMCUR)     ;match, now return type and op
+	INC     HL
+	INC     HL              ; HL = ^sy, DE = ^tokentype (in table) -1
+	LD      B,04H
+$150    INC     DE
+	LD      A,(DE)
+	LD      (HL),A
+	INC     HL
+	DJNZM   $150
+	JP      BACK1
+
+NOTOKE  LD      HL,(SYMCUR)     ; We can't find what we wanted...TOKEN isn't
+	INC     HL              ;   a reserved word.  (You probably thought it
+	INC     HL              ;   meant we didn't have any papers!)
+	LD      (HL),00H        ; return sy := ident...
+	INC     HL
+	LD      (HL),00H
+	INC     HL
+	INC     HL
+	INC     HL
+	LD      DE,TOKEN        ; ...and copy TOKEN into id.
+	LD      B,08H
+$170    LD      A,(DE)
+	LD      (HL),A
+	INC     DE
+	INC     HL
+	DJNZM   $170
+	JP      BACK1
+
+CALCAD  ; set HL := ^reswordtable.tokens[reswrdtable.indexes[A-'A']]
+	SUB     41H             ;'A' normalize index
+	ADD     A,A
+	LD      C,A
+	LD      B,00H
+	LD      HL,(RESWRDP)    ; BC := reswrdtable.indexes[A-'A']
+	ADD     HL,BC
+	LD      C,(HL)
+	INC     HL
+	LD      B,(HL)          
+	LD      L,C             ;now mult by recsz of 0CH, 1100b, 12.
+	LD      H,B
+	ADD     HL,BC
+	ADD     HL,BC
+	ADD     HL,HL
+	ADD     HL,HL
+	EX      DE,HL           ; DE := byte offset for TOKENS
+	LD      BC,2*27.        ; size of indexes
+	LD      HL,(RESWRDP)
+	ADD     HL,DE
+	ADD     HL,BC           ;do final indexing, leave junk in HL
+	RET
+
+
+
+; treesearch(rootp: ^node; VAR foundp:^node; VAR target: alfa): integer
+
+;  TYPE node = RECORD
+;                key: alfa;
+;                rlink: ^node;
+;                llink: ^node
+;              END;
+;  function returns...
+;     0: foundp points to matching node
+;    +1: foundp points to a leaf, and target>foundp.key
+;    -1: foundp points to a leaf, and target<foundp.key
+	;initialize by putting all params in fixed locations
+TARGETP .EQU    WORD1
+FOUNDP  .EQU    WORD2
+ROOTP   .EQU    WORD3
+TRS     POP     HL
+	LD      (TARGETP),HL
+	POP     HL
+	LD      (FOUNDP),HL
+	POP     DE
+TCMP    EX      DE,HL
+	LD      (ROOTP),HL
+	EX      DE,HL
+	LD      HL,(TARGETP)
+	LD      B,08H
+$20     LD      A,(DE)          ;compare for 8 chars
+	CP      (HL)
+	JP      NZ,TNEXT
+	INC     HL
+	INC     DE
+	DJNZM   $20
+	LD      HL,0000H        ;match, func code
+TEND    PUSH    HL
+	LD      HL,(ROOTP)      ; foundp := rootp  (which points to
+				;                last node examined)
+	EX      DE,HL
+	LD      HL,(FOUNDP)
+	LD      (HL),E
+	INC     HL
+	LD      (HL),D
+	RESTORE
+TNEXT   JP      NC,GOLEFT
+	LD      HL,(ROOTP)
+	LD      DE,08H
+	ADD     HL,DE
+	LD      E,(HL)
+	INC     HL
+	LD      D,(HL)
+	LD      A,E             ; see if rlink = nil
+	DEC     A
+	OR      D
+	JP      NZ,TCMP
+	LD      HL,0001H
+	JP      TEND
+GOLEFT  LD      HL,(ROOTP)      ;go down left link of ROOT
+	LD      DE,0AH          ;offset of LLINK
+	ADD     HL,DE
+	LD      E,(HL)          ;get link
+	INC     HL
+	LD      D,(HL)
+	LD      A,E             ;test for NIL link
+	DEC     A
+	OR      D
+	JP      NZ,TCMP
+	LD      HL,-0001H       ;if so then return this
+	JP      TEND
+
+; End-of-File STP
+
+
+

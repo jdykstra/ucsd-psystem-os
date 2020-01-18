@@ -1,0 +1,184 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+(*
+ * UCSD p-System Operating System
+ * Copyright (C) 2010 Peter Miller
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of the ucsd-psystem-os project nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *)
+
+PROCEDURE BLOCK(*FSYS: SETOFSYS*);
+LABEL 1;
+VAR BFSYFOUND: BOOLEAN;
+
+  PROCEDURE FINDFORW(FCP: CTP);
+    BEGIN
+      IF FCP <> NIL THEN
+        WITH FCP^ DO
+          BEGIN
+            IF KLASS IN [PROC,FUNC] THEN
+              IF PFDECKIND = DECLARED THEN
+                IF PFKIND = ACTUAL THEN
+                  IF FORWDECL THEN
+                    BEGIN
+                      USERINFO.ERRNUM := 117; WRITELN(OUTPUT);
+                      WRITE(OUTPUT,NAME,' undefined')
+                    END;
+            FINDFORW(RLINK); FINDFORW(LLINK)
+          END
+    END (*FINDFORW*) ;
+
+  BEGIN (*BLOCK*)
+     IF (NOSWAP) AND (STARTINGUP) THEN
+       BEGIN
+         BODYPART(FSYS,NIL);
+         EXIT(BLOCK);
+       END;
+     IF (SY IN [UNITSY,SEPARATSY]) AND (NOT INMODULE) THEN
+       BEGIN
+         UNITPART(FSYS + [UNITSY,INTERSY,IMPLESY,ENDSY]);
+         IF SY = PERIOD THEN EXIT(BLOCK)
+       END;
+     NEWBLOCK:=TRUE;
+     REPEAT
+       IF NOT NEWBLOCK THEN
+         BEGIN
+           DP := FALSE; STMTLEV := 0; IC := 0; LINEINFO := 0;
+           IF (NOT SYSCOMP) OR (LEVEL>1) THEN FINDFORW(DISPLAY[TOP].FNAME);
+           IF INMODULE THEN
+             IF TOS^.PREVLEXSTACKP^.DFPROCP = OUTERBLOCK THEN
+               IF (SY = ENDSY) THEN
+                 BEGIN FINISHSEG; EXIT(BLOCK) END
+               ELSE IF (SY = BEGINSY) THEN
+                 BEGIN ERROR(13); FINISHSEG; EXIT(BLOCK) END;
+           IF SY = BEGINSY THEN INSYMBOL ELSE ERROR(17);
+           REPEAT
+             BODYPART(FSYS + [CASESY] - [ENDSY], TOS^.DFPROCP);
+             BFSYFOUND := (SY = TOS^.BFSY) OR (INMODULE AND (SY = ENDSY));
+             IF NOT BFSYFOUND THEN
+               BEGIN
+                 IF TOS^.BFSY = SEMICOLON THEN
+                   ERROR(14)  (*SEMICOLON EXPECTED*)
+                 ELSE  ERROR(6);  (* PERIOD EXPECTED *)
+                 SKIP(FSYS + [TOS^.BFSY]);
+                 BFSYFOUND := (SY = TOS^.BFSY) OR (INMODULE AND (SY = ENDSY))
+             END
+           UNTIL (BFSYFOUND) OR (SY IN BLOCKBEGSYS);
+           IF NOT BFSYFOUND THEN
+             BEGIN
+               IF TOS^.BFSY = SEMICOLON THEN ERROR(14)
+               ELSE ERROR(6); (*PERIOD EXPECTED*)
+               DECLARATIONPART(FSYS);
+             END
+           ELSE
+             BEGIN
+               IF SY = SEMICOLON THEN INSYMBOL;
+               IF (NOT(SY IN [BEGINSY,PROCSY,FUNCSY,PROGSY])) AND
+                  (TOS^.BFSY = SEMICOLON) THEN
+                 IF NOT (INMODULE AND (SY = ENDSY)) THEN
+                   BEGIN
+                     ERROR(6); SKIP(FSYS);
+                     DECLARATIONPART(FSYS);
+                   END
+                 ELSE GOTO 1
+               ELSE
+         1:      BEGIN
+                   WITH TOS^ DO
+                     BEGIN
+                       IF DFPROCP <> NIL THEN
+                         DFPROCP^.INSCOPE:=FALSE;
+                       IF ISSEGMENT THEN
+                         BEGIN
+                           IF CODEINSEG THEN FINISHSEG;
+                           IF DLINKERINFO AND (LEVEL = 1) THEN
+                             BEGIN SEGTABLE[SEG].SEGKIND := 2 (* SEGPROC *);
+                               WRITELINKERINFO(TRUE)
+                             END
+                           ELSE
+                             IF CLINKERINFO THEN
+                               BEGIN SEGTABLE[SEG].SEGKIND := 2 (* SEGPROC *);
+                                 WRITELINKERINFO(FALSE)
+                               END;
+                           NEXTPROC:=SOLDPROC;
+                           SEG:=DOLDSEG;
+                         END;
+                       LEVEL:=DOLDLEV;
+                       TOP:=DOLDTOP;
+                       LC:=DLLC;
+                       CURPROC:=POLDPROC;
+                     END;
+                   RELEASE(TOS^.DMARKP);
+                   TOS:=TOS^.PREVLEXSTACKP;
+                   NEWBLOCK:=(SY IN [PROCSY,FUNCSY,PROGSY]);
+                 END
+             END
+         END
+       ELSE
+         BEGIN DECLARATIONPART(FSYS);
+           IF LEVEL = 0 THEN
+             IF SY IN [UNITSY,SEPARATSY] THEN
+               BEGIN
+                 UNITPART(FSYS + [UNITSY,INTERSY,IMPLESY,ENDSY]);
+                 IF SY IN [PROCSY,FUNCSY,PROGSY] THEN DECLARATIONPART(FSYS)
+               END
+         END;
+     UNTIL TOS = NIL;
+     FINISHSEG;
+ END (*BLOCK*) ;

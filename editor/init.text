@@ -1,0 +1,361 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+SEGMENT PROCEDURE INITIALIZE;
+LABEL 1;
+VAR
+  BLOCK: ^BLOCKTYPE;
+  ONEWD: ^INTEGER;
+  DONE,OVFLW: BOOLEAN;
+  CH: CHAR;
+  I,QUIT,GAP,BLKS,PAGE,NOTNULS: INTEGER;
+  FILENAME: STRING;
+  BUFFER: PACKED ARRAY [0..1023] OF CHAR;
+
+PROCEDURE MAP(CH:CHAR; C:COMMANDS);
+BEGIN
+  TRANSLATE[CH]:=C;
+  IF CH IN ['A'..'Z'] THEN TRANSLATE[CHR(32+ORD(CH))]:=C; (* LC TOO *)
+END;
+
+PROCEDURE DEFPROMPTS; (* DEFINES VARIABLE PROMPTLINES MAB 11/2/78*)
+BEGIN
+  COMPROMPT:=
+' Edit: A(djst C(py D(lete F(ind I(nsrt J(mp R(place Q(uit X(chng Z(ap  [E.6f]';
+  INSERTPROMPT:=
+  ' Insert: Text {<bs> a char,<del> a line}  [<etx> accepts, <esc> escapes]';
+  DELETEPROMPT:=
+  ' Delete: < > <Moving commmands> {<etx> to delete, <esc> to abort}';
+  ADJUSTPROMPT:=
+  ' Adjust: L(just R(just C(enter <left,right,up,down-arrows> {<etx> to leave}';
+  IF (SCREENWIDTH+1)<LENGTH(COMPROMPT) THEN
+  BEGIN
+    INSERTPROMPT:=' Insrt: {<bs>,<del>} [<etx> accepts, <esc> aborts]';
+    DELETEPROMPT:=' Delete: <vector keys> {<etx> deletes, <esc> aborts}';
+    ADJUSTPROMPT:=' Adjst: L(ft R(ght C(ntr <vector keys> <etx> to leave';
+    COMPROMPT:=' Edit: A, C, D, F, I, J, R, Q, X, Z  [E.6f]';
+  END;
+END;
+
+PROCEDURE READFILE;
+BEGIN
+  CLEARSCREEN;          (* Dumb terminal patch *)
+  WRITELN('>Edit:');
+  WRITE('Reading');
+  IF BLOCKREAD(THEFILE,PAGEZERO,2)<>2 THEN ERROR('Reading file',FATAL);
+  WRITE('.');
+  PAGE:=1;
+  DONE:=FALSE; OVFLW:=FALSE;
+  WITH USERINFO DO
+    WHILE NOT (DONE OR OVFLW) DO
+      BEGIN
+        DONE:= BLOCKREAD(THEFILE,BUFFER,2)=0;
+        IF NOT DONE THEN
+          BEGIN
+            WRITE('.');
+            NOTNULS:=SCAN(-1024,<>CHR(0),BUFFER[1023])+1024;
+            OVFLW:=NOTNULS+BUFCOUNT>=BUFSIZE-10;
+            IF OVFLW THEN NOTNULS:=0;
+            MOVELEFT(BUFFER[0],EBUF^[BUFCOUNT],NOTNULS);
+            IF PAGE+PAGE=ERRBLK
+              THEN
+                CURSOR:=BUFCOUNT+ERRSYM; (* errblk>0 only *)
+            BUFCOUNT:=BUFCOUNT+NOTNULS;
+            PAGE:=PAGE+1;
+          END;
+      END;
+  IF IORESULT<>0 THEN ERROR('Disk error',NONFATAL) ELSE
+    IF NOT DONE THEN ERROR('Buffer overflow.',NONFATAL);
+END;
+
+PROCEDURE LOADFROMSYSCOM;
+(* A rather perverted procedure that takes the syscom^.crtcntrl record
+   and loads it into the Screen Control Record and the syscom^.crtinfo
+   record and loads it into the Keyboard Control Record *)
+BEGIN
+
+  WITH SYSCOM^ DO
+    BEGIN
+
+      (* Miscellaneous stuff *)
+
+      WITH SCREEN DO
+        BEGIN
+          PREFIX:=CRTCTRL.ESCAPE;
+          HEIGHT:=CRTINFO.HEIGHT-1;
+          WIDTH:=CRTINFO.WIDTH-1;
+          CANUPSCROLL:=TRUE; CANDOWNSCROLL:=FALSE;
+        END;
+
+      KEYBRD.PREFIX:=CRTINFO.PREFIX;
+
+      (* The screen ... *)
+
+      SCREEN.CH[WHOME]:=CRTCTRL.HOME;
+      SCREEN.HASPREFIX[WHOME]:=CRTCTRL.PREFIXED[4];
+
+      SCREEN.CH[ERASEEOS]:=CRTCTRL.ERASEEOS;
+      SCREEN.HASPREFIX[ERASEEOS]:=CRTCTRL.PREFIXED[3];
+
+      SCREEN.CH[ERASEEOL]:=CRTCTRL.ERASEEOL;
+      SCREEN.HASPREFIX[ERASEEOL]:=CRTCTRL.PREFIXED[2];
+
+      SCREEN.CH[CLEARLNE]:=CRTCTRL.CLEARLINE;
+      SCREEN.HASPREFIX[CLEARLNE]:=CRTCTRL.PREFIXED[7];
+
+      SCREEN.CH[CLEARSCN]:=CRTCTRL.CLEARSCREEN;
+      SCREEN.HASPREFIX[CLEARSCN]:=CRTCTRL.PREFIXED[6];
+
+      SCREEN.CH[UPCURSOR]:=CRTCTRL.RLF;
+      SCREEN.HASPREFIX[UPCURSOR]:=CRTCTRL.PREFIXED[0];
+
+      SCREEN.CH[DOWNCURSOR]:=CHR(LF);
+      SCREEN.HASPREFIX[DOWNCURSOR]:=FALSE;
+
+      SCREEN.CH[LEFTCURSOR]:=CRTCTRL.BACKSPACE;
+      SCREEN.HASPREFIX[LEFTCURSOR]:=CRTCTRL.PREFIXED[1];
+
+      SCREEN.CH[RIGHTCURSOR]:=CRTCTRL.NDFS;
+      SCREEN.HASPREFIX[RIGHTCURSOR]:=CRTCTRL.PREFIXED[8];
+
+      (* ... and the keyboard *)
+
+      KEYBRD.CH[BACKSPACEKEY]:=CRTINFO.BACKSPACE;
+      KEYBRD.HASPREFIX[BACKSPACEKEY]:=CRTINFO.PREFIXED[12];
+
+      KEYBRD.CH[DC1KEY]:=CHR(DC1); (* Not in record *)
+      KEYBRD.HASPREFIX[DC1KEY]:=FALSE;
+
+      KEYBRD.CH[EOFKEY]:=CRTINFO.EOF;
+      KEYBRD.HASPREFIX[EOFKEY]:=CRTINFO.PREFIXED[9];
+
+      KEYBRD.CH[ETXKEY]:=CRTINFO.ETX;
+      KEYBRD.HASPREFIX[ETXKEY]:=CRTINFO.PREFIXED[13];
+
+      KEYBRD.CH[ESCAPEKEY]:=CRTINFO.ALTMODE;
+      KEYBRD.HASPREFIX[ESCAPEKEY]:=CRTINFO.PREFIXED[10];
+
+      KEYBRD.CH[DELKEY]:=CRTINFO.LINEDEL;
+      KEYBRD.HASPREFIX[DELKEY]:=CRTINFO.PREFIXED[11];
+
+      KEYBRD.CH[UPKEY]:=CRTINFO.UP;
+      KEYBRD.HASPREFIX[UPKEY]:=CRTINFO.PREFIXED[3];
+
+      KEYBRD.CH[DOWNKEY]:=CRTINFO.DOWN;
+      KEYBRD.HASPREFIX[DOWNKEY]:=CRTINFO.PREFIXED[2];
+
+      KEYBRD.CH[LEFTKEY]:=CRTINFO.LEFT;
+      KEYBRD.HASPREFIX[LEFTKEY]:=CRTINFO.PREFIXED[1];
+
+      KEYBRD.CH[RIGHTKEY]:=CRTINFO.RIGHT;
+      KEYBRD.HASPREFIX[RIGHTKEY]:=CRTINFO.PREFIXED[0];
+
+      BSPCE:=ORD(CRTINFO.BACKSPACE);  {Went soft 11/2/78 M. Bernard}
+
+      {Now test to see that the essential keys have been given a
+       value other than null.  If not then assign them a default
+       value.  Hopefully, this will end up an INTERP change--M. Bernard}
+
+       IF BSPCE=0 THEN BSPCE:=8;
+       IF KEYBRD.CH[ETXKEY]=CHR(0) THEN KEYBRD.CH[ETXKEY]:=CHR(3);
+
+
+    END;
+END;
+
+PROCEDURE MAPSPECIAL(K:KEYCOMMANDS;C:COMMANDS);
+BEGIN
+  IF NOT KEYBRD.HASPREFIX[K] THEN MAP(KEYBRD.CH[K],C);
+END;
+
+BEGIN
+  WITH PAGEZERO DO
+    BEGIN
+
+      (* Load Screen and Keyboard Control Records from SYSCOM *)
+
+      LOADFROMSYSCOM;
+
+
+      (* Init the translate table *)
+
+      FILLCHAR(TRANSLATE,SIZEOF(TRANSLATE),ILLEGAL);
+      MAP('A',ADJUSTC);   MAP('C',COPYC);     MAP('D',DELETEC);
+      MAP('F',FINDC);     MAP('I',INSERTC);   MAP('J',JUMPC);
+      MAP('L',LISTC);     MAP('M',MACRODEFC); MAP('P',PARAC);
+      MAP('Q',QUITC);     MAP('R',REPLACEC);  MAP('S',SETC);
+      MAP('V',VERIFYC);   MAP('X',XECUTEC);   MAP('Z',ZAPC);
+      MAP(',',REVERSEC);  MAP('>',FORWARDC);  MAP('.',FORWARDC);
+      MAP('+',FORWARDC);  MAP('-',REVERSEC);  MAP('?',DUMPC);
+      MAP('/',SLASHC);    MAP('=',EQUALC);    MAP('<',REVERSEC);
+
+
+      (* Arrows *)
+
+      (* NEXTCOMMAND and GETNUM handle VT-52 style vector keys *)
+      WITH KEYBRD DO
+        BEGIN
+          MAPSPECIAL(UPKEY,UP); MAPSPECIAL(DOWNKEY,DOWN);
+          MAPSPECIAL(LEFTKEY,LEFT); MAPSPECIAL(RIGHTKEY,RIGHT);
+        END;
+      MAP(CHR(EOL),ADVANCE); (* CR IS ADVANCE *)
+      MAP(CHR(HT),TAB);
+      MAP(CHR(SP),SPACE);
+
+
+      (* Digits *)
+
+      FOR CH:='0' TO '9' DO MAP(CH,DIGIT);
+
+
+      (* Variable buffer sizing... added 17-Jan-78 *)
+
+      QUIT:=10512+       (* Sizeof(editcore)-Sizeof(initialize) *)
+            512;        (* Slop! *)
+      MARK(EBUF);
+      BLKS:=0;
+      REPEAT
+        NEW(BLOCK);
+        BLKS:=BLKS+1;
+        GAP:=MEMAVAIL+MEMAVAIL
+      UNTIL ((GAP>0) AND (GAP<QUIT)) OR (BLKS=63);
+      BUFSIZE:=BLKS*512-1;
+      NEW(ONEWD); ONEWD^:=0;  (* Sentinel for end of buffer - for M(unch *)
+
+
+      (* Open the workfile *)
+
+      (*Init FILLIT for writing nulls in front of all control ch's*)
+      FILLCHAR(FILLIT,SIZEOF(FILLIT),0);
+      IF SYSCOM^.CRTCTRL.FILLCOUNT<=11 THEN
+        FILLIT[0]:=CHR(SYSCOM^.CRTCTRL.FILLCOUNT)
+      ELSE
+        FILLIT[0]:=CHR(11);
+      FILLCHAR(EBUF^,BUFSIZE+1,CHR(0));
+      EBUF^[0]:=CHR(EOL);
+      BUFCOUNT:=1;
+      CURSOR:=1;
+      CLEARSCREEN;
+      WRITELN('>Edit:');
+      IF USERINFO.GOTSYM THEN
+        BEGIN
+          RESET(THEFILE,CONCAT(USERINFO.SYMVID,':',USERINFO.SYMTID));
+          IF IORESULT<>0 THEN ERROR('Workfile lost.',FATAL)
+        END
+      ELSE
+        BEGIN
+          MSG:=
+       'No workfile is present. File? ( <ret> for no file <esc-ret> to exit ) ';
+          REPEAT
+            WRITELN(MSG);
+            WRITE(': ');
+            READLN(INPUT,FILENAME);
+            IF LENGTH(FILENAME)=0 THEN
+              BEGIN
+                FILLCHAR(PAGEZERO,SIZEOF(PAGEZERO),CHR(0)); GOTO 1;
+              END;
+            IF FILENAME[1]=SYSCOM^.CRTINFO.ALTMODE THEN EXIT(EDITOR);
+            { To escape if entered by accident. MAB 12/8/78 }
+            FOR I:=1 TO LENGTH(FILENAME) DO FILENAME[I]:=UCLC(FILENAME[I]);
+            IF ((POS('.TEXT',FILENAME)<>LENGTH(FILENAME)-4) OR
+               (LENGTH(FILENAME)<=4)) AND (FILENAME[LENGTH(FILENAME)]<>'.') THEN
+              FILENAME:=CONCAT(FILENAME,'.TEXT');
+            IF FILENAME[LENGTH(FILENAME)]='.' THEN
+              DELETE(FILENAME,LENGTH(FILENAME),1);
+            OPENOLD(THEFILE,FILENAME);
+            MSG:='Not present. File? ';
+          UNTIL IORESULT=0;
+        END;
+
+
+      (* Read in the file *)
+
+      READFILE;
+      1: IF (EBUF^[BUFCOUNT-1]<>CHR(EOL)) OR (BUFCOUNT=1) THEN
+        BEGIN
+          EBUF^[BUFCOUNT]:=CHR(EOL);
+          BUFCOUNT:=BUFCOUNT+1;
+        END;
+
+
+      (* Initialize everything else! *)
+
+      DIRECTION:='>';
+      LASTPAT:=1; (* Init to the beginning of the buffer (for equalc) *)
+      COPYOK:=FALSE;
+      LINE1PTR:=1;
+      (* These do not yet go through the Screen and Keyboard control
+         records *)
+      WITH SYSCOM^.CRTINFO DO
+        BEGIN
+          ESC:=ORD(ALTMODE);
+          BS:=ORD(CHARDEL);
+          DEL:=ORD(LINEDEL);
+          SCREENWIDTH:=WIDTH-1;
+          SCREENHEIGHT:=HEIGHT-1;
+          MIDDLE:=(SCREENHEIGHT DIV 2) + 1;
+        END;
+      ETX:=ORD(KEYBRD.CH[ETXKEY]); {Changed from SYSCOM assignment 11/2/78 MAB}
+      MAP(CHR(BS),LEFT);                     (* Map backspace key for now *)
+      SYSCOM^.MISCINFO.NOBREAK := TRUE;
+      {Including the command prompt line}
+      DEFPROMPTS;
+      SDEFINED:=FALSE; TDEFINED:=FALSE; (* No substring or target *)
+      WITH PAGEZERO DO
+        IF NOT DEFINED THEN
+          BEGIN
+            FILLCHAR(BUF,1024,CHR(0));
+            CREATED:=THEDATE; LASTUSED:=THEDATE;
+            TOKDEF:=TRUE; (* Default mode is T(oken *)
+            FILLING:=FALSE; AUTOINDENT:=TRUE; RUNOFFCH:='^';
+            LMARGIN:=0; PARAMARGIN:=5; RMARGIN:=SCREENWIDTH;
+            DEFINED:=TRUE;
+          END;
+    END(* WITH *);
+
+
+  (* Initialize the KIND array for token find *)
+
+  FOR CH:=CHR(0) TO CHR(255) DO KIND[CH]:=ORD(CH);  (* Make them all unique *)
+  FOR CH:='A' TO 'Z' DO KIND[CH]:=ORD('A');
+  FOR CH:='a' TO 'z' DO KIND[CH]:=ORD('A');
+  FOR CH:='0' TO '9' DO KIND[CH]:=ORD('A');
+  KIND[CHR(EOL)]:=ORD(' '); KIND[CHR(HT)] :=ORD(' ');
+  FILLCHAR(BLANKAREA,SIZEOF(BLANKAREA),' ');
+  SAVETOP:='';
+
+END(* INITIALIZE *);

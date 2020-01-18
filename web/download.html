@@ -1,0 +1,284 @@
+.\"
+.\" UCSD p-System Operating System
+.\" Copyright (C) 2006, 2010, 2011 Peter Miller
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions are met:
+.\"
+.\"   * Redistributions of source code must retain the above copyright notice,
+.\"     this list of conditions and the following disclaimer.
+.\"   * Redistributions in binary form must reproduce the above copyright
+.\"     notice, this list of conditions and the following disclaimer in the
+.\"     documentation and/or other materials provided with the distribution.
+.\"   * Neither the name of the ucsd-psystem-os project nor the names of its
+.\"     contributors may be used to endorse or promote products derived from
+.\"     this software without specific prior written permission.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+.\" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+.\" ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+.\" BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+.\" CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+.\" SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+.\" INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+.\" CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+.\" ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+.\" POSSIBILITY OF SUCH DAMAGE.
+.\"
+.ad l
+.hy 0
+.so version.so
+.nf
+<html><head>
+<link rel="icon" href="favicon.ico" type="image/x-icon">
+<link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
+<title>ucsd-psystem-os \*(v)</title></head>
+<body bgcolor="white" >
+<img src="icon64.png" align=left>
+<img src="icon64.png" align=right>
+<h1 align="center">ucsd-psystem-os \*(v)<br>
+Files for Download
+</h1>
+<br clear=all>
+There are several ways to obtain this software, either as source code or
+a pre-compiled binaries.
+<p>
+<table>
+<tr>
+    <td valign="top" >
+        <img src="icon64.png" />
+    </td><td valign="top" >
+        You can download the following files from this web site:
+        <table>
+        <tr>
+        <th>File Name</th>
+        <th>Summary</th>
+        <th>Description</th>
+        </tr>
+
+.\" <tr>
+.\" <td valign=top>
+.\" <a href="change_log.txt"><tt>change_log.txt</tt></a></td>
+.\" <td valign=top>
+.\" The release notes describing the changes in this version.</td>
+.\" </tr>
+
+        <tr>
+            <td valign=top>
+                <a href="ucsd-psystem-os-\*(v).tar.gz"
+                ><tt>ucsd-psystem-os-\*(v).tar.gz</tt></a>
+            </td><td valign=top>
+                The complete source.
+            </td><td>
+                Select this link and &ldquo;Save as...&rdquo; to save the file
+                on your computer.  This file is in a common Unix archive format,
+                most Windows archive programs will be able to unpack it for
+                you.  The text files in this archive are in a plain text format,
+                <i>not</i> UCSD Pascal text file format.
+            </td>
+        </tr>
+
+        <tr>
+            <td valign=top>
+                <a href="building.html"
+                ><tt>building.html</tt></a>
+            </td><td valign=top>
+                How to build the sources.
+            </td><td>
+                These instructions are for how to build the source files to
+                create system disk images.  They apply to Unix and Linux
+                systems.  On Windows you will need to use something like <a
+                href="http://cygwin.org/" >Cygwin</a> to build the disk images.
+            </td>
+        </tr>
+
+        <tr>
+            <td valign=top>
+                <a href="disk-image/system.vol"
+                ><tt>system.vol</tt></a>
+            </td><td valign=top>
+                The cross compiled system disk image.
+            </td><td rowspan=2 >
+                These files are UCSD p-System disk images, <a
+                href="building.html" >built</a> from the sources
+                in the <a href="ucsd-psystem-os-\*(v).tar.gz"
+                ><tt>ucsd-psystem-os-\*(v).tar.gz</tt></a> file.
+                They are <b>not</b> boot-leg copies of proprietary
+                implementations.  You can execute them using the
+                <a href="http://ucsd-psystem-vm.sourceforge.net/"
+                >ucsd-psystem-vm</a> project, and probably other UCSD p-machine
+                interpreters.  These disk images have no interleaving.  <p>
+                You can extract, modify and create UCSD Pascal disk images
+                using the <a href="http://ucsd-psystem-fs.sourceforge.net/"
+                >ucsd-psystem-fs</a> project.  It has a text conversion
+                utility, too.
+            </td>
+        </tr>
+
+        <tr>
+            <td valign=top>
+                <a href="disk-image/utility.vol"
+                ><tt>utility.vol</tt></a></td>
+            <td valign=top>
+                The cross compiled utilities disk image.
+            </td>
+        </tr>
+
+        </table>
+    </td>
+</tr>
+
+</tr>
+    <td valign="top" >
+        <img src="http://miller.emu.id.au/pmiller/software/launchpad-logo.png"/>
+    </td><td valign="top" >
+        If you use Ubuntu Linux, there are pre-built packages available
+        for installation using the normal sudo apt-get install method,
+        from this package archive (PPA).
+        <p>
+        Instructions are available there for how to manually add the PPA
+        to your /etc/apt/sources.list file, but the following commands
+        are sufficient on recent versions of Ubuntu:
+        <p>
+        <blockquote>
+<pre>sudo add-apt-repository ppa:pmiller-opensource/ppa
+sudo apt-get update
+sudo apt-get install ucsd-psystem-os</pre>
+        </blockquote>
+    </td>
+</tr>
+
+</tr>
+    <td valign="top" >
+        <img src="http://aegis.sourceforge.net/aegis.png" />
+    </td><td valign="top" >
+        The ucsd-psystem-fs project is developed using <a
+        href="http://aegis.sourceforge.net/" >Aegis</a> SCM.
+        The <a
+        href="http://miller.emu.id.au/cgi-bin/aeget/ucsd-psystem-os.\*(v)?menu"
+        >Aegis repository</a> for this project is available.
+    </td>
+</tr>
+
+</table>
+
+<hr/>
+<h2> How To Build </h2>
+
+You can find build instructions <a href="building.html" >here</a>.
+These instructions are for how to build the source files to
+create system disk images.  They apply to Unix and Linux
+systems.
+<p>
+On Windows you will need to use something like <a
+href="http://cygwin.org/" >Cygwin</a> to build the disk images.
+
+<hr/>
+<h2>Originals</h2>
+You can download the original UCSD sources from various places on the Internet
+<p>
+<table>
+<tr>
+    <th>Version</th>
+    <th>Released</th>
+    <th>Commentary</th>
+</tr>
+
+<tr>
+    <td align="center" valign="top" nowrap>
+        I.3
+    </td><td valign="top" >
+        1977-Aug
+    </td><td valign="top" >
+        Partial <a
+        href="http://www.s100-manuals.com/download/Compuserve-UCSD.exe"
+        >sources</a> for this version were originally uploaded to
+        Compuserve (self extracting zip file).
+        <p>
+    <td>
+</tr>
+
+<tr>
+    <td align="center" valign="top" nowrap>
+        I.4
+    </td><td valign="top" >
+        1978-Jan
+    </td><td valign="top" >
+        The source code for this version is available from the <a
+href="http://f1.grp.yahoofs.com/v1/cJUXTM9iJW4JCpwhcqYouUwriQAxHLYeY_\
+pvMQheThlFjHrFsXbMptQuw2swCl2ErLMAB5tDtgcdvFRXm82gkOq6hyh3EYXViZo/\
+ucsd-pascal-i.4.tar.gz"
+        >UCSD Yahoo Group</a> Files.
+        <p>
+        The virtual machine for this version was the same as I.3, but it is
+        unclear whether or not a recompile was necessary when upgrading.
+        <p>
+    </td>
+</tr>
+
+<tr>
+    <td align="center" valign="top" nowrap>
+        I.5
+    </td><td valign="top" >
+        1978-Sep
+    </td><td valign="top" >
+        The source code for this version is available from <a
+        href="http://invent.ucsd.edu/technology/cases/1995-prior/I.5Sources.zip"
+        >UCSD</a>.  That web page also has the license permitting
+        non-commercial use, modification and distribution of the UCSD sources.
+        <p>
+        The virtual machine for this version was slightly different than
+        I.4, so programs had to be re-compiled, when upgrading to I.5.
+        <p>
+    </td>
+</tr>
+
+<tr>
+    <td align="center" valign="top" nowrap>
+        II.0
+    </td><td valign="top" >
+        1979-Jan
+    </td><td valign="top" >
+        The source code for this version is available from <a
+        href="http://www.bitsavers.org/bits/UCSD_Pascal/ucsd_II.0/"
+        >BitSavers</a>.
+        <p>
+        The virtual machine for this version was different than I.5,
+        so programs still had to be re-compiled, when upgrading to II.0.
+        <p>
+        The system sources in the <a href="ucsd-psystem-os-\*(v).tar.gz"
+        ><tt>ucsd-psystem-os-\*(v).tar.gz</tt></a> file are for
+        the II.0 system.  (Which is a slight problem, because
+        the <a href="http://ucsd-psystem-vm.sourceforge.net/"
+        >ucsd-psystem-vm</a> project is a II.1 p-machine, and the <a
+        href="http://ucsd-psystem-xc.sourceforge.net/" >cross compiler</a>
+        targets the II.1 p-machine.)
+        <p>
+    </td>
+</tr>
+
+<tr>
+    <td align="center" valign="top" nowrap>
+        II.1
+    </td><td valign="top" >
+        1979-May
+    </td><td valign="top" >
+        <i>There is no source archive known at this time.</i>  Possibly
+        some-one has the sources to this version on some old floppies in
+        a box in their garage or attic.  If you were involved in the
+        UCSD Pascal project in 1979 <b>please check</b>, an perhapse nudge
+        your former colleagues to do the same.
+        <p>
+        The virtual machine for this version was slightly different than
+        II.0, so programs had to be re-compiled, when upgrading to II.1.
+        <p>
+        The <a href="http://ucsd-psystem-vm.sourceforge.net/"
+        >ucsd-psystem-vm</a> project is a II.1 p-machine.  The <a
+        href="http://ucsd-psystem-xc.sourceforge.net/" >cross compiler</a>
+        targets the II.1 p-machine.
+    </td>
+</tr>
+</table>
+
+</body></html>

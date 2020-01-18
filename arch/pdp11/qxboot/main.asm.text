@@ -1,0 +1,428 @@
+;
+; UCSD PASCAL - Version II.0
+; Copyright (C) 1978, 1979 Regents of the University of California
+; All Rights Reserved
+;
+; Permission to use, copy, modify and distribute any part of UCSD
+; PASCAL solely authored by UC authors before June 1, 1979 for
+; educational, research and non-profit purposes, without fee, and
+; without a written agreement is hereby granted, provided that the
+; above copyright notice, this paragraph and the following three
+; paragraphs appear in all copies.
+;
+; Those desiring to incorporate UCSD PASCAL into commercial products or
+; use for commercial purposes should contact the Technology Transfer &
+; Intellectual Property Services, University of California, San Diego,
+; 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+; Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+;
+; IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+; FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+; INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+; THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+; DAMAGE.
+;
+; THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+; OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+; UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+; MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+; EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+; WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+; THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+; OTHER RIGHTS.
+;
+; Case Number: SD1991-807 (2006)
+; http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+;
+;;; Source: http://bitsavers.org/bits/UCSD_Pascal/ucsd_II.0/
+;;;     U121.2_LSI-11_P-CODE_SOURCE.raw.gz
+;;; Desciption: Bootloader for QX type REMEX drives.
+;;; Date: 1979-02-06
+        .NLIST  TTM
+        .TITLE  QX-11 FLOPPY BOOTSTRAP LOADER
+        ; FOR VERSION I.5, II.0 INTERPS.
+        ;
+        ; COPYRIGHT (C) 1978 REGENTS OF THE UNIVERSTIY OF CALIFORNIA.
+        ; PERMISSION TO COPY OR DISTRIBUTE THIS SOFTWARE OR DOCUMEN-
+        ; TATION IN HARD COPY OR SOFT COPY GRANTED ONLY BY WRITTEN LICENSE
+        ; OBTAINED FROM THE INSTITUTE OF INFORMATION SYSTEMS.  ALL RIGHTS
+        ; RESERVED.  NO PART OF THIS PUBLICATION MAY BE REPRODUCED, STORED
+        ; IN A RETRIEVAL SYSTEM ( E.G., IN MEMORY, DISK, OR CORE) OR BE
+        ; TRANSMITTED BY ANY MEANS, ELECTRONIC, MECHANICAL, PHOTOCOPY,
+        ; RECORDING, OR OTHERWISE, WITHOUT PRIOR WRITTEN PERMISSION FROM THE
+        ; PUBLISHER.
+        ;
+        ;
+R0=%0
+R1=%1
+BK=%2
+R2=%2
+BASE=%3
+R3=%3
+IPC=%4
+R4=%4
+MP=%5
+R5=%5
+SP=%6
+PC=%7
+BOOT7G = 10110
+RCSR = 177560
+XCSR = 177564
+XCSR = 177564
+XBUF = 177566
+DTID = 6
+DELENG = 26.
+CR = 15
+LF = 12
+BUZZ = 7
+VCR = 177744    ; TEST ADDRESS FOR 8510A
+NSEGS = 16.
+DATASZ = -10    ; OFFSET TO LOCAL DATA SIZE IN JTAB
+SYUNIT = 404
+SEG    = 422
+MEMTOP = 424
+MSCINFO = 472
+SEGTBL = 540
+        ;
+        ;STAGE II RESIDES ON SECTOR 1, TRACK 1 OF UNIT 0
+        ;UNIT 0 ONLY IS ALWAYS BOOTSTRAPED
+        ;BOOTSTRAP STAGE I IS
+        ;A READ ROUTINE TO LOAD
+        ;THE FIRST SIX BLOCKS...THIS INCLUDES
+        ;THE REMAINING LOADER AND THE DISK DIR.
+        ;
+        .ASECT
+        . = 0
+        MOV R0, R1              ;VALIDATION CODE, AND
+                                ;UPDATE BUFFER POINTER
+        BR BOOT1                ;JMP AROUND VECTORS
+        .WORD NXM
+        .WORD 340
+        .WORD 173000            ; BAD INSTRUCTION REBOOTS
+        .WORD 340
+        .WORD QREADS            ;BPT CALLS READ SUB THRU HERE
+        .WORD 340
+        .WORD QWAIT             ;IOT CALLS WAIT ROUTINE HERE
+        .WORD 340
+        . = 34
+        .WORD   READ            ;CALL DRIVER VIA TRAP
+        .WORD 340
+BOOT1:  MOVB @(PC)+, R5         ;NXT SECTR + TRAP P.S.W.
+1$:     .WORD SECLST            ;LIST OF BYTES
+        BEQ BOOT                ;0->GO TO REAL BOOT
+        DEC 1$                  ;ADV PNTR...GO THRU HERE ONCE!!
+        MOV #BOOT7G, PC         ;GO BACK TO STAGE 1 BOOT
+        ;
+        . = 100                 ; LINE CLOCK HANDLER
+        .WORD   102
+        RTI
+        ; HANDY DISK ROUTINE HERE OUT OF THE WAY
+TMARK:  MOV (R5)+, -(SP)        ;GET # OF 2MS TICKS REQ'D
+1$:     MOV #XCLK, (R4)         ;HIT CONTROLLER
+        IOT                     ;MARK TIME
+        DEC (SP)                ;COUNT TICKS
+        BNE 1$
+        TST (SP)+               ;ADJUST STACK
+        RTS R5                  ;WAKE HIM UP
+        .BYTE 0
+        .BYTE 26
+        .BYTE 24
+        .BYTE 22
+        .BYTE 20
+        .BYTE 16
+        .BYTE 14
+        .BYTE 12
+        .BYTE 10
+        .BYTE 6
+        .BYTE 4
+        .BYTE 2
+        .BYTE 31
+        .BYTE 27
+        .BYTE 25
+        .BYTE 23
+        .BYTE 21
+        .BYTE 17
+        .BYTE 15
+        .BYTE 13
+        .BYTE 11
+        .BYTE 7
+        .BYTE 5
+SECLST: .BYTE 3
+        .EVEN
+        ;
+        ;
+        ;
+        ;I/O FOR THE REMAINDER OF THE BOOTSTRAP
+        ;IS NOW SUPPORTED BY A DRIVER, WHO
+        ;IS SUPPORTED BY A READ-ONLY HANDLER
+        ;I/O REQUESTS ARE FOR LOGICAL BLOCK NMBRS
+        ;DRIVER USES FOLLOWING CALL PARAMETERS
+        ;               R0 = LOGICAL BLOCK NUMBER
+        ;               R1 = WORD COUNT
+        ;               R2 = BUFFER LOAD POINT
+        ;               R3,R4,R5 MAY BE DESTROYED
+        ;HNDLR MUST GOTO BIOERR ON FATAL ERROR
+READ:   ASL     R0              ;CONVERT BLOCK TO LOGICAL SECTOR
+        ASL     R0              ;LSN=BLOCK*4
+1$:     MOV     R0,-(SP)        ;SAVE LSN FOR LATER
+        MOV     R0,R3           ;WE NEED 2 COPIES OF LSN FOR MAPPER
+        MOV     R0,R4
+        CLR     R0              ;INIT FOR TRACK QUOTIENT
+        BR      3$              ;JUMP INTO DIVIDE LOOP
+2$:     SUB     #23.,R3         ;PERFORM MAJIK TRACK DISPLACEMENT
+3$:     INC     R0              ;BUMP QUOTIENT, STARTS AT TRACK 1
+        SUB     #26.,R4         ;TRACK = INTEGER(LSN/26)
+        BPL     2$              ;LOOP - R4=REM(LSN/26)-26
+        CMP     #-14.,R4        ;SET C IF SECTOR MAPS TO 1-13
+        ROL     R3              ;PERFORM 2:1 INTERLEAVE
+4$:     SUB     #26.,R3         ;ADJUST SECTOR INTO RANGE -1,-26
+        BPL     4$              ;(DIVIDE FOR REMAINDER ONLY)
+        ADD     #27.,R3         ;NOW PUT SECTOR INTO RANGE 1-26
+        BPT                     ;CALL READ ONLY HANDLER
+        MOV     (SP)+,R0        ;GET THE LSN AGAIN
+        INC     R0              ;SET UP FOR NEXT LSN
+        TST     R1              ;WHATS LEFT IN THE WORD COUNT
+        BGT     1$              ;BRANCH TO TRANSFER ANOTHER SECTOR
+NOBOMB: BIS     #1,2(SP)        ; SET CARRY IN RETN PSW
+        RTI                     ;RETURN/UNTRAP
+
+        .NLIST  BEX
+BIOERR: JSR     R0,BOMB
+        .ASCIZ  <CR><LF><BUZZ>'?IO ERROR WHILE BOOTING?'<CR><LF>
+        .EVEN
+
+NOCORE: JSR     R0,BOMB
+        .ASCIZ  <CR><LF><BUZZ>'?NOT ENOUGH CORE TO BOOT?'<CR><LF>
+        .LIST   BEX
+        .EVEN
+
+        . = 400
+        .ENABL LSB
+BOOT:   MOV     #20000,SP       ;SET STACK POINTER
+        ; CORE DETERMINATION
+        CLR     R2              ;LOOK FOR TOP OF CORE
+2$:     ADD     #4000,R2        ;MOVE TO NXT 1K BANK
+        CMP     R2, (PC)+       ;REACHED 28K YET ?
+$MEMRY: .WORD 160000    ;CHANGE HERE TO LOWER TOP O' MONITR
+        BEQ     NXM             ;YES, DO A 28K SYSTEM
+        TST     @R2             ;NO, SEE IF THIS LOC EXISTS
+        BR      2$              ;KEEP GOING IF WE DIDN'T TRAP
+        .DSABL LSB
+NXM:    MOV     R2,MEMSIZ       ; STASH MEMORY SIZE FOR LATER
+        CMP     R2,#100000      ; DO WE HAVE AT LEAST 16K?
+        BLO     NOCORE
+        MOV     #NOBOMB,@#4     ; AVOID BLOWUP FOR BAD MEM NOW
+        MOVB    #14,@#177566    ; SEND FORMFEED TO CONSOLE DEVICE
+        MOVB    #14,@#177766    ; ALSO TO POSSIBLE TERAK SCREEN
+        JSR     R0,DIRSRCH      ; FIND THE CODE FILE FOR THE SYSTEM
+        .ASCIZ  <15>'SYSTEM.PASCAL?'<CR><LF>
+        MOV     (R1)+,FSTSYS    ; SAVE FIRST BLOCK FOR SYSTEM CODE
+        JSR     R0,DIRSRCH      ; NOW LOOK FOR THE INTERPRETER .SAV FILE
+        .ASCIZ  <15>'SYSTEM.PDP-11?'<CR><LF>
+        MOV     (R1)+,R0        ; BLOCK # OF INTERP
+        MOV     @R1,R1          ; LAST BLOCK # IN INTERP
+        SUB     R0,R1           ; NOW R1 IS # BLOCKS TO READ
+        SWAB    R1              ; MAKE # WORDS FOR READ
+        MOV     R1,INTSIZ       ; SAVE INTERPRETER SIZE FOR LATER
+        MOV     #20000,R2       ; MEM ADDR TO READ INTERP INTO
+        TRAP                    ; PERFORM DISK READ
+        MOV     FSTSYS,R0       ; NOW READ SEGTBL FROM PASCAL CODE INTO INTERP
+        MOV     #NSEGS*2,R1     ; # WORDS TO READ
+        MOV     #DIREC,R2       ; AND THE MEMADDR
+        TRAP                    ; PERFORM THE READ
+        MOV     #DIREC,R0       ; SOURCE OF SEGDESC...THEN
+        MOV     #20000+SEGTBL,R2 ; RELOCATE DISK ADDRS
+        MOV     #NSEGS,R1       ; LOOP COUNTER
+1$:     MOV     #4,(R2)+        ; UNIT # ALWAYS 4
+        MOV     (R0)+,@R2       ; COPY IN REL DISK BLOCK
+        ADD     FSTSYS,(R2)+    ; ADD START ADDR TO REL ADDR ALRDY THERE
+        MOV     (R0)+,(R2)+
+        SOB     R1,1$           ; FOR ALL SEGS...LOOP
+        MOV     #20004+SEGTBL,R0 ; POINT R0 AT LENG OF SEG 0
+        MOV     MEMSIZ,R2       ; SET UP MEM ADDR TO READ ROUTINE
+        SUB     @R0,R2          ; GET HIGH ADDR...SUBTRACT CODE LENGTH
+        MOV     R2,SP           ; THIS IS STACK FOR SYSTEM ENTRY..STASH IT
+        MOV     @R0,R1          ; NOW # WORDS TO READ
+        ASR     R1              ; MAKE # WORDS...ASSUME < 32K BYTES
+        MOV     -(R0),R0        ; FINALLY, GET DISK ADDR
+        TRAP                    ; AND READ IN SYSTEM CODE
+        TST     -(R2)           ; R2 WAS ABOVE HIGH MEM...NOW @ HIGH MEM WORD
+        MOV     R2,20000+SEG    ; SET UP SEG STATE IN INTERP
+        MOV     R2,20000+MEMTOP ; SET TOP OF MEM PTR...USED IN CXP
+        MOV     #4,20000+SYUNIT ; SET UP SYSTEM UNIT #
+        SUB     -(R2),R2        ; R2 NOW POINTS @ JTAB OF OUTER BLOCK
+        MOV     SP,MP           ; SET UP MP & BASE TO CBP WILL
+        SUB     DATASZ(R2),MP   ; TO THEMSELVES
+        MOV     #400,@MP        ; FUNNY PARAM TO SYSTEM!!!!!!!!!
+        SUB     #14,MP
+        MOV     MP,BASE         ; ALL REGS SET UP NOW
+        CLR     -(SP)           ; SET UP FOR RTI
+        MOV     20040,R0        ; GRAB INTERP ENTRY POINT
+        MOV     R0,-(SP)        ; AND PUSH ON STACK FOR RTI
+        CLR     @#VCR           ; RESET SCREEN...IMPLICITLY SEE IF THERE
+        BCC     10$             ; IF NO ERROR THEN GO ON
+        MOV     20010(R0),R0    ; GRAB ADDR OF UNITABLE...GROSS!!!!!
+        CLR     20022(R0)       ; ZAP GRAPHICS DEVICE ENTRY
+        BIC     #2,20000+MSCINFO        ; ZAP HAS 8510A BIT
+10$:    MOV     #FINALE,R0
+        MOV     #100000,R1      ; WHERE WE COPY FINALE CODE
+        MOV     #<FINEND-FINALE>/2,BK   ; WORD COUNT OF FINALE CODE
+FINLOOP:MOV     (R0)+,(R1)+
+        SOB     BK,FINLOOP
+        MOV     #20000,R0
+        CLR     R1
+        MOV     INTSIZ,BK
+        JMP     @#100000
+
+FINALE: MOV     (R0)+,(R1)+
+        SOB     BK,FINALE
+        BIS     #100,@#RCSR
+        MOV     PC,IPC
+        ADD     #CBP.OP-.,IPC
+        NOP
+        RTI
+CBP.OP: .BYTE   128.+66.,1      ; CALL BASE PROCEDURE #1
+FINEND = .
+
+MEMSIZ: .WORD   ; SIZE OF MEMORY IN BYTES
+INTSIZ: .WORD   ; SIZE IN WORDS OF INTERPRETER
+FSTSYS: .WORD   ; FIRST DISK BLOCK OF PASCAL CODE FILE
+.PAGE
+.SBTTL  READ ONLY HANDLER, QX
+        ;CALLED BY BPT, USES IOT TO CALL WAIT ROUTINE
+        ;ALL I/O ERRORS ARE FATAL & WILL REQUIRE RE-BOOT
+        ;
+        ;ENTRY THRU BPT (LOC 14 & 16)
+        ;ON ENTRY:      R0 = DESIRED TRACK
+        ;               R1 = RUNNING WORD COUNT
+        ;               R2 = BUFFER START ADDRESS
+        ;               R3 = DESIRED SECTOR
+        ;               R3, R4, R5 ARE DESTROYED
+        ;               R2 IS RETURNED PNTING AT EOBUF
+        ;
+        QXCS = 177000
+        QXDB = 177002
+        XRTS = 31               ;HEAD DWN/READ TRKSEC/UNIT 0
+        XREAD = 33              ;HEAD DWN/READ/UNIT 0
+        XSEEKN = 25             ;HEAD DOWN/STEP IN/UNIT 0
+        XSEEKO = 27             ;HEAD DOWN/STEP OUT/UNIT 0
+        XHEAD = 20              ;HEAD DWN/UNIT 0
+        XCLK = 23               ;HEAD DWN/FIRE 2MS CLOCK
+        ;
+        ;
+        .MACRO TIME X           ;MACRO TO MARK TIME
+        JSR R5, TMARK
+        .RADIX 10
+        .IF GE <X-32767>
+        .WORD 16384
+        .IFF
+         .IF LE X
+         .WORD 1
+         .IFF
+        .WORD <X+1>/2           ;IN 2 MS. LUMPS
+         .ENDC
+        .ENDC
+        .RADIX
+        .ENDM
+        ;
+.PAGE
+QREADS: MOV #QXCS, R4           ;R4 IS STATUS ADR
+        SWAB R3                 ;PUT SECTOR IN UPPER BYTE
+        BIT #XHEAD, (R4)        ;IS HEAD DOWN??
+        BNE READZ               ;SKIP HED DOWN
+        MOV #XHEAD, (R4)        ;HEAD DOWN
+        TIME 50                 ;WAIT 50 MS
+READZ:  MOV R4, R5
+        MOV #XRTS, (R5)+        ;READ TRACK SECT
+        IOT
+CKTRK:  MOV (R5), R5            ;GET SECTOR/TRACK
+        BPL 1$                  ;SKIP IF NOT DELETED
+        CLR R5                  ;SKIP IN SAME DX
+        BR SEEKWT               ;AS LAST TIME
+1$:     SUB R0, R5              ;CHECK VS. REQUEST
+        TSTB R5                 ;TRACK BYTE ONLY
+        BEQ CKSCTR              ;FOUND !!!
+        BLT SEEKIN
+SEEKOT: MOV #XSEEKO, SKIPX      ;MARK DIRECTION
+SEEKWT: MOV SKIPX, (R4)         ;STEP WHICHEVER WAY
+        IOT                     ;WAIT DONE , CHECK ERRORS
+        TIME 6                  ;WAIT 6 MS
+        DECB R5                 ;BUMP TRACK ERROR
+        BGT SEEKWT              ;STEP FAST TIL ZERO
+        TIME 24                 ;WAIT 24 MS MORE(HEAD SETTLE)
+        BR READZ                ;GO READ TRKSEC
+SEEKIN: MOV #XSEEKN,(PC)+       ;MARK DIRECTION
+SKIPX:  .WORD XSEEKN            ;LAST DX STEPPED
+        NEGB R5                 ;ABS VAL OF TRK ERR
+        BR SEEKWT
+CKSCTR: CMP R5, R3              ;SECTOR FOUND ??
+        BNE READZ               ;TRY AGAIN IF SECTOR NOT FOUND
+MOVBUF: MOV #XREAD, (R4)        ;READ THEM BITS
+        IOT
+        TST (R4)+               ;GET DB PTR
+        MOV #100, R5            ;COUNT 64 WORDS
+MOVWRD: DEC R5                  ;BUMP MOD 64 COUNTER
+        BLT EXIT                ;64 WORDS XFRED => RETURN
+        MOV (R4), (R2)+         ;MOVE ANOTHER TO BUFFER
+        SOB R1, MOVWRD          ;LOOP ON WRD CNT ALSO
+EXIT:   RTI                     ;THEN RETURN WITH LESS THAN
+                                ;64 WORDS TRANSFERED
+.SBTTL  HANDLER WAIT ROUTINE
+.PAGE
+        ;
+        ;QWAIT  ROUTINE CALLED BY IOT TO CHK DONE & ERRORS
+QWAIT:  TSTB (R4)               ;WAIT ON DRIVE DONE BIT
+        BPL QWAIT
+        TST (R4)                ;ANY ERRORS???
+        BMI 1$                  ;ERROR!!!
+        RTI                     ;BACK TO CALLER
+1$:     DEC (PC)+               ;BUMP ERROR RETRY COUNT
+        .WORD 4                 ;ALLOW 3 RETRIES
+        BLE 3$                  ;TOO MANY...HANG UP
+        CLR (R4)                ;RETRY O.K. ... RESET ERROR
+        JMP BOOT                ;RESTART BOOT
+3$:     JMP BIOERR              ;GO TALK ABOUT IT
+.PAGE
+.SBTTL  MISC ROUTINES FOR BOOTING
+DIRSRCH:MOV     #DIREC+DTID,R1  ; R1 POINTS AT DTID OF EACH DIR ENTRY
+DIRLOOP:MOV     R1,R4           ; R4 IS USED FOR TITLE COMPARE
+        MOV     R0,R3           ; R3 IS TITLE TO LOOK FOR (IN CODE STREAM)
+        MOVB    @R0,R2          ; NUMBER OF BYTES IN NAME(STRING VAR)
+1$:     CMPB    (R3)+,(R4)+     ; CHECK EACH BYTE FOR EQUAL
+        BNE     2$              ; WOOPS, NEQ...CHECK NEXT ENTRY OR BOMB
+        DEC     R2              ; OK SO FAR...DECREMENT LOOP COUNTER
+        BPL     1$              ; LOOP FOR LENG+1 CHARS
+        ; EUREKA! WE HAVE FOUND IT...RETURN WITH R1 POINTING AT ENTRY
+        SUB     #DTID,R1        ; RETURN R1 AT START OF ENTRY
+        ADD     #18.,R0         ; POINT R0 PAST STRING IN CODE
+        RTS     R0              ; AND RETURN
+2$:     ADD     #DELENG,R1      ; SKIP R1 TO NEXT DIRECTORY ENTRY
+        CMP     R1,#ENDDIR      ; CHECK IF WE HAVE GONE OFF END OF DIR
+        BLO     DIRLOOP         ; IF NOT, CHECK NEXT ENTRY
+        .NLIST  BEX
+        JSR     R0,BOMB         ; OH WELL, NO SYSTEM FILE...TIME TO CROAK
+        .ASCII  <CR><LF><BUZZ>'?YOU DON'<47>'T HAVE A '<200>
+        .LIST   BEX
+        .EVEN
+        INC     R0              ; SKIP R0 PAST LENGTH BYTE
+
+BOMB:   MOVB    (R0)+,R1
+        BMI     XBOMB           ; IF MINUS IN STRING, RETURN
+        BEQ     HALTER
+1$:     TSTB    @#XCSR          ; WAIT UNTIL DL11 DONE BIT
+        BPL     1$
+        MOVB    R1,@#XBUF
+        BR      BOMB
+XBOMB:  ROR     R0              ; RETURN TO USER...WORD BOUND R0
+        ADC     R0
+        ROL     R0
+        RTS     R0
+
+HALTER: HALT
+        BR      HALTER
+
+BOOTSZ  = . + 777 / 1000
+.       = BOOTSZ * 1000
+DIREC = 2000
+ENDDIR = DIREC + 4000
+        .END

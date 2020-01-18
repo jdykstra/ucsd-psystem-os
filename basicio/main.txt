@@ -1,0 +1,310 @@
+{$CII.1 B0  Copyright(c)1979 Regents of the University of California, San Diego}
+(******************************************************************)
+(*                                                                *)
+(*      BASICIO  the standard procedures of UCSD BASIC            *)
+(*      Author:  J. Greg Davidson                                 *)
+(*      Date:    11 April, 1979                                   *)
+(*      Time:    6:30 P.M.                                        *)
+(*      Version: B0 for UCSD Pascal system II.1                   *)
+(*      Institute for Information Systems                         *)
+(*      University of California, San Diego                       *)
+(*      La Jolla, California                                      *)
+(*      Director:  Kenneth L. Bowles                              *)
+(*                                                                *)
+(*  Copyright (c) 1979 Regents of the University of California.   *)
+(*  Permission to copy or distribute this software or documen-    *)
+(*  tation in hard or soft copy granted only by written license   *)
+(*  obtained from the Institute for Information Systems.          *)
+(*                                                                *)
+(******************************************************************)
+
+{$S+,U-}
+
+(*$I GLOBALS.TEXT  *)
+
+SEPARATE UNIT basicio;
+
+INTERFACE
+Type
+  word = Packed Array[1..16] Of Boolean;
+  otherword = Packed Array[0..15] Of 0..1;
+  stackra = Array[0..30] Of Integer;
+
+  PROCEDURE BREADREAL(VAR F: FIB; VAR X: REAL);
+  PROCEDURE BWRITEREAL(VAR F: FIB; X: REAL; W, D: INTEGER);
+  Procedure Bgosub(Var stackptr: Integer; Var substack: stackra);
+  Procedure Breturn(Var stackptr: Integer; Var substack: stackra);
+  Procedure Bgetchar(Var s: String);
+  Function Bopenfile(Var donefile: word;
+                   Var FIBPTR:FIB;WINDPTR:WINDOWP;FILENUM:INTEGER;
+                   VAR TITLE:STRING;OLD:BOOLEAN):REAL;
+  Function Brandom(Var seed: Integer):Real;
+  Procedure Bautoinits(Var stackptr: Integer;
+                       Var donefile: Integer;
+                       Var seed: Integer);
+  Procedure Bautorandomizedinits(Var stackptr: Integer;
+                                 Var donefile: Integer;
+                                 Var seed: otherword);
+
+IMPLEMENTATION
+
+  PROCEDURE BREADREAL(*VAR F: FIB; VAR X: REAL*);
+    LABEL 1;
+    VAR CH: CHAR; NEG,XVALID: BOOLEAN; IPOT: INTEGER;
+  BEGIN
+    WITH F DO
+        BEGIN X := 0; NEG := FALSE; XVALID := FALSE;
+          IF FSTATE = FNEEDCHAR THEN FGET(F);
+          WHILE (FWINDOW^[0] = ' ') AND NOT FEOF DO FGET(F);
+          IF FEOF THEN GOTO 1;
+          CH := FWINDOW^[0];
+          IF (CH = '+') OR (CH = '-') THEN
+            BEGIN NEG := CH = '-'; FGET(F); CH := FWINDOW^[0] END;
+          WHILE (CH IN DIGITS) AND NOT FEOF DO
+            BEGIN XVALID := TRUE;
+              X := X*10 + (ORD(CH)-ORD('0'));
+              FGET(F); CH := FWINDOW^[0]
+            END;
+          IF FEOF THEN GOTO 1;
+          IPOT := -1;
+          IF CH = '.' THEN
+            BEGIN IPOT := 0;
+              REPEAT FGET(F); CH := FWINDOW^[0];
+                IF CH IN DIGITS THEN
+                  BEGIN XVALID := TRUE; IPOT := IPOT + 1;
+                    X := X + (ORD(CH)-ORD('0'))/PWROFTEN(IPOT)
+                  END
+              UNTIL FEOF OR NOT (CH IN DIGITS);
+              IF FEOF THEN GOTO 1
+            END;
+          IF ((CH = 'e') OR (CH = 'E')) AND (XVALID OR (IPOT < 0)) THEN
+            BEGIN
+              IF FSTATE = FJANDW THEN FGET(F)
+              ELSE FSTATE := FNEEDCHAR;
+              FREADINT(F,IPOT);
+              IF FEOF THEN GOTO 1;
+              IF NOT XVALID THEN X := 1; XVALID := TRUE;
+              IF IPOT < 0 THEN X := X/PWROFTEN(ABS(IPOT))
+              ELSE X := X*PWROFTEN(IPOT)
+            END;
+          IF XVALID THEN
+            IF NEG THEN X := -X
+            ELSE
+          ELSE SYSCOM^.IORSLT := IBADFORMAT
+        END;
+  1:
+  END (*BREADREAL*) ;
+
+  PROCEDURE BWRITEREAL(*X:REAL;  W, D: INTEGER*);
+  VAR J, TRUNCX, EXPX: INTEGER;
+      NORMX: REAL;  S: STRING[30];
+
+  BEGIN
+  (* Check W and D for validity *)
+  IF (W < 0) OR (D < 0) THEN  BEGIN W := 0;  D := 0 END;
+
+  (* Take abs(x), normalize it and calculate exponent *)
+  IF X < 0 THEN  BEGIN X := -X;  S[1] := '-' END
+           ELSE  S[1] := ' ';
+  EXPX := 0;  NORMX := X;
+  IF X >= PWROFTEN(0) THEN  (* divide down to size *)
+    WHILE NORMX >= PWROFTEN(1) DO
+      BEGIN EXPX := EXPX+1;  NORMX := X/PWROFTEN(EXPX) END
+  ELSE
+    IF X <> 0 THEN  (* multiply up to size *)
+      REPEAT
+        EXPX := EXPX-1;  NORMX := X*PWROFTEN(-EXPX)
+      UNTIL NORMX >= PWROFTEN(0);
+
+  (* Round number according to some very tricky rules *)
+  IF (D=0) OR (D+EXPX+1 > 6) THEN  (* scientific notation, or decimal places *)
+    NORMX := NORMX + 5/PWROFTEN(6)        (* overspecified *)
+  ELSE IF D+EXPX+1 >= 0 THEN
+    NORMX := NORMX + 5/PWROFTEN(D+EXPX+1);
+  (* if D+EXPX+1 < 0, then number is effectively 0.0 *)
+
+  (* If we just blew normalized stuff then fix it up *)
+  IF NORMX >= PWROFTEN(1) THEN
+    BEGIN  EXPX := EXPX+1;  NORMX := NORMX/PWROFTEN(1) END;
+
+  (* Put the digits into a string *)
+  FOR J := 3 TO 8 DO
+    BEGIN
+      TRUNCX := TRUNC(NORMX);
+      S[J] := CHR(TRUNCX+ORD('0'));
+      NORMX := (NORMX-TRUNCX)*PWROFTEN(1)
+    END;
+
+  (* Put number into proper form *)
+  IF (D=0) OR (EXPX >= 6) THEN  (* scientific notation *)
+    BEGIN
+      S[2] := S[3];
+      S[3] := '.';
+      J := 8;
+      IF EXPX <> 0 THEN
+        BEGIN
+          J := 9;
+          S[9] := 'E';
+          IF EXPX < 0 THEN
+            BEGIN J := 10;  S[10] := '-';  EXPX := -EXPX END;
+          IF EXPX > 9 THEN
+            BEGIN
+              J := J+1;
+              S[J] := CHR(EXPX DIV 10 + ORD('0'));
+            END;
+          J := J+1;
+          S[J] := CHR(EXPX MOD 10 + ORD('0'))
+        END;
+      S[0] := CHR(J);
+    END
+  ELSE  (* some kind of fixed point notation *)
+    IF EXPX >= 0 THEN
+      BEGIN
+        MOVELEFT(S[3], S[2], EXPX+1);
+        S[3+EXPX] := '.';
+        FILLCHAR(S[9], D-(5-EXPX), ' '); (* blank fill at end if precision *)
+        S[0] := CHR(3+D+EXPX);           (* was over-specified *)
+      END
+    ELSE
+      BEGIN
+        MOVERIGHT(S[3], S[3-EXPX], 6);  (* make room for leading zeroes *)
+        S[2] := '0';
+        S[3] := '.';
+        FILLCHAR(S[4], -EXPX-1, '0');  (* put in leading zeroes *)
+        FILLCHAR(S[9-EXPX], D-6+EXPX, ' ');(* put in blanks for over-precision*)
+        S[0] := CHR(3+D);
+      END;
+  IF W < LENGTH(S) THEN W := LENGTH(S);
+  FWRITESTRING( F, S, W );
+  END;  (*procedure write_real *)
+
+Procedure Bgosub{(Var stackptr: Integer; Var substack: stackra)};
+Const
+  numwrdparams = 2; {Must be the # of words of parameters.  Var parameters
+                    count as 1 word each, others according to their size.}
+Var { A must!!! be 1st variable declared }
+  a: Array[0..0] Of Integer;
+  {a gives us a known position at the base of Bgosub's data segment,
+    from which, with range checking turned off, we can access Bgosub's
+    return address, which points to just before the unconditional
+    jump in gosubstatement}
+  blow_up: 0..30;
+Begin
+  {$R-}
+    substack[stackptr] := a[-2-numwrdparams]+2;
+  {$R+}
+  stackptr := stackptr+1;
+  blowup := stackptr; {This gives invalid index if stack overflow}
+End;
+
+Procedure Breturn{(Var stackptr: Integer; Var substack: stackra)};
+Const
+  numwrdparams = 2;{Must be the # of words of parameters.  Var parameters
+                    count as 1 word each, others according to their sizes.}
+Var { A must!!! be 1st variable declared }
+  a: Array[0..0] Of Integer;
+  blow_up: 0..30;
+Begin
+  stackptr := stackptr-1;
+  blow_up := stackptr; {This gives invalid index if stack underflow.}
+  {$R-}
+    A[-2-numwrdparams]{procedure Breturn's return address} :=substack[stackptr];
+  {$R+}
+End;
+
+PROCEDURE BGETCHAR{(VAR S:STRING)};
+  VAR CH:CHAR;
+BEGIN
+  S := '*';
+  READ(KEYBOARD,CH);
+  IF EOF(KEYBOARD) THEN
+    S[1] := CHR(3){ETX}
+  ELSE IF EOLN(KEYBOARD) THEN
+    S[1] := CHR(13){CR}
+  ELSE
+    S[1] := CH;
+END;
+
+{$I-}
+Function Bopenfile{(Var donefile: word;
+                   Var FIBPTR:FIB;WINDPTR:WINDOWP;FILENUM:INTEGER;
+                   VAR TITLE:STRING;OLD:BOOLEAN):Real};
+Var
+  dontcare:FIBP;
+Begin
+  If donefile[filenum] Then
+    fclose(fibptr,clock)
+  Else
+    FINIT(FIBPTR,WINDPTR,-2);
+   FOPEN(FIBPTR,TITLE,OLD,dontcare);
+   BOPENFILE := IORESULT;
+   donefile[filenum] := True;
+End;
+{$I+}
+
+FUNCTION BRANDOM{(Var seed: Integer):REAL};
+{
+* From a program by Brian A.E. Meekings as reported in Pascal News of June 1978.
+* Note that boolean operations must operate on the whole word for this to work
+}
+  CONST PSHIFT = 2048;  {2^11}
+        QSHIFT = 16;    {2^4}
+        BIG    = 32767; {maxint}
+
+  TYPE  DUAL   = RECORD
+                   CASE BOOLEAN OF
+                     TRUE:  (I:INTEGER);
+                     FALSE: (B:BOOLEAN)
+                 END;{CASERECORD}
+
+  VAR   A, B, ACOMP, BCOMP : DUAL;
+
+BEGIN
+  {XOR number and shift it 4 bits right}
+    A.I := SEED; B.I := A.I DIV QSHIFT;
+    ACOMP.I := BIG - A.I; BCOMP.I := BIG - B.I;
+    A.B := (A.B AND BCOMP.B) OR (ACOMP.B AND B.B);
+
+  {XOR number and shift it 11 places left}
+    B.I := A.I*PSHIFT;
+    ACOMP.I := BIG - A.I; BCOMP.I := BIG - B.I;
+    A.B := (A.B AND BCOMP.B) OR (ACOMP.B AND B.B);
+
+    SEED := A.I;             {update seed}
+    BRANDOM := A.I/BIG;    {scale number into [0..1]}
+END;
+
+Procedure Bautoinits{(Var stackptr: Integer;
+                      Var donefile: Integer;
+                      Var seed: Integer)};
+Begin
+  stackptr := 0;
+  donefile := 0;
+  seed := 21648;
+End;
+
+PROCEDURE BAUTORANDOMIZEDINITS{(VAR STACKPTR: Integer;
+                                Var DONEFILE: Integer;
+                                SEED: Integer)};
+TYPE
+  TRIX = RECORD
+    CASE INTEGER OF
+      0: (INT:INTEGER);
+      1: (seed: otherword)
+    END;{CASERECORD}
+VAR
+  I:INTEGER;
+  LOW: trix;
+BEGIN
+  STACKPTR := 0;
+  TIME(I,LOW.int);
+  DONEFILE := 0;
+  FOR I := 0 TO 14 DO
+    SEED[I] := LOW.seed[14-I];
+  seed[15] := 0;
+END;
+
+END{Unit};
+
+Begin {dummy outer block}
+End.

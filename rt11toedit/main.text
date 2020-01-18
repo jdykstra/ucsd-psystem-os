@@ -1,0 +1,574 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+(* COPYRIGHT (c)  1979    REGENTS OF THE UNIVERSITY OF CALIFORNIA      *)
+(* Permission to Copy or Distribute this Software or                   *)
+(* Documentation in Hard or Soft Copy Granted Only by                  *)
+(* Written License Obtained from the Institute for Information Systems *)
+
+PROGRAM RT11TOTEXT;
+CONST
+  EMPTY = 512;
+  PERM = 1024;
+  TENTATIVE = 256;
+  ENDMARK = 2048;
+
+TYPE
+  CHARS = PACKED ARRAY [0..2] OF CHAR;
+  FILENTRY = RECORD
+    STATUSWORD: INTEGER;
+    FIRST: INTEGER;
+    SECOND: INTEGER;
+    EXTENSION: INTEGER;
+    LGTH: INTEGER;
+    FILLER: INTEGER;
+    DATE: INTEGER
+  END;
+
+  XFERTYPE=(RT11EDIT,BINARY,NONE);
+
+
+  DIREC = RECORD CASE BOOLEAN OF
+    FALSE: (BUF: PACKED ARRAY [0..1023] OF CHAR);
+    TRUE:  (SEGSAVAIL: INTEGER;
+            NEXTSEG: INTEGER;
+            HIGHSEG: INTEGER;
+            FILLER: INTEGER;
+            BEGINSEG: INTEGER;
+            ENTRY: ARRAY [0..71] OF FILENTRY)
+  END;
+
+VAR
+  R: PACKED RECORD CASE INTEGER OF
+     1:(INT:INTEGER);
+     2:(P1:PACKED ARRAY[0..1] OF CHAR)
+   END;
+  OFFSET,K,I, BLOCK,FILESIZE: INTEGER;
+  CH,C,A:CHAR;
+  WANTOUTFILE:BOOLEAN;
+  UNITP,IUNIT: INTEGER;
+  OUT: CHARS;
+  RT11: DIREC;
+  XFEROPTION:XFERTYPE;
+  TITLE,WANTED:PACKED ARRAY[0..9] OF CHAR;
+  NAME,S:STRING;
+  INBUF,OUTBUF:PACKED ARRAY[0..1023] OF CHAR;
+  INBUFF:PACKED ARRAY[0..10240] OF CHAR;
+  OUTBUFF:PACKED ARRAY[0..10740] OF CHAR;
+  FOUT:FILE;
+
+PROCEDURE DERAD50 (WORD: INTEGER; VAR STORE: CHARS);
+VAR
+  I: INTEGER;
+  NEG: BOOLEAN;
+BEGIN
+  NEG := WORD < 0;
+  IF NEG THEN WORD := WORD + 32767 + 1;
+  STORE[2] := CHR (WORD MOD 40);
+  IF NEG THEN
+    BEGIN
+      WORD := WORD DIV 40 + 819;
+      IF STORE[2] >= CHR(32) THEN WORD := WORD + 1;
+      STORE[2] := CHR( (ORD(STORE[2])+8) MOD 40)
+    END
+  ELSE
+    WORD := WORD DIV 40;
+  STORE[1] := CHR (WORD MOD 40);
+  STORE[0] := CHR (WORD DIV 40);
+  FOR I := 0 TO 2 DO
+    BEGIN
+      WORD := ORD(STORE[I]);
+      IF WORD = 0 THEN WORD := ORD (' ')
+      ELSE
+        IF WORD <= 26 THEN
+          WORD := WORD + 64
+        ELSE
+          IF WORD >= 30 THEN
+            WORD := WORD + 18
+          ELSE (*ERROR-CHANGE TO BLANK*)
+            WORD := ORD (' ');
+      STORE[I] := CHR(WORD)
+    END
+END (*DERAD50*);
+
+PROCEDURE ENRAD (NUMBARS: INTEGER; VAR I: INTEGER);
+VAR
+  M, N, P, J: INTEGER;
+BEGIN
+  J := NUMBARS DIV 10;
+  I := NUMBARS MOD 10 + 40 * (J MOD 10) + 1600 * (J DIV 10) - 16306
+END (*ENRAD*);
+
+PROCEDURE SHOWDIR;
+BEGIN
+  WRITELN;
+  WRITELN ('  TITLE      SIZE  START');
+  WRITELN;
+  I := 0;
+  BLOCK := RT11.BEGINSEG;
+  WITH RT11 DO
+  WHILE ENTRY[I].STATUSWORD <> ENDMARK DO WITH ENTRY[I] DO
+    BEGIN
+      IF STATUSWORD = PERM THEN
+        BEGIN
+          DERAD50 (FIRST, OUT);
+          WRITE (OUT);
+          DERAD50 (SECOND, OUT);
+          WRITE (OUT);
+          DERAD50 (EXTENSION, OUT);
+          IF OUT <> '   ' THEN WRITE ('.',OUT) ELSE WRITE (' ':4);
+        END
+      ELSE
+        WRITE (' <UNUSED> ');
+      WRITELN (LGTH:6, BLOCK:6);
+      BLOCK := BLOCK + LGTH;
+      I := I + 1
+    END;
+END (*SHOWDIR*);
+
+PROCEDURE LOCATEFILE;
+VAR I,J:INTEGER;
+  DONE:BOOLEAN;
+BEGIN
+  I:=0;
+  DONE:=FALSE;
+  BLOCK:=RT11.BEGINSEG;
+  WITH RT11 DO
+    WHILE (ENTRY[I].STATUSWORD<>ENDMARK) AND (NOT DONE) DO
+      WITH ENTRY[I] DO
+        BEGIN
+          IF STATUSWORD=PERM THEN
+            BEGIN
+              DERAD50(FIRST,OUT);
+              MOVERIGHT(OUT[0],TITLE[0],3);
+              DERAD50(SECOND,OUT);
+              MOVERIGHT(OUT[0],TITLE[3],3);
+              DERAD50(EXTENSION,OUT);
+              IF OUT='   ' THEN
+                FOR J:=6 TO 9 DO TITLE[J]:=' '
+              ELSE
+                BEGIN
+                  TITLE[6]:='.';
+                  MOVERIGHT(OUT[0],TITLE[7],3);
+                END;
+            END;
+          DONE:=(WANTED=TITLE);
+          IF NOT DONE THEN
+            BEGIN
+              BLOCK:=BLOCK+LGTH;
+              I:=I+1;
+            END;
+        END (*WHILE*);
+    IF DONE THEN
+      BEGIN
+        WRITELN;
+        FILESIZE:=RT11.ENTRY[I].LGTH;
+        WRITELN(TITLE,'  SIZE:',FILESIZE,', START:',BLOCK);
+      END
+    ELSE BLOCK:=-1; (*SIGNAL FAILURE WITH IMPOSSIBLE VALUE*)
+END (*LOCATEFILE*);
+
+FUNCTION GETWANTED:BOOLEAN;
+VAR I,J:INTEGER;
+BEGIN
+  WRITE('Enter title of wanted RT11 text file:');
+  GETWANTED:=FALSE;
+  READLN(S);
+  IF LENGTH(S)>0 THEN
+    BEGIN
+      I:=POS('.',S);
+      IF I<>-1 THEN
+        FOR J:=I TO 6 DO INSERT(' ',S,I);
+      WANTED:='          ';
+      MOVERIGHT(S[1],WANTED[0],LENGTH(S));
+      GETWANTED:=TRUE;
+    END;
+END (*GETWANTED*);
+
+PROCEDURE GETOUTNAME;
+VAR CH:CHAR;
+BEGIN
+  WRITE('Enter title of output Text file:');
+  READLN(S);
+  IF LENGTH(S)>0 THEN
+    BEGIN
+      WRITE('Enter unit # of Pascal disk :');
+      READLN(UNITP);
+        CASE UNITP OF
+          4: S:=CONCAT('#4:',S);
+          5: S:=CONCAT('#5:',S);
+          9: S:=CONCAT('#9:',S);
+          10: S:=CONCAT('#10:',S);
+          11: S:=CONCAT('#11:',S);
+          12: S:=CONCAT('#12:',S)
+        END;
+      REWRITE(FOUT,S);
+      WANTOUTFILE:=TRUE;
+      WRITE('Transfer Option? B(inary    R(t11 edit :');
+      READ(CH);
+      WRITELN;
+      IF CH IN ['a'..'z'] THEN CH:=CHR(ORD(CH)-32);
+      IF CH='B' THEN XFEROPTION:=BINARY ELSE
+          IF CH='R' THEN XFEROPTION:=RT11EDIT ELSE
+            XFEROPTION:=NONE;
+    END
+  ELSE
+    WANTOUTFILE:=FALSE;
+END (*GETOUTNAME*);
+
+PROCEDURE SINGETNAME;    (*FOR A SINGLE DRIVE *)
+VAR CH:CHAR;
+    ER:INTEGER;
+BEGIN
+  REPEAT
+    WRITELN('Place Pascal disk in drive then Type <C/R>');
+  READLN(KEYBOARD);
+ UNTIL IORESULT = 0;
+  WRITE('Enter title of output Text file:');
+  READLN(S);
+  IF LENGTH(S)>0 THEN
+    BEGIN
+      REWRITE(FOUT,S);
+      WANTOUTFILE:=TRUE;
+      WRITE('Transfer Option? B(inary    R(t11 edit :');
+      READ(CH);
+      WRITELN;
+      IF CH IN ['a'..'z'] THEN CH:=CHR(ORD(CH)-32);
+      IF CH='B' THEN XFEROPTION:=BINARY ELSE
+          IF CH='R' THEN XFEROPTION:=RT11EDIT ELSE
+            XFEROPTION:=NONE;
+    END
+  ELSE
+    WANTOUTFILE:=FALSE;
+END (*SINGETNAME*);
+
+PROCEDURE PUTPAGE(VAR POUT:INTEGER);
+VAR I:INTEGER;
+  CH:CHAR;
+BEGIN
+  I:=BLOCKWRITE(FOUT,OUTBUF,2);
+  POUT:=0;
+  FILLCHAR(OUTBUF,SIZEOF(OUTBUF),CHR(0));
+END (*PUTPAGE*);
+
+PROCEDURE TRANSLATE;
+CONST
+  LF=10;
+  CR=13;
+  DLE=16;
+VAR
+  I,BLKNUM,PIN,POUT,BLANKCNT:INTEGER;
+  INCH:CHAR;
+  NEWLINETOG:BOOLEAN;
+
+BEGIN
+  FILLCHAR(INBUF,SIZEOF(INBUF),CHR(0));
+  FILLCHAR(OUTBUF,SIZEOF(OUTBUF),CHR(0));
+  I:=BLOCKWRITE(FOUT,OUTBUF,2,0); (*2 blocks of nuls to start*)
+  BLANKCNT:=0;
+  POUT:=0;
+  NEWLINETOG:=FALSE;
+  FOR BLKNUM:=1 TO FILESIZE DO
+    BEGIN
+      UNITREAD(IUNIT,INBUF,512,BLOCK+OFFSET);
+      BLOCK:=BLOCK+1;
+      PIN:=0;
+      WHILE PIN<=511 DO
+        BEGIN
+          INCH:=INBUF[PIN];
+          IF NOT (ORD(INCH) IN [0,LF]) THEN
+            BEGIN
+              WRITE(INCH);
+              IF INCH=CHR(CR) THEN
+                BEGIN
+                  OUTBUF[POUT]:=CHR(CR);
+                  POUT:=POUT+1;
+                  NEWLINETOG:=TRUE;
+                  BLANKCNT:=0;
+                  IF POUT>940 THEN PUTPAGE(POUT);
+                END
+              ELSE
+                IF NEWLINETOG THEN
+                  BEGIN
+                    IF INCH=' ' THEN
+                      BLANKCNT:=BLANKCNT+1
+                    ELSE
+                      BEGIN
+                        OUTBUF[POUT]:=CHR(DLE);
+                        OUTBUF[POUT+1]:=CHR(ORD(' ')+BLANKCNT);
+                        NEWLINETOG:=FALSE;
+                        OUTBUF[POUT+2]:=INCH;
+                        POUT:=POUT+3;
+                      END;
+                  END (*NEWLINETOG*)
+                ELSE
+                  BEGIN
+                    OUTBUF[POUT]:=INCH;
+                    POUT:=POUT+1;
+                  END;
+          END (*IF INBUF...*);
+          PIN:=PIN+1;
+        END (*WHILE*);
+    END (*FOR*);
+  PUTPAGE(POUT);
+  CLOSE(FOUT,LOCK);
+END (*TRANSLATE*);
+
+
+PROCEDURE TRANSING;
+CONST
+  LF=10;
+  CR=13;
+  DLE=16;
+VAR
+  PERMSIZE,I,J,BLKNUM,PIN,POUT,BLANKCNT:INTEGER;
+  INCH:CHAR;
+  NEWLINETOG:BOOLEAN;
+
+BEGIN
+  K:=0;    (* To keep track of blocks transfered*)
+  PERMSIZE:=FILESIZE;
+  WHILE FILESIZE > 0 DO
+  BEGIN
+    FILLCHAR(OUTBUFF,SIZEOF(OUTBUFF),CHR(0));
+    FILLCHAR(INBUFF,SIZEOF(INBUFF),CHR(0));
+    FILLCHAR(OUTBUF,SIZEOF(OUTBUF),CHR(0));
+    WRITELN('Place RT11 Disk In Drive and Type <C/R>');
+    READ(KEYBOARD,CH);
+    IF FILESIZE>=20 THEN
+      BEGIN
+        J:=512*(20);
+      END
+    ELSE
+    J:=512*(FILESIZE);
+    UNITREAD(4,INBUFF,J,BLOCK+OFFSET);
+    WRITELN('Place Pascal Disk In Drive and Type <C/R>');
+    READ(KEYBOARD,CH);
+    BLANKCNT:=0;
+    POUT:=0;
+    NEWLINETOG:=FALSE;
+      PIN:=0;
+        WHILE PIN<= (J-1) DO
+          BEGIN
+            INCH:=INBUFF[PIN];
+            IF NOT (ORD(INCH) IN [0,LF]) THEN
+              BEGIN
+                WRITE(INCH);
+                IF INCH=CHR(CR) THEN
+                  BEGIN
+                    OUTBUFF[POUT]:=CHR(CR);
+                    POUT:=POUT+1;
+                    NEWLINETOG:=TRUE;
+                    BLANKCNT:=0;
+                  END
+                ELSE
+                  IF NEWLINETOG THEN
+                    BEGIN
+                      IF INCH=' ' THEN
+                        BLANKCNT:=BLANKCNT+1
+                      ELSE
+                        BEGIN
+                          OUTBUFF[POUT]:=CHR(DLE);
+                          OUTBUFF[POUT+1]:=CHR(ORD(' ')+BLANKCNT);
+                          NEWLINETOG:=FALSE;
+                          OUTBUFF[POUT+2]:=INCH;
+                          POUT:=POUT+3;
+                        END;
+                    END (*NEWLINETOG*)
+                  ELSE
+                    BEGIN
+                      OUTBUFF[POUT]:=INCH;
+                      POUT:=POUT+1;
+                    END;
+            END (*IF INBUF...*);
+            PIN:=PIN+1;
+          END (*WHILE*);
+  I:= BLOCKWRITE(FOUT,OUTBUF,2);
+  I:= BLOCKWRITE(FOUT,OUTBUFF,J DIV 512);
+  FILESIZE:=FILESIZE-20;
+  BLOCK:=BLOCK+20;
+  WRITELN;
+  K:=K+I;
+  END(*WHILE*);
+    IF K<> (PERMSIZE) THEN
+      BEGIN
+        WRITELN('THERE WAS AN ERROR IN TRANSFER!!');
+      END
+    ELSE
+IF ODD(I) THEN
+  I:=BLOCKWRITE(FOUT,OUTBUF,1);
+CLOSE(FOUT,LOCK);
+END (*TRANSING*);
+
+PROCEDURE XBINSING;
+VAR  I,PERMSIZE,J:INTEGER;
+BEGIN
+  K:=0;
+  PERMSIZE:=FILESIZE;
+  WHILE FILESIZE > 0 DO
+  BEGIN
+    WRITELN('Place RT11 Disk in Drive and Type <C/R>');
+    READ(KEYBOARD,CH);
+    IF FILESIZE>=20 THEN
+      BEGIN
+        J:=512*(20);
+      END
+    ELSE
+    J:=512*(FILESIZE);
+    UNITREAD(4,INBUFF,J,BLOCK+OFFSET);
+    WRITELN('Place Pascal Disk in Drive and Type <C/R>');
+    READ(KEYBOARD,CH);
+    I:= BLOCKWRITE(FOUT,INBUFF,J DIV 512);
+    FILESIZE:=FILESIZE-20;
+    BLOCK:=BLOCK+20;
+    K:=K+I;
+  END(*WHILE*);
+    IF I<> (PERMSIZE) THEN
+      BEGIN
+        WRITELN('THERE WAS AN ERROR IN TRANSFER!!');
+      END
+    ELSE
+CLOSE(FOUT,LOCK);
+END (*XBINSING*);
+
+PROCEDURE XBINARY;
+VAR I,BLKNUM:INTEGER;
+BEGIN
+  FOR BLKNUM:=1 TO FILESIZE DO
+    BEGIN
+      UNITREAD(IUNIT,INBUF,512,BLOCK+OFFSET);
+      BLOCK:=BLOCK+1;
+      I:=BLOCKWRITE(FOUT,INBUF,1);
+      IF I<>1 THEN
+        BEGIN
+          WRITELN;
+          WRITELN('OUTPUT ERROR, program terminated', CHR(7(*BEL*)));
+          EXIT(PROGRAM);
+        END;
+    END;
+  CLOSE(FOUT,LOCK);
+END (*XBINARY*);
+
+PROCEDURE FINDFILE(NAME:STRING);
+VAR I,J,K:INTEGER;
+    PAS:PACKED ARRAY[0..2048] OF CHAR;
+    DONE:BOOLEAN;
+    CH:CHAR;
+BEGIN
+  I:=33;  (*START OF FIRST FILENAME IN DIRECTORY*)
+  DONE:=FALSE;
+  K:=LENGTH(NAME);
+  UNITREAD(IUNIT,PAS,2048,2);
+  WHILE (I<2048) AND (NOT DONE) DO
+  BEGIN
+    IF NAME[1] = PAS[I] THEN DONE:=TRUE;
+    I:=I+1;
+    FOR J:= 2 TO K DO
+    BEGIN
+      IF NAME[J] <> PAS[I] THEN DONE:=FALSE;
+      I:=I+1;
+    END;
+    IF NOT DONE THEN I:=I+26-K
+    ELSE
+      I:=I-K-1;
+  END;
+  IF I>2034 THEN OFFSET:=-1
+  ELSE
+    BEGIN
+      I:=I-6;
+      WITH R DO
+      BEGIN
+        P1[0]:=PAS[I];
+        P1[1]:=PAS[I+1];
+        OFFSET:=INT;
+      END;
+    END;
+END;
+
+BEGIN (*MAIN*)
+  OFFSET:=0;
+  WRITE('Are you using a standard RT11 disk[Y,N]?');
+  READLN(CH);
+  WRITE('Are you using a Single floppy drive machine?');
+  READLN(A);
+  REPEAT
+    WRITE('Place RT11 disk in drive, indicate unit number [4-12], then (C/R)');
+    READLN(IUNIT);
+    IF CH IN ['Y','y'] THEN UNITREAD(IUNIT,RT11,1024,6)
+    ELSE
+      BEGIN
+        NAME:='RT-11.DIR';
+        FINDFILE(NAME);
+        UNITREAD(IUNIT,RT11,1024,OFFSET);
+      END;
+  UNTIL (IUNIT IN [4,5,9,10,11,12]) AND (IORESULT = 0);
+  IF OFFSET <> 0 THEN OFFSET:=OFFSET-6;
+  IF OFFSET>=0 THEN
+  BEGIN
+    WRITE('Display the directory? (y/n)');
+    READ(CH);
+    IF CH IN ['Y','y'] THEN SHOWDIR;
+    WRITELN;
+    IF GETWANTED THEN
+    IF A IN ['Y','y'] THEN
+      BEGIN
+        LOCATEFILE;
+        SINGETNAME;
+       IF WANTOUTFILE THEN
+         CASE XFEROPTION OF
+           RT11EDIT: TRANSING;
+           BINARY: XBINSING;
+         END (*CASE*);
+      END
+      ELSE
+    (*FOR A TWO DRIVE MACHINE*)
+      BEGIN
+        LOCATEFILE;
+        GETOUTNAME;
+        IF WANTOUTFILE THEN
+          CASE XFEROPTION OF
+            RT11EDIT: TRANSLATE;
+            BINARY:XBINARY;
+          END (*CASE*);
+      END;
+  WRITELN;
+  WRITELN('Put system disk in drive, then type [Y]:');
+  READ(KEYBOARD,C);
+END
+ELSE
+  WRITELN('The RT11 directory on the Pascal disk was not found',CHR(7));
+END.

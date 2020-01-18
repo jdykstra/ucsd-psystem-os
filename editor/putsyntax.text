@@ -1,0 +1,97 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+SEGMENT PROCEDURE PUTSYNTAX;
+VAR
+  D0,D1,D2,BLK,PTR,COLON: INTEGER;
+  T,C:PACKED ARRAY [0..2] OF CHAR;
+  BUF:PACKED ARRAY [0..1023] OF CHAR;
+  F: FILE;
+
+PROCEDURE PUTNUM;
+BEGIN
+  MSG:='Syntax Error #'; PUTMSG;
+  WRITE(USERINFO.ERRNUM,'. Type <sp>');
+END;
+
+BEGIN (* putsyntax *)
+  WITH USERINFO DO
+    BEGIN
+      OPENOLD(F,'*SYSTEM.SYNTAX');
+      IF IORESULT<>0 THEN PUTNUM
+      ELSE
+        BEGIN
+          IF ERRNUM<=104 THEN BLK:=2
+          ELSE
+            IF ERRNUM<=126 THEN BLK:=4
+            ELSE
+              IF ERRNUM<=151 THEN BLK:=6
+              ELSE
+                IF ERRNUM<=185 THEN BLK:=8
+                ELSE
+                 IF ERRNUM<=302 THEN BLK:=10
+                 ELSE BLK:=12;
+          IF BLOCKREAD(F,BUF,2,BLK)<>2 THEN PUTNUM
+          ELSE
+            BEGIN
+              IF BUF[0]=CHR(DLE) THEN PTR:=2 ELSE PTR:=0;
+              D0:=ERRNUM DIV 100; (* convert error number to characters *)
+              D1:=(ERRNUM-D0*100) DIV 10;
+              D2:=ERRNUM MOD 10;
+              T[0]:=CHR(D0+ORD('0')); T[1]:=CHR(D1+ORD('0'));
+              T[2]:=CHR(D2+ORD('0'));
+              REPEAT
+                FILLCHAR(C,3,'0');
+                COLON:=SCAN(MAXCHAR,=':',BUF[PTR]);
+                MOVELEFT(BUF[PTR],C[3-COLON],COLON);
+                COLON:=COLON+PTR;
+                PTR:=SCAN(MAXCHAR,=CHR(EOL),BUF[PTR])+PTR+3
+              UNTIL (T=C) OR (BUF[PTR]=CHR(0));
+              IF (T<>C) AND (BUF[PTR]=CHR(0)) THEN PUTNUM
+              ELSE
+                BEGIN
+                  MOVELEFT(BUF[COLON+1],MSG[1],(PTR-COLON)-4);
+                  MSG[0]:=CHR(MIN(68,(PTR-COLON)-4)); (* R- required *)
+                  HOME; CLEARLINE(0); WRITE(MSG,'.  Type <sp>');
+                END
+            END
+          END(* if ioresult<>0 *);
+        SHOWCURSOR;
+        REPEAT UNTIL GETCH=' ';
+        ERRBLK:=0; ERRSYM:=0; ERRNUM:=0; (*  Only yell once!!! *)
+      END(* with userinfo *)
+END(* putsyntax *);

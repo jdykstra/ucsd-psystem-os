@@ -1,0 +1,163 @@
+Build(ucsd-psystem-os)                                  Build(ucsd-psystem-os)
+
+
+
+NAME
+        How to build ucsd-psystem-os
+
+BEFORE YOU START
+        There are a few pieces of software you may want to fetch and install
+        before you proceed with your installation of the ucsd-psystem-os
+        project.
+
+        ucsd-psystem-fs (>= 1.15)
+                The ucsd-psystem-fs package is used to create and manipulate
+                UCSD p-System disk images.
+                http://ucsd-psystem-fs.sourceforge.net/
+
+        ucsd-psystem-vm (>= 0.11)
+                The ucsd-psystem-vm package is used to interpret UCSD p-System
+                codefiles, to execute the code present on UCSD p-System disk
+                images.
+                http://ucsd-psystem-vm.sourceforge.net/
+
+        ucsd-psystem-xc (>= 0.8)
+                The ucsd-psystem-xc package contains a cross compiler, used to
+                compile UCSD Pascal source files into UCSD p-System code
+                files.  It also contains a cross assembler, a linker, and
+                other tools needed to build a complete UCSD p-System from
+                source code.
+                http://ucsd-psystem-xc.sourceforge.net/
+
+SITE CONFIGURATION
+        The ucsd-psystem-os package is configured using the configure program
+        included in this distribution.
+
+        The configure shell script attempts to guess correct values for
+        various system-dependent variables used during compilation, and
+        creates the Makefile and lib/config.h files.  It also creates a shell
+        script config.status that you can run in the future to recreate the
+        current configuration.
+
+        Normally, you just cd to the directory containing ucsd-psystem-os's
+        source code and then type
+                $ ./configure
+                ...lots of output...
+                $
+
+        Running configure takes a few seconds.  While it is running, it prints
+        some messages that tell what it is doing.  If you don't want to see
+        the messages, run configure using the -quiet option; for example,
+                $ ./configure --quiet
+                $
+
+        By default, configure will arrange for the make install command to
+        install the ucsd-psystem-os package's files in /usr/local/bin, and
+        /usr/local/man.  There are options which allow you to control the
+        placement of these files.
+
+        --prefix=PATH
+                This specifies the path prefix to be used in the installation.
+                Defaults to /usr/local unless otherwise specified.
+
+        The configure script ignores most other arguments that you give it;
+        use the --help option for a complete list.
+
+        On systems that require unusual options for compilation or linking
+        that the ucsd-psystem-os package's configure script does not know
+        about, you can give configure initial values for variables by setting
+        them in the environment.  In Bourne-compatible shells, you can do that
+        on the command line like this:
+                $ CXX='g++ -traditional' LIBS=-lposix ./configure
+                ...lots of output...
+                $
+
+        Here are the make variables that you might want to override with
+        environment variables when running configure.
+
+        Variable: INSTALL
+                Program to use to install files.  The default is install if
+                you have it, cp otherwise.
+
+        If you need to do unusual things to compile the package, the
+        maintainer encourages you to figure out how configure could check
+        whether to do them, and mail diffs or instructions to the author so
+        that they can be included in the next release.
+
+BUILDING UCSD-PSYSTEM-OS
+        All you should need to do is use the
+                $ make
+                ...lots of output...
+                $
+        command and wait.  When this finishes you should see a directory
+        called stage1/klebsch containing several UCSD p-System disk images.
+
+        You can remove the program binaries and object files from the source
+        directory by using the
+                $ make clean
+                ...lots of output...
+                $
+        command.  To remove all of the above files, and also remove the
+        Makefile and lib/config.h and config.status files, use the following
+        command:
+                $ make distclean
+                ...lots of output...
+                $
+
+        The file etc/configure.in is used to create configure by a GNU program
+        called autoconf.  You only need to know this if you want to regenerate
+        configure using a newer version of autoconf.
+
+INSTALLING UCSD-PSYSTEM-OS
+        As explained in the SITE CONFIGURATION section, above, the
+        ucsd-psystem-os package is installed under the /usr/local tree by
+        default.  Use the --prefix=PATH option to configure if you want some
+        other path.  More specific installation locations are assignable, use
+        the --help option to configure for details.
+
+        All that is required to install the ucsd-psystem-os package is to use
+        the following command:
+                $ make install
+                ...lots of output...
+                $
+
+        Control of the directories used may be found in the first few lines of
+        the Makefile file and the other files written by the configure script;
+        it is best to reconfigure using the configure script, rather than
+        attempting to do this by hand.
+
+GETTING HELP
+        If you need assistance with the ucsd-psystem-os package, please do not
+        hesitate to contact the maintainer at
+                Peter Miller <pmiller@opensource.org.au>
+        Any and all feedback is welcome.  When reporting problems, please
+        include the version number.
+
+COPYRIGHT
+        Copyright (C) 1979 Regents of the University of California
+
+        "Permission to use, copy, modify, and distribute any part of UCSD
+        PASCAL solely authored by UC authors before June 1, 1979 for
+        educational, research, and non-profit purposes, without fee, and
+        without a written agreement is hereby granted, provided..." etc etc
+        etc
+        http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+
+        It may be found in the LICENSE.UCSD file included with this
+        distribution.
+
+        Copyright (C) 2006, 2009, 2010, 2011 Peter Miller
+
+        The ucsd-psystem-os package is distributed in the hope that it will be
+        useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
+        MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  The contributors
+        license (the "three clause" license) may be fould in the LICENSE file
+        included with this distribution.
+
+MAINTAINER
+        Peter Miller   E-Mail:   pmiller@opensource.org.au
+        /\/\*             WWW:   http://miller.emu.id.au/pmiller/
+
+
+
+Reference Manual                ucsd-psystem-os         Build(ucsd-psystem-os)

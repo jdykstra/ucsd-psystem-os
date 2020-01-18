@@ -1,0 +1,651 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+(*
+ * UCSD p-System Operating System
+ * Copyright (C) 2010 Peter Miller
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of the ucsd-psystem-os project nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *)
+
+(* This is an unpublished work copyright by the Regents of
+   the University of California. This item is the property of SofTech
+   Microsystems Inc., and it may be used, copied or distributed only
+   as permitted in a written license from that company. *)
+
+(************************************************************************)
+
+PROCEDURE FLC;
+VAR OOPS1:INTEGER;
+    CHARS1:PACKED ARRAY[0..19] OF CHAR;
+    OOPS2:INTEGER;
+    LOTSOFCHARS:PACKED ARRAY[0..259] OF CHAR;
+    OOPS3:INTEGER;
+    CHARS2:PACKED ARRAY[0..19] OF CHAR;
+    I:INTEGER;
+    OKAY:BOOLEAN;
+BEGIN
+  CHK(INIT);
+
+  OOPS1:=0;
+  OOPS2:=0;
+
+  DESCRIPTION('CSP FILLCHAR(chars,19,''*'')');
+  CHARS1:='^^^^^^^^^^^^^^^^^^^^';
+  FILLCHAR(CHARS1,19,'*');
+  CHK(CHARS1='*******************^');
+
+  DESCRIPTION('FLC chk char preceding 1st char to be filled-shouldnt change');
+  CHK(OOPS1=0);
+
+  DESCRIPTION('FLC chk char after last char to be filled-shouldnt change');
+  CHK(OOPS2=0);
+
+  LOTSOFCHARS[20]:='^';
+  OOPS2:=0;
+  OOPS3:=0;
+  DESCRIPTION('CSP FLC for 260 bytes');
+  FILLCHAR(LOTSOFCHARS,260,'+');
+  OKAY:=TRUE;
+  FOR I:=0 TO 259 DO
+    IF LOTSOFCHARS[I]<>'+' THEN
+      OKAY:=FALSE;
+
+  CHK(OKAY);
+
+  DESCRIPTION(
+         'FLC 260 chk char preceding 1st char to be filled, shouldn''t change');
+  CHK(OOPS2=0);
+
+  DESCRIPTION(
+            'FLC 260 chk char after last char to be filled, shouldn''t change');
+  CHK(OOPS3=0);
+
+  OOPS1:=0;
+  CHARS1:='********************';
+  FILLCHAR(CHARS1,1,'%');
+  CHARS2:='%*******************';
+
+  DESCRIPTION('FLC of 1 char');
+  CHK(CHARS2=CHARS1);
+
+  DESCRIPTION('FLC 1 chk char preceding 1st char to be filled-shouldnt change');
+  CHK(OOPS1=0);
+
+  DESCRIPTION('FLC 1 chk char after last char to be filled-shouldnt change');
+  CHK(CHARS1[1]='*');
+
+  CHARS1:=CHARS2;
+  DESCRIPTION('FLC 0');
+  FILLCHAR(CHARS1,0,'&');
+  CHK(CHARS1=CHARS2);
+
+  CHARS1:=CHARS2;
+  DESCRIPTION('FLC -1');
+  FILLCHAR(CHARS1,-1,'#');
+  CHK(CHARS1=CHARS2);
+END;
+
+(************************************************************************)
+
+PROCEDURE MVRMVL;
+VAR CHARS1,CHARS2:PACKED ARRAY[0..19] OF CHAR;
+BEGIN
+  CHK(INIT);
+
+  {MOVELEFT}
+  CHARS1:='ABCDEFGHIJKLMNOPQRST';
+  CHARS2:=CHARS1;
+
+  DESCRIPTION('MVL (CHARS[2nd char],CHARS[7th char],9)');
+  MOVELEFT(CHARS1[1],CHARS1[6],9);
+  CHK(CHARS1='ABCDEFBCDEFBCDEPQRST');
+
+  CHARS1:=CHARS2;
+  DESCRIPTION('MVL (CHARS[5th char],CHARS[8th char],1)  one char move');
+  MOVELEFT(CHARS1[4],CHARS1[7],1);
+  CHK(CHARS1='ABCDEFGEIJKLMNOPQRST');
+
+  CHARS1:=CHARS2;
+  DESCRIPTION('MVL 0 char move');
+  MOVELEFT(CHARS1[4],CHARS1[7],0);
+  CHK(CHARS1=CHARS2);
+
+  CHARS1:=CHARS2;
+  DESCRIPTION('MVL -1 char move (no move)');
+  MOVELEFT(CHARS1[4],CHARS1[7],-1);
+  CHK(CHARS1=CHARS2);
+
+  {MOVERIGHT}
+  CHARS1:=CHARS2;
+  DESCRIPTION('MVR (CHARS[7th char],CHARS[2nd char],9)');
+  MOVERIGHT(CHARS1[6],CHARS1[1],9);
+  CHK(CHARS1='ALMNOKLMNOKLMNOPQRST');
+
+  CHARS1:=CHARS2;
+  DESCRIPTION('MVR (CHARS[5th char],CHARS[8th char],1)');
+  MOVERIGHT(CHARS1[4],CHARS1[7],1);
+  CHK(CHARS1='ABCDEFGEIJKLMNOPQRST');
+
+  CHARS1:=CHARS2;
+  DESCRIPTION('MVR 0 chars move');
+  MOVERIGHT(CHARS1[4],CHARS1[7],0);
+  CHK(CHARS1=CHARS2);
+
+  CHARS1:=CHARS2;
+  DESCRIPTION('MVR -1 chars move (no move)');
+  MOVERIGHT(CHARS1[4],CHARS1[7],-1);
+  CHK(CHARS1=CHARS2);
+END;
+
+(************************************************************************)
+
+PROCEDURE SCN;
+
+  PROCEDURE CHKSCN1;
+  VAR UHHUH:PACKED ARRAY[0..1023] OF CHAR;
+  BEGIN
+    CHK(INIT);
+
+    FILLCHAR(UHHUH,SIZEOF(UHHUH),' ');
+    UHHUH[23]:='*';
+    DESCRIPTION('SCN +8 =   match at 9  (correct ans=8)');
+    CHK( SCAN(8,='*',UHHUH[14])=8);
+
+    DESCRIPTION('SCN +9 =   match at 9  (correct ans=9)');
+    CHK( SCAN(9,='*',UHHUH[14])=9);
+
+    DESCRIPTION('SCN +10 =   match at 9  (correct ans=9)');
+    CHK( SCAN(10,='*',UHHUH[14])=9 );
+
+    DESCRIPTION('SCN +10 =   match at 0  (correct ans=0)');
+    CHK( SCAN(10,='*',UHHUH[23])=0 );
+
+    DESCRIPTION('SCN -6 =   match at -7  (correct ans=-6)');
+    CHK( SCAN(-6,='*',UHHUH[30])=-6 );
+
+    DESCRIPTION('SCN -7 =   match at -7  (correct ans=-7)');
+    CHK( SCAN(-7,='*',UHHUH[30])=-7 );
+
+    DESCRIPTION('SCN -8 =   match at -7  (correct ans=-7)');
+    CHK( SCAN(-8,='*',UHHUH[30])=-7 );
+
+    DESCRIPTION('SCN -12 =   match at 0  (correct ans=0)');
+    CHK( SCAN(-12,='*',UHHUH[23])=0 );
+
+    DESCRIPTION('SCN +10 <>  non-match at 7  (correct ans=7)');
+    CHK( SCAN(10,<>' ',UHHUH[16])=7 );
+
+    DESCRIPTION('SCN +6 <>  non-match at 7  (correct ans=6)');
+    CHK( SCAN(6,<>' ',UHHUH[16])=6 );
+
+    DESCRIPTION('SCN +5 <>  non-match at 0  (correct ans=0)');
+    CHK( SCAN(5,<>' ',UHHUH[23])=0 );
+
+    DESCRIPTION('SCN -7 <>  non-match at -7  (correct ans=-7)');
+    CHK( SCAN(-7,<>' ',UHHUH[30])=-7 );
+
+    DESCRIPTION('SCN -6 <>  non-match at -7  (correct ans=-6)');
+    CHK( SCAN(-6,<>' ',UHHUH[30])=-6 );
+
+    DESCRIPTION('SCN -5 <>  non-match at 0  (correct ans=0)');
+    CHK( SCAN(-5,<>' ',UHHUH[23])=0 );
+  END;
+
+  PROCEDURE CHKSCN2;
+  VAR BIGIE:PACKED ARRAY[0..3500] OF CHAR;
+  BEGIN
+    CHK(INIT);
+
+    FILLCHAR(BIGIE,SIZEOF(BIGIE),' ');
+    BIGIE[2893]:='&';
+    DESCRIPTION('SCN 2534 =  match at 1663  (correct ans=1663)');
+    CHK( SCAN(2534,='&',BIGIE[1230])=1663 );
+
+    DESCRIPTION('SCN 1243 =  match at 0 (correct ans=0)');
+    CHK( SCAN(1243,='&',BIGIE[2893])=0 );
+
+    DESCRIPTION('SCN -923 =  match at -107 (correct ans=-107)');
+    CHK( SCAN(-923,='&',BIGIE[3000])=-107 );
+
+    DESCRIPTION('SCN -599 =  match at 0 (correct ans=0)');
+    CHK( SCAN(-599,='&',BIGIE[2893])=0 );
+
+
+    DESCRIPTION('SCN 1534 <>  non match at 881 (correct ans=881)');
+    CHK( SCAN(1534,<>' ',BIGIE[2012])=881  );
+
+    DESCRIPTION('SCN 1243 <>  non match at 0 (correct ans=0)');
+    CHK( SCAN(1243,<>' ',BIGIE[2893])=0 );
+
+    DESCRIPTION('SCN -711 <>  non match at -238 (correct ans=-238)');
+    CHK( SCAN(-711,<>' ',BIGIE[3131])=-238 );
+
+    DESCRIPTION('SCN -599 <>  non match at 0 (correct ans=0)');
+    CHK( SCAN(-599,<>' ',BIGIE[2893])=0 );
+
+  END;
+
+BEGIN
+  CHKSCN1;
+  CHKSCN2;
+END;
+
+(************************************************************************)
+
+PROCEDURE CSPEXIT;
+VAR DIDNTEXITENOUGH,MISSEDEXIT,MISSEDDOUBLEEXIT,MISSEDTRIPLEEXIT:BOOLEAN;
+
+  (*checks case of exit leaving only the present procedure*)
+  PROCEDURE EXITITSELF;
+  BEGIN
+    MISSEDEXIT:=FALSE;
+
+    DESCRIPTION('EXIT  out of presently executing procedure');
+    EXIT(EXITITSELF);
+    MISSEDEXIT:=TRUE;
+  END;
+
+
+  PROCEDURE TWOLEVELEXIT;
+
+    PROCEDURE EXITTWOLEVELEXIT;
+    BEGIN
+      MISSEDDOUBLEEXIT:=FALSE;
+      DIDNTEXITENOUGH:=FALSE;
+      DESCRIPTION('EXIT parent of presently executing procedure');
+      EXIT(TWOLEVELEXIT);
+      MISSEDDOUBLEEXIT:=TRUE;
+    END;
+
+  BEGIN
+    EXITTWOLEVELEXIT;
+
+    (*true if it exitted 1 procedure level correctly instead of 2 levels*)
+    DIDNTEXITENOUGH:=NOT MISSEDDOUBLEEXIT;
+  END;
+
+
+  PROCEDURE MULTILEVELEXIT;
+
+    PROCEDURE INSIDE1;
+
+      PROCEDURE INSIDE2;
+      BEGIN
+        MISSEDTRIPLEEXIT:=FALSE;
+        DESCRIPTION('EXIT  parent of parent   (3 levels)');
+        EXIT(MULTILEVELEXIT);
+        MISSEDTRIPLEEXIT:=TRUE;
+      END;
+
+    BEGIN
+      INSIDE2;
+      MISSEDTRIPLEEXIT:=TRUE;
+    END;
+
+  BEGIN
+    INSIDE1;
+    MISSEDTRIPLEEXIT:=TRUE;
+  END;
+
+BEGIN
+  CHK(INIT);
+
+  EXITITSELF;
+  CHK(NOT MISSEDEXIT);
+
+  TWOLEVELEXIT;
+  CHK((NOT MISSEDDOUBLEEXIT) AND (NOT DIDNTEXITENOUGH));
+
+  IF DIDNTEXITENOUGH THEN
+  BEGIN
+    DESCRIPTION(
+           'EXIT chk that exit of parent proc doesn''t only exit present proc');
+    CHK(FALSE);
+  END;
+
+  MULTILEVELEXIT;
+  CHK(NOT MISSEDTRIPLEEXIT);
+END;
+
+(************************************************************************)
+
+PROCEDURE TRS;
+TYPE ALPHA=PACKED ARRAY[1..8] OF CHAR;
+     CTP=^IDENTIFIER;
+     IDENTIFIER=RECORD
+                  NAME:ALPHA;
+                  LLINK,RLINK:CTP;
+                END;
+VAR  LCP1,LCP2:CTP;
+     DESCRIP:STRING;
+     LID:ALPHA;
+
+  PROCEDURE INITIALIZE;
+  BEGIN
+    NEW(LCP1);
+    NEW(LCP2);
+    WITH LCP1^ DO
+    BEGIN
+      NAME:='PROGRAM ';
+      LLINK:=NIL;
+      RLINK:=NIL;
+    END;
+  END;
+
+  PROCEDURE CHKTRS(LID:ALPHA;CORRECTANSWER:INTEGER);
+  VAR TRSVALUE,J:INTEGER;
+      TEMPDESCRIP,ANSWER,INTSTRING:STRING;
+  BEGIN
+    CHK(INIT);
+    TEMPDESCRIP:=DESCRIP;
+
+    TRSVALUE:=TREESEARCH(LCP1,LCP2,LID);
+
+    IF TRSVALUE<>CORRECTANSWER THEN
+    BEGIN
+      MYCONCAT(DESCRIP,' actually returned ');
+      PRINTINT(TRSVALUE,INTSTRING);
+      MYCONCAT(DESCRIP,INTSTRING);
+    END;
+    DESCRIPTION(DESCRIP);
+    CHK(TRSVALUE=CORRECTANSWER);
+
+    IF TRSVALUE=0 THEN
+    BEGIN
+      MYCONCAT(TEMPDESCRIP,'  chking ptr value');
+      DESCRIPTION(TEMPDESCRIP);
+      CHK(LCP2^.NAME=LID);
+    END ELSE
+      IF TRSVALUE = 1 THEN (*build right leaf*)
+      BEGIN
+        NEW(LCP2^.RLINK);
+        WITH LCP2^.RLINK^ DO
+        BEGIN
+          FOR J:=1 TO 8 DO NAME[J]:=LID[J];
+          LLINK:=NIL;
+          RLINK:=NIL;
+        END;
+      END ELSE (*(TRSVALUE=-1) build left leaf*)
+        IF TRSVALUE=-1 THEN
+        BEGIN
+          NEW(LCP2^.LLINK);
+          WITH LCP2^.LLINK^ DO
+          BEGIN
+            FOR J:=1 TO 8 DO NAME[J]:=LID[J];
+            LLINK:=NIL;
+            RLINK:=NIL;
+          END;
+        END;
+  END;
+
+BEGIN
+  INITIALIZE;
+
+  DESCRIP:='TRS ident to left of root-not present';
+  CHKTRS('AB      ',-1);
+
+  DESCRIP:='TRS ident to right of root-not present';
+  CHKTRS('PX      ',1);
+
+  DESCRIP:='TRS ident to right of left of root-not present';
+  CHKTRS('PAGE    ',1);
+
+  DESCRIP:='TRS ident present to right of left of root';
+  CHKTRS('PAGE    ',0);
+
+  DESCRIP:='TRS ident present in root';
+  CHKTRS('PROGRAM ',0);
+
+  DESCRIP:='TRS ident present to right of root';
+  CHKTRS('PX      ',0);
+
+  DESCRIP:='TRS ident present to left of root';
+  CHKTRS('AB      ',0);
+
+  DESCRIP:='TRS ident to left of right of left of root-not present';
+  CHKTRS('ABC     ',-1);
+
+  DESCRIP:='TRS ident to right of right of root-not present';
+  CHKTRS('XYZZY   ',1);
+
+  DESCRIP:='TRS ident present to left of right of left of root';
+  CHKTRS('ABC     ',0);
+
+  DESCRIP:='TRS ident present to right of right of root';
+  CHKTRS('XYZZY   ',0);
+
+  DESCRIP:='TRS ident to left of right of root-not present';
+  CHKTRS('PTOOOOIE',-1);
+
+  DESCRIP:='TRS ident to right of left of right of root-not present';
+  CHKTRS('PTOOOOIF',1);
+
+  DESCRIP:='TRS ident to left of right of root';
+  CHKTRS('PTOOOOIE',0);
+
+  DESCRIP:='TRS ident to right of left of right of root';
+  CHKTRS('PTOOOOIF',0);
+END;
+
+(************************************************************************)
+
+PROCEDURE IDS;
+TYPE CURSRANGE = 0..1023;
+     SYMBOL =   (IDENT,COMMA,COLON,SEMICOLON,LPARENT,RPARENT,DOSY,TOSY,
+                 DOWNTOSY,ENDSY,UNTILSY,OFSY,THENSY,ELSESY,BECOMES,LBRACK,
+                 RBRACK,ARROW,PERIOD,BEGINSY,IFSY,CASESY,REPEATSY,WHILESY,
+                 FORSY,WITHSY,GOTOSY,LABELSY,CONSTSY,TYPESY,VARSY,PROCSY,
+                 FUNCSY,PROGSY,FORWARDSY,INTCONST,REALCONST,STRINGCONST,
+                 NOTSY,MULOP,ADDOP,RELOP,SETSY,PACKEDSY,ARRAYSY,
+                 RECORDSY,FILESY,OTHERSY,LONGCONST,USESSY,UNITSY,INTERSY,
+                 IMPLESY,EXTERNSY,SEPSY);
+     OPERATOR = (MUL,RDIV,ANDOP,IDIV,IMOD,PLUS,MINUS,OROP,LTOP,LEOP,
+                 GEOP,GTOP,NEOP,EQOP,INOP,NOP);
+     ALPHA = PACKED ARRAY [1..8] OF CHAR;
+     CTP = ^ IDENTIFIER;
+     IDENTIFIER = RECORD
+                    NAME: ALPHA;
+                    LLINK,RLINK:CTP;
+                  END;
+     SYMBUFARRAY = PACKED ARRAY [CURSRANGE] OF CHAR;
+
+VAR  SYMBUFP: ^ SYMBUFARRAY;
+     SYMCURSOR:  CURSRANGE;
+     SY: SYMBOL;
+     OP: OPERATOR;
+     ID: ALPHA;
+
+     RESERVEDWORDS:ARRAY[0..200] OF RECORD
+                                      NAME:ALPHA;
+                                      RESERVEOP:OPERATOR;
+                                      RESERVESY:SYMBOL;
+                                    END;
+     SIZE,CURSNUM,J,I,MAXRESERVE: INTEGER;
+     DESCRIP,TEMPDESCRIP,WORDSTRING,LID: STRING;
+
+PROCEDURE MYINIT;
+VAR WORDCNT:INTEGER;
+     I: INTEGER;
+     LID: STRING;
+
+  PROCEDURE STUFF(NEWNAME:ALPHA;NEWSY:SYMBOL;NEWOP:OPERATOR);
+  BEGIN
+    WITH RESERVEDWORDS[MAXRESERV] DO
+    BEGIN
+      NAME:=NEWNAME;
+      RESERVEOP:=NEWOP;
+      RESERVESY:=NEWSY;
+    END;
+    MAXRESERVE:=MAXRESERVE+1;
+  END;
+
+BEGIN
+  STUFF('AND     ',MULOP,ANDOP);
+  STUFF('ARRAY   ',ARRAYSY,NOP);
+  STUFF('BEGIN   ',BEGINSY,NOP);
+  STUFF('CASE    ',CASESY,NOP);
+  STUFF('CONST   ',CONSTSY,NOP);
+  STUFF('DIV     ',MULOP,IDIV);
+  STUFF('DO      ',DOSY,NOP);
+  STUFF('DOWNTO  ',DOWNTOSY,NOP);
+  STUFF('END     ',ENDSY,NOP);
+  STUFF('ELSE    ',ELSESY,NOP);
+  STUFF('FOR     ',FORSY,NOP);
+  STUFF('FILE    ',FILESY,NOP);
+  STUFF('FORWARD ',FORWARDSY,NOP);
+  STUFF('FUNCTION',FUNCSY,NOP);
+  STUFF('GOTO    ',GOTOSY,NOP);
+  STUFF('IF      ',IFSY,NOP);
+  STUFF('IN      ',RELOP,INOP);
+  STUFF('LABEL   ',LABELSY,NOP);
+  STUFF('MOD     ',MULOP,IMOD);
+  STUFF('NOT     ',NOTSY,NOP);
+  STUFF('OF      ',OFSY,NOP);
+  STUFF('OR      ',ADDOP,OROP);
+  STUFF('PROCEDUR',PROCSY,NOP);
+  STUFF('PROGRAM ',PROGSY,NOP);
+  STUFF('PACKED  ',PACKEDSY,NOP);
+  STUFF('REPEAT  ',REPEATSY,NOP);
+  STUFF('RECORD  ',RECORDSY,NOP);
+  STUFF('SET     ',SETSY,NOP);
+  STUFF('SEGMENT ',PROGSY,NOP);
+  STUFF('THEN    ',THENSY,NOP);
+  STUFF('TO      ',TOSY,NOP);
+  STUFF('TYPE    ',TYPESY,NOP);
+  STUFF('UNTIL   ',UNTILSY,NOP);
+  STUFF('VAR     ',VARSY,NOP);
+  STUFF('WHILE   ',WHILESY,NOP);
+  STUFF('WITH    ',WITHSY,NOP);
+  STUFF('USES    ',USESSY,NOP);
+  STUFF('UNIT    ',UNITSY,NOP);
+  STUFF('IMPLEMEN',IMPLESY,NOP);
+  STUFF('INTERFAC',INTERSY,NOP);
+  STUFF('EXTERNAL',EXTERNSY,NOP);
+  STUFF('SEPARATE',SEPSY,NOP);
+END;
+
+PROCEDURE DOIDSCHK(NAME:STRING;GOODSY:SYMBOL;GOODOP:OPERATOR;
+                   GOODID:ALPHA;CHKID:BOOLEAN;WORDSIZE:INTEGER);
+VAR DESCRIP:STRING;
+BEGIN
+  CHK(INIT);
+
+  FOR J:=1 TO LENGTH(NAME) DO
+    SYMBUFP^[J+CURSNUM-1]:=NAME[J];
+  SYMBUFP^[LENGTH(NAME)+CURSNUM]:=' ';
+  SYMCURSOR:=CURSNUM;
+  DESCRIP:='IDS  on "';
+  MYCONCAT(DESCRIP,NAME);
+  TEMPDESCRIP:=DESCRIP;
+  MYCONCAT(TEMPDESCRIP,'"  chking SYMCURSOR value after IDS');
+  DESCRIPTION(TEMPDESCRIP);
+  IDSEARCH(SYMCURSOR,SYMBUFP^);
+  CHK(SYMCURSOR=CURSNUM+WORDSIZE-1);
+  TEMPDESCRIP:=DESCRIP;
+  MYCONCAT(TEMPDESCRIP,'"  chking for correct symbol value');
+  DESCRIPTION(TEMPDESCRIP);
+  CHK(SY=GOODSY);
+  TEMPDESCRIP:=DESCRIP;
+  IF GOODSY IN [MULOP,RELOP,ADDOP] THEN
+  BEGIN
+    MYCONCAT(TEMPDESCRIP,'"  chking for correct operator value');
+    DESCRIPTION(TEMPDESCRIP);
+    CHK(OP=GOODOP);
+  END;
+  IF CHKID THEN
+  BEGIN
+    MYCONCAT(DESCRIP,'"  chking for correct ID value');
+    DESCRIPTION(DESCRIP);
+    CHK(ID=GOODID);
+  END;
+  CURSNUM:=CURSNUM+1;
+END;
+
+BEGIN
+  NEW(SYMBUFP);
+  FILLCHAR(SYMBUFP^,1024,' ');
+  MAXRESERVE:=0;
+  CURSNUM:=0;
+  MYINIT;
+  CHK(INIT);
+
+  (*check all reserved words for correct operator and symbol values*)
+  FOR I:=0 TO MAXRESERVE-1 DO
+    WITH RESERVEDWORDS[I] DO
+    BEGIN
+      WORDSTRING:='        ';
+      FOR J:=1 TO 8 DO
+      BEGIN
+        WORDSTRING[J]:=NAME[J];
+        IF NAME[J]<>' ' THEN
+          SIZE:=J;
+      END;
+      DOIDSCHK(WORDSTRING,RESERVESY,RESERVEOP,NAME,FALSE,SIZE);
+    END;
+
+  DOIDSCHK('SMALL;',IDENT,NOP,'SMALL   ',TRUE,5);
+  DOIDSCHK('A',IDENT,NOP,'A       ',TRUE,1);
+  DOIDSCHK('A2345678901234567890',IDENT,NOP,'A2345678',TRUE,20);
+  DOIDSCHK('sChLuMp',IDENT,NOP,'SCHLUMP ',TRUE,7);
+  DOIDSCHK('WitH',WITHSY,NOP,'        ',FALSE,4);
+  DOIDSCHK('UNDER_SCORE',IDENT,NOP,'UNDERSCO',TRUE,11);
+END;
+
+(************************************************************************)

@@ -1,0 +1,653 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+(*
+ * UCSD p-System Operating System
+ * Copyright (C) 2010 Peter Miller
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of the ucsd-psystem-os project nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *)
+
+(* This is an unpublished work copyright by the Regents of
+   the University of California. This item is the property of SofTech
+   Microsystems Inc., and it may be used, copied or distributed only
+   as permitted in a written license from that company. *)
+
+(************************************************************************)
+
+PROCEDURE LORLANDLNOT;
+BEGIN
+  CHK(INIT);
+  (*
+   * This is not ISO 7185 compliant.
+   * It depends on the mis-implementation of odd.
+   *
+   * It is actually testing the bit-wise opcodes.
+   *
+  DESCRIPTION('LOR  ODD(14755) OR ODD(-28616)');
+  CHK(ORD(ODD(14755) OR ODD(-28616))=-17989);
+
+  DESCRIPTION('LAND  ODD(14755) AND ODD(-28616)');
+  CHK(ORD(ODD(14755) AND ODD(-28616))=4128);
+
+  DESCRIPTION('LNOT  NOT ODD(-28616)');
+  CHK(ORD(NOT(ODD(-28616)))=28615);
+   *)
+END;
+
+(************************************************************************)
+
+PROCEDURE EQUINEQI;
+
+  (* helper function to avoid constant folding by the compiler *)
+  procedure eq(a, b: integer; expect: boolean);
+  begin
+    chk((a = b) = expect);
+  end;
+
+  (* helper function to avoid constant folding by the compiler *)
+  procedure ne(a, b: integer; expect: boolean);
+  begin
+    chk((a <> b) = expect);
+  end;
+
+BEGIN
+  CHK(INIT);
+
+  DESCRIPTION('EQUI  1=1');
+  eq(1, 1, true);
+
+  DESCRIPTION('EQUI  -1=-1');
+  eq(-1, -1, true);
+
+  DESCRIPTION('EQUI  18234=18234');
+  eq(18234, 18234, true);
+
+  DESCRIPTION('EQUI  -1=1');
+  eq(-1, 1, false);
+
+  DESCRIPTION('EQUI  1=256  lsb1=msb2 msb1=lsb2');
+  eq(1, 256, false);
+
+  DESCRIPTION('EQUI  256=1  lsb1=msb2 msb1=lsb2');
+  eq(256, 1, false);
+
+  DESCRIPTION('EQUI 2048=2049  msb1=msb2  lsb1<>lsb2');
+  eq(2048, 2049, false);
+
+  DESCRIPTION('EQUI 2049=2048  msb1=msb2  lsb1<>lsb2');
+  eq(2049, 2048, false);
+
+  DESCRIPTION('EQUI 2050=3074  msb1<>msb2 lsb1=lsb2');
+  eq(2050, 3074, false);
+
+  DESCRIPTION('EQUI 3074=2050  msb1<>msb2 lsb1=lsb2');
+  eq(3074, 2050, false);
+
+  DESCRIPTION('NEQI  1<>1');
+  ne(1, 1, false);
+
+  DESCRIPTION('NEQI  -1<>-1');
+  ne(-1, -1, false);
+
+  DESCRIPTION('NEQI  18234<>18234');
+  ne(18234, 18234, false);
+
+  DESCRIPTION('NEQI  -1<>1');
+  ne(-1, 1, true);
+
+  DESCRIPTION('NEQI  1<>256  lsb1<>msb2 msb1<>lsb2');
+  ne(1, 256, true);
+
+  DESCRIPTION('NEQI  256<>1  lsb1<>msb2 msb1<>lsb2');
+  ne(256, 1, true);
+
+  DESCRIPTION('NEQI 2048<>2049  msb1<>msb2  lsb1<>lsb2');
+  ne(2048, 2049, true);
+
+  DESCRIPTION('NEQI 2049<>2048  msb1<>msb2  lsb1<>lsb2');
+  ne(2049, 2048, true);
+
+  DESCRIPTION('NEQI 2050<>3074  msb1<>msb2 lsb1<>lsb2');
+  ne(2050, 3074, true);
+
+  DESCRIPTION('NEQI 3074<>2050  msb1<>msb2 lsb1<>lsb2');
+  ne(3074, 2050, true);
+END;
+
+(************************************************************************)
+
+PROCEDURE GTRILESI;
+
+  (* helper function to avoid constant folding by the compiler *)
+  procedure gt(a, b: integer; expect: boolean);
+  begin
+    chk((a > b) = expect);
+  end;
+
+  (* helper function to avoid constant folding by the compiler *)
+  procedure lt(a, b: integer; expect: boolean);
+  begin
+    chk((a < b) = expect);
+  end;
+
+BEGIN
+  CHK(INIT);
+
+  DESCRIPTION('GTRI  1>1');
+  gt(1, 1, false);
+
+  DESCRIPTION('GTRI  0>1');
+  gt(0, 1, false);
+
+  DESCRIPTION('GTRI  0>-1');
+  gt(0, -1, true);
+
+  DESCRIPTION('GTRI  -1>0');
+  gt(-1, 0, false);
+
+  DESCRIPTION('GTRI  2>1');
+  gt(2, 1, true);
+
+  DESCRIPTION('GTRI  1>-1');
+  gt(1, -1, true);
+
+  DESCRIPTION('GTRI  -1>1');
+  gt(-1, 1, false);
+
+  DESCRIPTION('GTRI  3074>2050  msb1>msb2  lsb1=lsb2');
+  gt(3074, 2050, true);
+
+  DESCRIPTION('GTRI  1028>1025  msb1=msb2  lsb1>lsb2');
+  gt(1028, 1025, true);
+
+  DESCRIPTION('GTRI  30000>-30000');
+  gt(30000, -30000, true);
+
+  DESCRIPTION('GTRI  -30000>30000');
+  gt(-30000, 30000, false);
+
+  DESCRIPTION('LESI  1<1');
+  lt(1, 1, false);
+
+  DESCRIPTION('LESI  0<1');
+  lt(0, 1, true);
+
+  DESCRIPTION('LESI  0<-1');
+  lt(0, -1, false);
+
+  DESCRIPTION('LESI  -1<0');
+  lt(-1, 0, true);
+
+  DESCRIPTION('LESI  1<2');
+  lt(1, 2, true);
+
+  DESCRIPTION('LESI  1<-1');
+  lt(1, -1, false);
+
+  DESCRIPTION('LESI  -1<1');
+  lt(-1, 1, true);
+
+  DESCRIPTION('LESI  2050<3074  msb1<msb2  lsb1=lsb2');
+  lt(2050, 3074, true);
+
+  DESCRIPTION('LESI  1025<1028  msb1=msb2  lsb1<lsb2');
+  lt(1025, 1028, true);
+
+  DESCRIPTION('LESI  30000<-30000');
+  lt(30000, -30000, false);
+
+  DESCRIPTION('LESI  -30000<30000');
+  lt(-30000, 30000, true);
+END;
+
+(************************************************************************)
+
+PROCEDURE GEQILEQI;
+
+  (* helper function to avoid constant folding by the compiler *)
+  procedure ge(a, b: integer; expect: boolean);
+  begin
+    chk((a >= b) = expect);
+  end;
+
+  (* helper function to avoid constant folding by the compiler *)
+  procedure le(a, b: integer; expect: boolean);
+  begin
+    chk((a <= b) = expect);
+  end;
+
+BEGIN
+  CHK(INIT);
+
+  DESCRIPTION('GEQI  1>=1');
+  ge(1, 1, true);
+
+  DESCRIPTION('GEQI  2>=1');
+  ge(2, 1, true);
+
+  DESCRIPTION('GEQI  1>=2');
+  ge(1, 2, false);
+
+  DESCRIPTION('GEQI  1>=0');
+  ge(1, 0, true);
+
+  DESCRIPTION('GEQI  -1>=1');
+  ge(-1, 1, false);
+
+  DESCRIPTION('GEQI  1>=-1');
+  ge(1, -1, true);
+
+  DESCRIPTION('GEQI  30000>=-30000');
+  ge(30000, -30000, true);
+
+  DESCRIPTION('GEQI  -30000>=30000');
+  ge(-30000, 30000, false);
+
+  DESCRIPTION('GEQI  10000>=-10000');
+  ge(10000, -10000, true);
+
+  DESCRIPTION('GEQI  -10000>=10000');
+  ge(-10000, 10000, false);
+
+  DESCRIPTION('LEQI  1<=1');
+  le(1, 1, true);
+
+  DESCRIPTION('LEQI  2<=1');
+  le(2, 1, false);
+
+  DESCRIPTION('LEQI  1<=2');
+  le(1, 2, true);
+
+  DESCRIPTION('LEQI  1<=0');
+  le(1, 0, false);
+
+  DESCRIPTION('LEQI  -1<=1');
+  le(-1, 1, true);
+
+  DESCRIPTION('LEQI  1<=-1');
+  le(1, -1, false);
+
+  DESCRIPTION('LEQI  30000<=-30000');
+  le(30000, -30000, false);
+
+  DESCRIPTION('LEQI  -30000<=30000');
+  le(-30000, 30000, true);
+
+  DESCRIPTION('LEQI  10000<=-10000');
+  le(10000, -10000, false);
+
+  DESCRIPTION('LEQI  -10000<=10000');
+  le(-10000, 10000, true);
+END;
+
+(************************************************************************)
+
+PROCEDURE ADI;
+
+  (* helper function to avoid constant folding by the compiler *)
+  procedure adix(a, b: integer; expect: integer);
+  begin
+    chk((a + b) = expect);
+  end;
+
+BEGIN
+  CHK(INIT);
+
+  DESCRIPTION('ADI 0+0');
+  adix(0, 0, 0);
+
+  DESCRIPTION('ADI 0+23');
+  adix(0, 23, 23);
+
+  DESCRIPTION('ADI 1+-1');
+  adix(1, -1, 0);
+
+  DESCRIPTION('ADI -1+-3');
+  adix(-1, -3, -4);
+
+  DESCRIPTION('ADI  1045+10234');
+  adix(1045, 10234, 11279);
+
+  DESCRIPTION('ADI  -10000+2354');
+  adix(-10000, 2354, -7646);
+
+  DESCRIPTION('ADI  30000+-20000');
+  adix(30000, -20000, 10000);
+
+  DESCRIPTION('ADI  -15000+-16000');
+  adix(-15000, -16000, -31000);
+
+  DESCRIPTION('ADI  20000+30000  (should not cause run time error)');
+  adix(20000, 30000, -15536);
+END;
+
+(************************************************************************)
+
+PROCEDURE SBI;
+
+  (* helper function to avoid constant folding by the compiler *)
+  procedure sbix(a, b: integer; expect: integer);
+  begin
+    chk((a - b) = expect);
+  end;
+
+BEGIN
+  CHK(INIT);
+
+  DESCRIPTION('SBI 0-0');
+  sbix(0, 0, 0);
+
+  DESCRIPTION('SBI 0-23');
+  sbix(0, 23, -23);
+
+  DESCRIPTION('SBI 1--1');
+  sbix(1, -1, 2);
+
+  DESCRIPTION('SBI -1--3');
+  sbix(-1, -3, 2);
+
+  DESCRIPTION('SBI  1045-10234');
+  sbix(1045, 10234, -9189);
+
+  DESCRIPTION('SBI  -10000-2354');
+  sbix(-10000, 2354, -12354);
+
+  DESCRIPTION('SBI  -15000--16000');
+  sbix(-15000, -16000, 1000);
+
+  DESCRIPTION('SBI  -20000-25000  should not cause run time error');
+  sbix(-20000, 25000, 20536);
+END;
+
+(************************************************************************)
+
+PROCEDURE ABI;
+VAR I:INTEGER;
+
+  (* helper function to avoid constant folding by the compiler *)
+  procedure abix(a: integer; expect: integer);
+  begin
+    chk(abs(a) = expect);
+  end;
+
+BEGIN
+  I:=1;
+  CHK(INIT);
+
+  DESCRIPTION('ABI  ABS(0)');
+  abix(0, 0);
+
+  DESCRIPTION('ABI  ABS(-10000)');
+  abix(-10000, 10000);
+
+  DESCRIPTION('ABI  ABS(12000)');
+  abix(12000, 12000);
+
+  DESCRIPTION('ABI  ABS(32767)');
+  abix(32767, 32767);
+
+  DESCRIPTION('ABI  ABS(-32767)');
+  abix(-32767, 32767);
+END;
+
+(************************************************************************)
+
+PROCEDURE MPI;
+
+  (* helper function to avoid constant folding by the compiler *)
+  procedure mpix(a, b: integer; expect: integer);
+  begin
+    chk((a * b) = expect);
+  end;
+
+BEGIN
+  CHK(INIT);
+
+  DESCRIPTION('MPI 0*0');
+  mpix(0, 0, 0);
+
+  DESCRIPTION('MPI 0*1');
+  mpix(0, 1, 0);
+
+  DESCRIPTION('MPI 1*0');
+  mpix(1, 0, 0);
+
+  DESCRIPTION('MPI -1*0');
+  mpix(-1, 0, 0);
+
+  DESCRIPTION('MPI 1*-1');
+  mpix(1, -1, -1);
+
+  DESCRIPTION('MPI -1*-1');
+  mpix(-1, -1, 1);
+
+  DESCRIPTION('MPI -1*1');
+  mpix(-1, 1, -1);
+
+  DESCRIPTION('MPI 2*100');
+  mpix(2, 100, 200);
+
+  DESCRIPTION('MPI 27*89');
+  mpix(27, 89, 2403);
+
+  DESCRIPTION('MPI -10*-20');
+  mpix(-10, -20, 200);
+
+  DESCRIPTION('MPI -89*123');
+  mpix(-89, 123, -10947);
+
+  DESCRIPTION('MPI 137*-234');
+  mpix(137, -234, -32058);
+
+  DESCRIPTION('MPI -200*-153');
+  mpix(-200, -153, 30600);
+
+  DESCRIPTION('MPI 32767*1');
+  mpix(32767, 1, 32767);
+
+  DESCRIPTION('MPI 32767*-1');
+  mpix(32767, -1, -32767);
+
+  DESCRIPTION('MPI 2*30000 causes no overflow (causes error only if>16 bits)');
+  mpix(2, 30000, -5536);
+END;
+
+(************************************************************************)
+
+PROCEDURE SQI;
+
+  (* helper function to avoid constant folding by the compiler *)
+  procedure sqix(a: integer; expect: integer);
+  begin
+    chk(sqr(a) = expect);
+  end;
+
+BEGIN
+  CHK(INIT);
+
+  DESCRIPTION('SQI  SQR(100)');
+  sqix(100, 10000);
+
+  DESCRIPTION('SQI  SQR(-25)');
+  sqix(-25, 625);
+
+  DESCRIPTION('SQI  SQR(0)');
+  sqix(0, 0);
+END;
+
+(************************************************************************)
+
+PROCEDURE MODI;
+
+  (* helper function to avoid constant folding by the compiler *)
+  procedure modix(a, b: integer; expect: integer);
+  begin
+    chk((a mod b) = expect);
+  end;
+
+BEGIN
+  CHK(INIT);
+
+  DESCRIPTION('MODI  0 MOD 1');
+  modix(0, 1, 0);
+
+  DESCRIPTION('MODI  1 MOD 1');
+  modix(1, 1, 0);
+
+  DESCRIPTION('MODI  1 MOD 3');
+  modix(1, 3, 1);
+
+  DESCRIPTION('MODI  3 MOD 1');
+  modix(3, 1, 0);
+
+  DESCRIPTION('MODI  10 MOD 3');
+  modix(10, 3, 1);
+
+  DESCRIPTION('MODI  3 MOD 10');
+  modix(3, 10, 3);
+
+  DESCRIPTION('MODI  9 MOD 3');
+  modix(9, 3, 0);
+
+  DESCRIPTION('MODI  3 MOD 9');
+  modix(3, 9, 3);
+
+  DESCRIPTION('MODI  1020 MOD 23');
+  modix(1020, 23, 8);
+
+  DESCRIPTION('MODI  4189 MOD 124');
+  modix(4189, 124, 97);
+
+  DESCRIPTION('MODI  4189 MOD 4189');
+  modix(4189, 4189, 0);
+
+  DESCRIPTION('MODI  32000 MOD 1');
+  modix(32000, 1, 0);
+
+  DESCRIPTION('MODI  32000 MOD 3');
+  modix(32000, 3, 2);
+
+  DESCRIPTION('MODI  32767 MOD 1');
+  modix(32767, 1, 0);
+
+  DESCRIPTION('MODI  32767 MOD 32767');
+  modix(32767, 32767, 0);
+END;
+
+(************************************************************************)
+
+PROCEDURE DVI;
+
+  (* helper function to avoid constant folding by the compiler *)
+  procedure dvix(a, b: integer; expect: integer);
+  begin
+    chk((a div b) = expect);
+  end;
+
+BEGIN
+  CHK(INIT);
+
+  DESCRIPTION('DVI  0 DIV 1');
+  dvix(0, 1, 0);
+
+  DESCRIPTION('DVI  1 DIV 1');
+  dvix(1, 1, 1);
+
+  DESCRIPTION('DVI  1 DIV 3');
+  dvix(1, 3, 0);
+
+  DESCRIPTION('DVI  3 DIV 1');
+  dvix(3, 1, 3);
+
+  DESCRIPTION('DVI  10 DIV 3');
+  dvix(10, 3, 3);
+
+  DESCRIPTION('DVI  3 DIV 10');
+  dvix(3, 10, 0);
+
+  DESCRIPTION('DVI  9 DIV 3');
+  dvix(9, 3, 3);
+
+  DESCRIPTION('DVI  3 DIV 9');
+  dvix(3, 9, 0);
+
+  DESCRIPTION('DVI  1020 DIV 23');
+  dvix(1020, 23, 44);
+
+  DESCRIPTION('DVI  4189 DIV 124');
+  dvix(4189, 124, 33);
+
+  DESCRIPTION('DVI  4189 DIV 4189');
+  dvix(4189, 4189, 1);
+
+  DESCRIPTION('DVI  32000 DIV 1');
+  dvix(32000, 1, 32000);
+
+  DESCRIPTION('DVI  32000 DIV 3');
+  dvix(32000, 3, 10666);
+
+  DESCRIPTION('DVI  32767 DIV 1');
+  dvix(32767, 1, 32767);
+
+  DESCRIPTION('DVI  32767 DIV 32767');
+  dvix(32767, 32767, 1);
+END;
+
+(************************************************************************)

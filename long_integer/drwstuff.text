@@ -1,0 +1,451 @@
+; UCSD PASCAL - Version I.5
+; Copyright (C) 1978, 1979 Regents of the University of California
+; All Rights Reserved
+;
+; Permission to use, copy, modify and distribute any part of UCSD
+; PASCAL solely authored by UC authors before June 1, 1979 for
+; educational, research and non-profit purposes, without fee, and
+; without a written agreement is hereby granted, provided that the
+; above copyright notice, this paragraph and the following three
+; paragraphs appear in all copies.
+;
+; Those desiring to incorporate UCSD PASCAL into commercial products or
+; use for commercial purposes should contact the Technology Transfer &
+; Intellectual Property Services, University of California, San Diego,
+; 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+; Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+;
+; IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+; FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+; INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+; THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+; DAMAGE.
+;
+; THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+; OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+; UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+; MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+; EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+; WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+; THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+; OTHER RIGHTS.
+;
+; Case Number: SD1991-807 (2006)
+; http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+.PROC   DRAWLINE,8.
+
+; PROCEDURE DRAWLINE (VAR RANGE: INTEGER;
+;       VAR ARAY: ARRAY [0..4799] OF INTEGER;
+;       ROWSIZE:  INTEGER;
+;       XSTART, YSTART, DELTAX, DELTAY: INTEGER;
+;       PENSTATE: (PENUP, PENDOWN, ERASER, COMPLEMENT, RADAR))
+
+; WRITTEN AND PRODUCED BY ROBERT HOFKIN
+; OF THE IIS IN JUNE, 1977
+; CONVERTED TO UCSD ASSEMBLER
+; AUG 78 BY RTS
+
+;       CONVENIENCE MACRO FOR VERTICAL MOVEMENTS
+
+.MACRO  YMOVER          ;GET TO NEXT ROW
+        TST     MOVEY           ;WHICH WAY ARE WE HEADING?
+        BLT     $1              ; 1 = MOVING UP
+        ADD     R3,R1   ;WORD := WORD + ROWSIZE
+        BR      $2              ;THAT'S ALL
+$1:     SUB     R3,R1
+$2:
+.ENDM
+
+
+;       INITIALIZATION
+
+; DRAWLINE ENTRY POINT
+
+        MOV     R3,SVBASE
+        MOV     (SP)+,RTNADR
+        MOV     (SP)+,R2                ;LOAD PEN STATE
+        ASL     R2                      ;DOUBLE FOR WORD ALIGN
+        MOV     PENTBL(R2),DRAWDOT      ;LOAD BRANCH ADDR
+        CLR     COUNT                   ;ZERO STEP COUNTER FOR RADAR
+
+;  GET ABS(DELTAX), ABS(DELTAY), AND X, Y DIRECTIONS
+
+        CLR     MOVEY                   ;CLEAR Y INDICATOR
+        MOV     (SP)+,DELTAY            ;DELTAY PARAMETER
+        BPL     $1                      ;ALL'S WELL IF NOT NEGATIVE
+        COM     MOVEY                   ;...OTHERWISE SET Y INDICATOR
+        NEG     DELTAY                  ;AND TAKE ABSOLUTE VALUE
+$1:     MOV     #XRIGHT,MOVEX           ;INITIALIZE X INCREMENT ROUTINE ADDR
+        MOV     (SP)+,DELTAX            ;COPY DELTAX PARAMETER
+        BPL     $2
+        MOV     #XLEFT,MOVEX
+        NEG     DELTAX
+
+;  COMPUTE DOT LOCATION INTO R0 (R1) AND R1 (R0)
+
+$2:     MOV     (SP)+,R1                ;YSTART = VERTICAL LINE DISPLACEMENT
+        MOV     (SP)+,R0                ;XSTART = HORIZ LINE DISP
+        MOV     (SP)+,R3                ;GET WORDS/ROW (ROWSIZE) ...
+        ASL     R3                      ;DOUBLE FOR BYTES
+        MUL     R3,R1           ;COMPUTE VERTICAL BYTE DISPLACEMENT
+        MOV     R0,R2
+        ASH     #-3,R2                  ;XSTART DIV 8 = HORIZ BYTE DISPL
+        BIC     #1,R2                   ;NEED A WORD ADDRESS THERE
+        ADD     R2,R1           ;..STARTING DISPLACEMENT
+        ADD     (SP)+,R1                ;ADD ARAY R3 FOR STARTING WORD ADDRESS
+        BIC     #177760,R0              ;XSTART MOD 16 IS START BIT NUMBER
+        ASL     R0                      ;...TIMES 2 FOR TABLE LOOKUP OFFSET
+
+;DECIDE WHICH WAY TO DRAW LINE
+
+        CMP     DELTAX,DELTAY
+        BLT     DOFORY                  ;IF MORE VERTICAL
+
+
+;       DRAW HORIZONTAL LINES
+
+        MOV     DELTAX,R2
+        BEQ     CLEANUP         ;PATCH FOR ZERO DISTABCE MOVE
+        ASR     R2              ;DELTAX DIV 2...
+        MOV     R2,ERROR        ;...TO PRE-ROUND ERROR
+        MOV     DELTAX,R2       ;LOAD R2 WITH REPEAT COUNT
+XLOOP:
+        ADD     DELTAY,ERROR
+        CMP     ERROR,DELTAX    ;IF ERROR >= DELTAX ...
+        BLT     XMOVEX
+        YMOVER                  ;...THEN MOVE Y
+        SUB     DELTAX,ERROR
+XMOVEX: JSR     PC,@MOVEX       ;X MOVER
+        JSR     PC,@DRAWDOT     ;DRAW APPROPRIATELY COLORED DOT
+        SOB     R2,XLOOP        ;REPEAT UNTIL R2 = 0
+        BR      CLEANUP         ;THEN GO AWAY
+
+
+;       DRAW VERTICAL LINES
+
+DOFORY: MOV     DELTAY,R2
+        ASR     R2
+        MOV     R2,ERROR
+        MOV     DELTAY,R2
+YLOOP:
+        ADD     DELTAX,ERROR
+        CMP     ERROR,DELTAY
+        BLT     YMOVEY
+        JSR     PC,@MOVEX       ;X MOVER
+        SUB     DELTAY,ERROR
+YMOVEY: YMOVER
+        JSR     PC,@DRAWDOT     ;DRAW DOT
+        SOB     R2,YLOOP
+
+;       CLEAN UP AND RETURN
+
+CLEANUP:
+        CMP     DRAWDOT,#RADAR  ;WAS THE RADAR AT WORK?
+        BNE     QUIET   ;IF NOT THERE'S NO VALUE TO RETURN
+        MOV     COUNT,@0(SP)    ;OTHERWISE PASS COUNT BACK
+QUIET:  TST     (SP)+   ;POP RANGE PARAMETER
+        MOV     SVBASE,R3
+        MOV     RTNADR,PC
+
+;       HORIZONTAL MOVE ROUTINES
+
+XLEFT:  DEC     R0              ;GO RIGHT ONE BIT ENTRY...
+        DEC     R0              ;...SCREEN REFRESH GOES FROM L.O. BIT!
+        BPL     $1              ;DONE IF WE HAVEN'T PASSED 0 ENTRY
+        TST     -(R1)   ;GO LEFT ONE WORD
+        MOV     #36,R0  ;SET UP FOR H.O. BIT
+$1:     RTS     PC              ;GO BACK TO CALLER
+
+XRIGHT: INC     R0              ;GO LEFT ONE BIT ENTRY
+        INC     R0              ;IT'S +2 FOR WORD ADDRESSING
+        BIT     #40,R0  ;GONE OFF HIGH END OF TABLE?
+        BEQ     $1              ;NO, IT'S FINE
+        TST     (R1)+   ;YES - NEXT WORD
+        CLR     R0              ;L.O. BIT
+$1:     RTS     PC              ;AND AWAY
+
+;       DRAW/SCAN ROUTINES
+
+PENDOWN:
+        BIS     BITTER(R0),(R1) ;SET BIT IN WORD
+        RTS     PC              ;AND GO BACK
+
+COMPL:  BIT     BITTER(R0),(R1) ;WHAT WAS THE BIT ANYWAY?
+        BEQ     PENDOWN         ;IF OFF, THEN ADD ELSE FALL THRU TO ERASE
+
+ERASER: BIC     BITTER(R0),(R1) ;CLEAR BIT IN WORD
+        RTS     PC
+
+RADAR:  INC     COUNT           ;COUNT ONE MORE STEP TAKEN
+        BIT     BITTER(R0),(R1)
+        BNE     WEHIT           ;IF HIT THEN ANNOUNCE
+        MOV     R1,HOLDWORD     ;NEED TO DESTROY
+        MOV     R0,HOLDBIT      ;SO SAVE FIRST!
+        YMOVER                  ;TRY NEXT Y POSITION
+        BIT     BITTER(R0),(R1) ;IS IT ON
+        BEQ     GIVEUP          ;NO - GIVE UP
+        MOV     HOLDWORD,R1     ;YES - ALSO CHECK TO LEFT
+        JSR     PC,@MOVEX
+        BIT     BITTER(R0),(R1) ;WE WANT THIS ON
+        BNE     WEHIT           ;SO WE CAN ANNOUNCE A HIT
+GIVEUP: MOV     HOLDWORD,R1     ;RESTORE OUR REGS
+        MOV     HOLDBIT,R0
+        RTS     PC              ;AND SPLIT
+WEHIT:  TST     (SP)+           ;POP JSR RETURN FROM STACK FIRST
+        BR      CLEANUP         ;GO AWAY FAST FAST FAST
+
+
+;       DATA STORAGE AND TABLE AREA
+
+;  BRANCH TABLE FOR PEN STATES
+
+PENTBL: .WORD   WEHIT   ;QUICK EXIT FOR PENUP
+        .WORD   PENDOWN
+        .WORD   ERASER
+        .WORD   COMPL
+        .WORD   RADAR
+
+BITTER: .WORD   0001H
+        .WORD   0002H
+        .WORD   0004H
+        .WORD   0008H
+        .WORD   0010H
+        .WORD   0020H
+        .WORD   0040H
+        .WORD   0080H
+        .WORD   0100H
+        .WORD   0200H
+        .WORD   0400H
+        .WORD   0800H
+        .WORD   1000H
+        .WORD   2000H
+        .WORD   4000H
+        .WORD   8000H
+
+;  SCRATCH STORAGE
+
+DRAWDOT:.WORD           ;STASH FOR PEN BRANCH ADDR
+MOVEX:  .WORD           ;STASH FOR XLEFT OR XRIGHT ADDR
+MOVEY:  .WORD           ;STASH FOR YMOVER INDICATOR 1=UP
+DELTAX: .WORD           ;HOLD DELTAX PARAM
+DELTAY: .WORD           ;HOLD DELTAY
+ERROR:  .WORD           ;ACCUMULATOR FOR APPROXIMATION ERRORS
+HOLDWORD:.WORD          ;TEMP FOR RADAR
+HOLDBIT:.WORD           ;TEMP FOR RADAR
+COUNT:  .WORD           ;NUMBER OF STEPS COUNTER FOR RADAR
+RTNADR: .WORD
+SVBASE: .WORD
+
+
+
+;*  DRAWBLOCK(SRC,SRCROW,SRCX,SRCY,DST,DSTROW,DSTX,DSTY,CNTX,CNTY,MODE);  *
+;*  MOVES A BLOCK OF GRAPHICS FROM THE SOURCE ARRAY 'SRC' TO THE DEST     *
+;*  ARRAY 'DST' FROM THE CARTESIAN COORDINATE (SRCX,SRCY) TO THE CARTESIAN*
+;*  COORDINATE (DSTX,DSTY).  CNTX DOTS ALONG THE X-AXIS ARE TRANSFERED    *
+;*  BY CNTY DOTS ALONG THE Y-AXIS.  THE NUMBER OF COLUMNS (X-AXIS) IN THE *
+;*  SOURCE ARRAY IS SRCROW AND LIKEWISE FOR THE DESTINATION ARRAY.  MODE  *
+;*  IS ONE OF FOUR: 0 FOR STRAIGHT,1 FOR COMPLEMENT,2 FOR XOR,3 FOR IOR.  *
+;*                    AUGUST 12, 1978                                     *
+
+.PROC   DRAWBLOCK,13
+
+MP      .EQU    R5
+IPC     .EQU    R4
+BASE    .EQU    R3
+BK      .EQU    R2
+
+
+
+; *** STACK OFFSETS FOR PARAMETERS (ONCE REGISTERS HAVE BEEN SAVED) ***
+SRCARRAY        .EQU    30
+SRCROWSIZE      .EQU    26
+SRCX            .EQU    24
+SRCY            .EQU    22
+DESTARRAY       .EQU    20
+DESTROWSIZE     .EQU    16
+DESTX           .EQU    14
+DESTY           .EQU    12
+COUNTX          .EQU    10
+COUNTY          .EQU    6
+MODE            .EQU    4
+
+POPSTACK        .EQU    <SRCARRAY-MODE+2>
+
+        MOV     (SP)+,RTNADR    ; SAVE RETURN ADDRESS
+        MOV     BK,SAVBK        ; SAVE BK
+        MOV     BASE,SAVBAS     ; SAVE BASE
+        MOV     IPC,-(SP)       ; SAVE IPC
+        MOV     MP,-(SP)        ;  AND MP
+
+        MOV     SRCX(SP),R0     ; GET BIT OFFSETS
+        BIC     #177760,R0      ;  INTO WORDS AT
+        MOV     DESTX(SP),R1    ;   START OF SOURCE
+        MOV     R1,R3           ;    AND DESTINATION
+        BIC     #177760,R1      ;     ROWS
+
+        ASL     R1
+        MOV     MASKTAB(R1),INITMASK    ; GET MASK FOR FIRST WORD OF ROW
+        COM     INITMASK        ; READY FOR FIRST OPERATION
+        ASR     R1
+
+        MOV     COUNTX(SP),R5
+        BNE     $5              ;
+        JMP     DRDONE          ; TOO BAD IT'S SO FAR !!
+$5:     ADD     R5,R3
+        BIC     #177760,R3
+        BEQ     $3              ; END UP ON EVEN WORD BOUNDARY ??
+        CMP     R3,R1           ; WILL WE HANG OVER ONTO NEXT WORD
+        BGT     $3              ;  WHEN WE GET TO LAST WORD ??
+        ADD     #20,R5
+        ADD     #20,COUNTX(SP)  ; YES, CATCH ENDS OF ROWS
+$3:     ASL     R3              ; GET MASK FOR LAST WORD OF EACH ROW
+        BNE     $2
+        ADD     #40,R3
+$2:     MOV     MASKTAB(R3),FINMASK
+
+        SUB     R0,R1           ; SET UP
+        MOV     R1,ROTATE       ;  ROTATE COUNT
+
+        MOV     SRCROWSIZE(SP),R3
+        MOV     R3,R2           ; CALCULATE
+        DEC     R2              ;  OFFSET
+        ASH     #-4,R2          ;   USED AT
+        BIC     #170000,R2      ;    END OF
+        DEC     R5              ;     SOURCE
+        ASH     #-4,R5          ;      ROW TO
+        BIC     #170000,R5      ;       GET TO
+        SUB     R5,R2           ;        NEXT
+        TST     R1              ;         ROW
+        BLE     $1
+        INC     R2
+$1:     ASL     R2
+        MOV     R2,SCOLOFFSET
+
+        MOV     DESTROWSIZE(SP),R2
+        MOV     R2,R4           ; CALCULATE
+        DEC     R4              ;  OFFSET
+        ASH     #-4,R4          ;   FOR NEXT
+        BIC     #170000,R4      ;    ROW OF
+        SUB     R5,R4           ;     DESTINATION
+        ASL     R4
+        MOV     R4,DCOLOFFSET
+
+        ASH     #-4,R3          ; GET
+        BIC     #170000,R3      ;  SOURCE
+        MUL     SRCY(SP),R3     ;   ADDRESS
+        MOV     SRCX(SP),R5
+        ASH     #-4,R5
+        BIC     #170000,R5
+        ADD     R3,R5
+        ASL     R5
+        ADD     SRCARRAY(SP),R5
+
+        ASH     #-4,R2          ; GET
+        BIC     #170000,R2      ;  DESTINATION
+        MUL     DESTY(SP),R2    ;   ADDRESS
+        MOV     DESTX(SP),R4
+        ASH     #-4,R4
+        BIC     #170000,R4
+        ADD     R3,R4
+        ASL     R4
+        ADD     DESTARRAY(SP),R4
+
+        MOV     MODE(SP),R2     ; GET OPERATING MODE
+        CLR     R3              ; SET UP BACKGROUND
+        CMP     #1,R2           ;  SCREEN DEFAULT
+        BNE     $4
+        DEC     R3
+$4:     MOV     R3,BACKGRND
+        ASL     R2
+        MOV     MAINTAB(R2),MAINJMP     ; SET UP JUMP FOR MAIN LOOP
+        MOV     ENDTAB(R2),ENDJMP       ; SET UP OPERATION FOR END OF ROW
+
+
+; ******** READY TO RUN ********
+
+DOROW:  DEC     COUNTY(SP)      ; ARE THERE ANY ROWS LEFT ??
+        BMI     DRDONE
+        MOV     COUNTX(SP),COUNT        ; SET UP COLUMN COUNTER
+        MOV     INITMASK,R1     ; SET UP MASK FOR FIRST WORD
+        MOV     ROTATE,R0       ; SET UP ROTATE AMOUNT
+        BLE     ICONTRW         ; ARE WE GOING LEFT ??
+        MOV     BACKGRND,R3     ; SET UP BACKGROUND SCREEN
+        SUB     #20,R0          ; NO, ADJUST THEN
+        BR      IMIDDLE         ;  INITIALIZE FUNNY
+ICONTRW:MOV     (R5)+,R3        ; GET FIRST WORD PAIR
+IMIDDLE:MOV     (R5),R2
+        ASHC    R0,R2           ; SHIFT IT AROUND
+        BIC     R1,R3           ; MAKE SURE GARBAGE DOESN'T APPEAR
+        COM     R1              ; FOR DESTINATION CLEARING
+        SUB     #20,COUNT       ; ARE WE DONE ALREADY ?
+        BLE     ENDROW          ; LIFE'S SO SHORT
+        JMP     @MAINJMP        ; GO FOR THE GUSTO
+
+CONTROW:MOV     (R5)+,R3        ; INITIALIZE FOR
+        MOV     (R5),R2         ;  NEXT SHIFT
+        ASHC    R0,R2           ; SHIFT IN WORD TO STORE
+        SUB     #20,COUNT       ; HAVE WE RUN OUT OF DESTINATION ?
+        BLE     ENDROW          ; ALMOST, CLEANUP
+        JMP     @MAINJMP        ; DO PROCESSING FOR PROPER MODE
+
+XORMAIN:XOR     R3,(R4)+        ; XOR MODE, STORE DIRECTLY
+        MOV     #-1,R1          ;
+        BR      CONTROW         ; GO BACK FOR MORE COLUMNS
+
+CMPMAIN:COM     R3              ; COMPLEMENT MODE -- COMPLEMENT SOURCE
+REGMAIN:BIC     R1,(R4)         ; REGULAR MODE -- KILL PART OR ALL OF DEST
+IORMAIN:BIS     R3,(R4)+        ; MOVE SOURCE INTO DEST
+        MOV     #-1,R1          ; KILL ALL OF DEST WORD UNTIL END OF ROW
+        BR      CONTROW
+
+ENDROW: BIC     FINMASK,R1      ; CLEAR OUT OLD FIELD
+        JMP     @ENDJMP         ; PROCESS APPROPRIATE MODE
+
+CMPEND: COM     R3              ; INVERT SOURCE
+REGEND: BIC     R1,(R4)
+IOREND: COM     R1
+        BIC     R1,R3           ; STICK IN NEW FIELD
+        BIS     R3,(R4)+
+        ADD     DCOLOFFSET,R4   ; GET TO THE NEXT ROW OF SOURCE
+        ADD     SCOLOFFSET,R5   ; AND DESTINATION
+        BR      DOROW
+
+XOREND: COM     R1
+        BIC     R1,R3
+        XOR     R3,(R4)+        ; XOR SOURCE INTO DESTINATION
+        ADD     DCOLOFFSET,R4   ; GET TO THE NEXT ROW OF DEST
+        ADD     SCOLOFFSET,R5   ;  AND OF SOURCE
+        BR      DOROW
+
+DRDONE:
+        MOV     (SP)+,MP        ; GET MP
+        MOV     (SP)+,IPC       ;  AND IPC
+        ADD     #POPSTACK,SP    ; POP THE WHOLE MESS
+        MOV     SAVBAS,BASE     ; GET BASE BACK
+        MOV     SAVBK,BK        ; GET BACK TO REAL STACK
+        MOV     RTNADR,PC       ; TRICKY RETURN
+
+; ****** MASK TABLE ******
+MASKTAB:.WORD   177777,177776,177774,177770,177760,177740,177700
+        .WORD   177600,177400,177000,176000,174000,170000,160000
+        .WORD   140000,100000,000000    ; MASK FOR CLEANING SRC,DST
+
+MAINTAB:.WORD   REGMAIN,CMPMAIN,XORMAIN,IORMAIN ; JUMP TABLE FOR MAIN LOOP
+ENDTAB: .WORD   REGEND,CMPEND,XOREND,IOREND     ; JUMP TABLE FOR END OF ROW OPS
+
+; ****** TEMPORARIES ******
+
+SAVBAS:         .WORD   0       ; BASE RESTORE VALUE
+SAVBK:          .WORD   0       ; BK RESTORE VALUE
+RTNADR          .WORD   0       ; ADDRESS FOR RETURN TO CALLING ROUTINE
+COUNT:          .WORD   0       ; NUMBER OF COLUMNS LEFT ON CURRENT ROW
+SCOLOFFSET:     .WORD   0       ; OFFSET FROM END OF SOURCE TO START OF NEXT
+INITMASK:       .WORD   0       ; MASK FOR FIRST WORD OF ROW
+ROTATE:         .WORD   0       ; ROTATE COUNT WHEN IN ROW
+FINMASK:        .WORD   0       ; MASK FOR LAST WORD OF ROW
+DCOLOFFSET:     .WORD   0       ; OFFSET FROM END OF DEST ROW TO START OF NEXT
+BACKGRND:       .WORD   0       ; BACKGROUND FOR INITIAL ROW MOVES
+MAINJMP:        .WORD   0       ; ROUTINE FOR MAIN LOOP, THIS MODE
+ENDJMP:         .WORD   0       ; ROUTINE FOR END LOOP, THIS MODE
+
+        .END

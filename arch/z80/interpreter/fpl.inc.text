@@ -1,0 +1,703 @@
+;
+; UCSD PASCAL - Version I.5
+; Copyright (C) 1978, 1979 Regents of the University of California
+; All Rights Reserved
+;
+; Permission to use, copy, modify and distribute any part of UCSD
+; PASCAL solely authored by UC authors before June 1, 1979 for
+; educational, research and non-profit purposes, without fee, and
+; without a written agreement is hereby granted, provided that the
+; above copyright notice, this paragraph and the following three
+; paragraphs appear in all copies.
+;
+; Those desiring to incorporate UCSD PASCAL into commercial products or
+; use for commercial purposes should contact the Technology Transfer &
+; Intellectual Property Services, University of California, San Diego,
+; 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+; Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+;
+; IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+; FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+; INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+; THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+; DAMAGE.
+;
+; THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+; OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+; UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+; MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+; EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+; WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+; THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+; OTHER RIGHTS.
+;
+; Case Number: SD1991-807 (2006)
+; http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+;
+;;; Source: http://bitsavers.org/bits/UCSD_Pascal/ucsd_II.0/
+;;;     U120_Z80_P-CODE_SOURCE.raw.gz
+;;; Date: 1978-Sep-13
+
+        .IF ~LSTFP
+         .NOLIST
+        .ELSE
+         .LIST
+        .ENDC
+
+;Copyright (c) 1978
+;  by the Regents of the University of California, San Diego
+
+; Beginning of file FPL
+
+; Floating point stuff...including basic stuff like the four math
+;   functions, fix, and float; and much more esoteric stuff, like
+;   transcendental functions.  All routines of any general interest
+;   are callable.
+; Hopefully in the near future there will be an arithmetic vector table,
+;   so you people adding assembly procedures to your system will
+;   be able to make use of all this wonderful software.
+
+
+; Naming conventions used throughout the floating point package...
+;   FPCa        Floating point constant a.
+;   FPMa        Floating point macro a.  Some of these macros leave
+;               well-specified stuff in registers.
+;   FPFa        Floating point function a.  Takes argument(s) on tos,
+;               leaves result on tos, and also in EDCB (except for
+;               FPFFIX, FPFDOUB, FPFHALV).
+;   FPLa        Floating point low level function.  Not necessarily
+;               directly callable, and probably not of interest to
+;               the user.
+;   FPGa        Floating point global variable a.
+;   aLb         Floating point local variable b for function a.
+;   FPRa        Floating point relational function a.  Returns
+;               Z = false, NZ = true (not yet meaningful).
+
+
+
+;***************** BASIC FLOATING POINT ARITHMETIC *************;
+;       Based on an 8080 floating point package by John Lamping
+
+
+; Numbers are four byte quantities represented as...
+; [exp] [sabc v] [w x] [y z]
+
+; s, a, b, c are bits, v, w, x, y, z are hex digits.
+
+; Exponent is biased by 128.  Mantissa is always normalized, and includes
+;   "invisible" bit just in front of a.
+
+; If exp = 0, number value is zero.
+
+; number value = (1-2*s) * .1abcvwxyz * 2^(exp-128)
+
+; Currently only simple rounding is used...true rounding to be implemented
+;    sometime in the future.
+
+; Any operation causing overflow or underflow will store a 01H into (FPERROR)
+
+; (I know error handling in these low-level routines could be simplified,
+;  but error-protocol was changed after this stuff was adapted to be
+;  used in the P-machine, and it was easier to put in small fixes.)
+
+
+FPLSETUP ; for fpadd, fpmul, fpdiv, fpsub
+        ; set HL = ^b, DE = ^a, A = # bytes of operands
+        ; stack is   ret. addr. in fp. | ret. addr. | b | a
+        LD      HL,0004H
+        ADD     HL,SP
+        LD      E,L
+        LD      D,H
+        INC     E
+        INC     DE
+        INC     E
+        INC     DE
+        LD      A,8
+        CLRCF
+        RET
+
+
+FPFADD  CALL    FPLSETUP
+        PUSH    AF              ; save stack cutting info and error info.
+        LD      A,02H           ; indicate 'add'
+        JP      FPLSUM
+
+FPFSUB  CALL    FPLSETUP
+        PUSH    AF
+        LD      A,7FH           ; indicate 'subtract'
+
+FPLSUM  LD      B,A             ; save add/subtract info
+        LD      A,(DE)          ; A := arg1.exp - arg2.exp
+        SUB     (HL)
+        JP      NC,$10
+        EX      DE,HL           ; arg2.exp larger, so switch args...
+        INC     B               ; ...indicate so in add/subtract info...
+        NEGA                    ; ...and negate exp diff.
+$10     LD      C,A             ; save exp diff
+        LD      A,(HL)          ; is arg2 = 0 ?
+        TSTA
+        JP      NZ,$20
+        INC     C               ; yes. is arg1.exp = arg2.exp (= 0) ?
+        DEC     C
+        JP      Z,FPLZERO        ; if so, result is 0.
+        LD      C,25            ; only arg2 zero, so set exp diff
+                                ; past floating point precision.
+$20     PUSH    DE              ; save addr of big exp
+        INC     HL              ; move to mantissas
+        INC     DE
+        ; Compute result sign.  If add, sign of mantissa with larger exp.
+        ;   If non-swapped subtract, sign of larger exp mantissa, else CPL
+        ;   of sign of larger exp mantissa.  Done by (swapped XOR sign of
+        ;   larger mantissa).
+        LD      A,(DE)
+        LD      E,A             ; save sign of larger exp mantissa
+        XOR     B
+        RLCA                    ; put computed result sign in bit 0
+        LD      D,A             ; and save it.
+        ; Compute difference of signs.  if add, XOR of signs; if subtract,
+        ;   CPL of XOR of signs.
+        LD      A,E             ; sign of larger exp mantissa
+        INC     B
+        XOR     B
+        XOR     (HL)
+        XOR     D               ; merge with result sign
+        AND     80H
+        XOR     D
+        LD      E,A             ; save it
+        LD      A,(HL)          ; Load mantissa of smaller arg into BCDE
+        OR      80H             ; Put in hidden bit
+        LD      B,A
+        LD      A,C
+        INC     HL
+        LD      C,(HL)
+        INC     HL
+        LD      D,(HL)
+        LD      H,E             ; move sign information
+        LD      E,00H           ; clear rest of mantissa
+        ; position smaller mantissa
+        CP      26              ; limit shifts to 25
+        JP      C,$30
+        LD      A,25
+$30     SUB     8               ; at least 8 shifts ?
+        JP      C,$40
+        LD      E,D             ; yep. shift registers.
+        LD      D,C
+        LD      C,B
+        LD      B,00H
+        JP      $30             ; try that trick again.
+$40     ADD     A,8
+        LD      L,A
+        JP      Z,$60
+
+$50     ; shift mantissa right one place
+        .IF Z80
+         SRL    B
+         RR     C
+         RR     D
+         RR     E
+        .ENDC
+        .IF ~Z80
+         CLRCF
+         LD     A,B
+         RRA
+         LD     B,A
+         LD     A,C
+         RRA
+         LD     C,A
+         LD     A,D
+         RRA
+         LD     D,A
+         LD     A,E
+         RRA
+         LD     E,A
+        .ENDC
+        DEC     L               ; done shifting ?
+        JP      NZ,$50
+$60     INC     H               ; test sign diff (P signs same, M signs differ)
+        DEC     H
+        EX      (SP),HL         ; save result sign, get ^big arg
+        LD      A,(HL)          ; A := answer exp
+        EX      (SP),HL         ; Store
+        LD      L,A             ;  sign
+        EX      (SP),HL         ;   and exp
+        INC     HL              ; point HL to low mantissa byte of big arg
+        INC     HL
+        INC     HL
+        JP      M,$70           ; jump if signs were different
+        ; Do Addition.
+        LD      A,D             ; Add mantissas
+        ADD     A,(HL)
+        LD      D,A
+        DEC     HL
+        LD      A,C
+        ADC     A,(HL)
+        LD      C,A
+        DEC     HL
+        LD      A,(HL)
+        RLA                     ; turn on hidden bit
+        SCF
+        RRA
+        ADC     A,B
+        LD      B,A
+        POP     HL              ; get sign, exp
+        JP      NC,FPLRND
+        ; gotta shift down one place
+        .IF Z80
+         RR     B
+         RR     C
+         RR     D
+         RR     E
+        .ENDC
+        .IF ~Z80
+         RRA
+         LD     B,A
+         LD     A,C
+         RRA
+         LD     C,A
+         LD     A,D
+         RRA
+         LD     D,A
+         LD     A,E
+         RRA
+         LD     E,A
+        .ENDC
+        INC     L               ; Increment result exp, and
+        JP      FPLRND  ; go round result
+        ; Do subtraction
+$70     CLRA                    ; subtract lowest byte from 0
+        SUB     E
+        LD      E,A
+        LD      A,(HL)
+        SBC     A,D
+        LD      D,A
+        DEC     HL
+        LD      A,(HL)
+        SBC     A,C
+        LD      C,A
+        DEC     HL
+        LD      A,(HL)
+        RLA                     ; turn on hidden bit
+        SCF
+        RRA
+        SBC     A,B
+        LD      B,A
+FPLSUMX JP      NC,FPLNRM       ; if subtracted smaller from bigger normalize
+        POP     HL              ; blew it. change answer sign.
+        INC     H
+        PUSH    HL
+        CLRA
+        LD      H,A
+        SUB     E               ; and complement mantissa (subtracted
+        LD      E,A             ;  larger from smaller)
+        LD      A,H
+        SBC     A,D
+        LD      D,A
+        LD      A,H
+        SBC     A,C
+        LD      C,A
+        LD      A,H
+        SBC     A,B
+        LD      B,A
+        JP      FPLNRM
+
+
+FPFMUL  CALL    FPLSETUP
+        PUSH    AF              ; save stack cutback, error info
+        LD      A,(DE)          ; load exp's
+        LD      B,A
+        LD      C,(HL)
+        TSTA                    ; if either arg zero, result is zero
+        JP      Z,FPLZERO
+        INC     C
+        DEC     C
+        JP      Z,FPLZERO
+        INC     DE              ; move pointers to mantissas
+        INC     HL
+        LD      A,(DE)          ; Compute answer sign (in bit zero)
+        XOR     (HL)
+        RLCA
+        PUSH    AF              ; and save it
+        LD      A,B             ; get exp sum
+        DEC     A
+        ADD     A,C             ; should be between 80 and 17F (hex)
+        POP     BC              ; get back sign info
+        JP      M,$10           ; check exp sum out
+        JP      NC,FPLUND
+        JP      $20
+$10     JP      C,FPLOVRX
+$20     ADD     A,81H           ; everything's cool.  bias exp sum.
+        LD      C,A             ; and save with sign info
+        PUSH    BC
+        LD      A,(DE)          ; load first two bytes of arg1 (putting in
+        OR      80H             ;  hidden bit) and save on stack
+        LD      B,A
+        INC     DE
+        LD      A,(DE)
+        LD      C,A
+        PUSH    BC
+        INC     DE              ; load last byte of arg1
+        LD      A,(DE)
+        LD      B,A
+        LD      A,(HL)          ; load E,H,L with arg two mantissa
+        OR      80H
+        INC     HL
+        LD      D,(HL)
+        INC     HL
+        LD      E,(HL)
+        EX      DE,HL
+        LD      E,A
+        LD      C,8             ; Set up
+        PUSH    BC              ;  first multiplier
+        EX      (SP),HL         ;   and count
+        LD      BC,0000         ; Clear answer
+        LD      D,B
+        ; Main Multiply Loop
+        ; BCD holds 24 bit accumulated sum, E (SP) is multiplicand
+        ; L is loop count, (SP+2) is high order bytes of multiplier
+        ; H is low order byte of multiplier and extra bits of
+        ; precision of sum
+$30     LD      A,H             ; get multiplier and previous shift outs
+$40     RRA                     ; get low bit, save previous shift out
+        LD      H,A             ; put multiplier back
+        LD      A,B             ; get B in case no add
+        EX      (SP),HL         ; get back multiplicand
+        JP      NC,$50           ; jump if no add necessary
+        LD      A,D             ; add multiplicand to acculumated sum
+        ADD     A,L
+        LD      D,A
+        LD      A,C
+        ADC     A,H
+        LD      C,A
+        LD      A,B
+        ADC     A,E
+$50     ; shift sum right one bit
+        RRA
+        LD      B,A
+        .IF Z80
+         RR     C
+         RR     D               ; carry on if bit shifted out
+        .ENDC
+        .IF ~Z80
+         LD     A,C
+         RRA
+         LD     C,A
+         LD     A,D
+         RRA
+         LD     D,A
+        .ENDC
+        EX      (SP),HL         ; get multiplier, count
+        DEC     L
+        JP      NZ,$30
+        LD      A,H             ; save previous carries out
+        POP     HL              ; get more multiplier
+        EX      (SP),HL
+        PUSH    AF              ; save carries
+        LD      A,H             ; Check for done - we are if high bytes of
+        OR      L               ; multiplier are zero
+        JP      Z,$60
+        POP     AF              ; junk carry stuff
+        LD      A,L             ; shift to next byte
+        LD      L,H
+        LD      H,00H
+        EX      (SP),HL         ; save shifted bytes
+        PUSH    HL              ; save multiplicand
+        LD      L,8             ; set count
+        JP      $40
+$60     POP     AF              ; get carries out
+        POP     HL              ; junk multiplicand
+        RRA                     ; put carries into E
+        LD      E,A
+FPLMULX POP     HL              ; get sign, exp
+        INC     B               ; test sign of answer
+        DEC     B
+        JP      FPLNRMX         ; normalize it
+
+FPFDIV  CALL    FPLSETUP
+        PUSH    AF              ; save stack cutback, error info
+        LD      A,(DE)          ; get exp1
+        LD      C,A
+        INC     DE              ; get arg1 sign in case div by zero
+        LD      A,(DE)
+        RLCA
+        LD      B,A
+        LD      A,(HL)          ; get arg2.exp
+        TSTA                    ; check for zero
+        JP      Z,FPLOVRX       ; divide by zero
+        INC     C               ; check for dividend zero
+        DEC     C
+        JP      Z,FPLZERO
+        LD      B,A             ; save arg2.exp
+        LD      A,(DE)          ; compute and save result sign
+        INC     HL
+        XOR     (HL)
+        RLCA                    ; put in bit 0
+        PUSH    AF
+        LD      A,C             ; get exp diff
+        SUB     B
+        POP     BC              ; get back result sign again
+        JP      M,$10            ; check for over or underflow
+        JP      C,FPLUND
+        JP      $20
+$10     JP      NC,FPLOVRX
+$20     ADD     A,81H           ; bias exponent
+        LD      C,A             ; save future exp with sign info
+        PUSH    BC
+        LD      BC,0000         ; set up answer
+        PUSH    BC
+        INC     C               ; put 1 in low bit so know when we have
+                                ; shifted 8 times
+        PUSH    BC
+        PUSH    HL              ; save ^arg2
+        EX      DE,HL           ; Load E,H,L with arg1.mantissa
+        LD      A,(HL)
+        OR      80H             ; put in hidden bit
+        INC     HL
+        LD      D,(HL)
+        INC     HL
+        LD      E,(HL)
+        EX      DE,HL
+        LD      E,A
+        EX      (SP),HL         ; load B,C,D with arg2.mantissa
+        LD      A,(HL)
+        OR      80H
+        LD      B,A
+        INC     HL
+        LD      C,(HL)
+        INC     HL
+        LD      D,(HL)
+        POP     HL
+        ; Main Divide Loop
+        ; EHL remainder, BCD divisor, (SP) (SP+2) quotient so far
+$30     JP      C,$40            ; jump if carry shifted out
+        LD      A,B             ; compare magnitudes
+        CP      E
+        JP      C,$40
+        JP      NZ,$50
+        LD      A,C
+        CP      H
+        JP      C,$40
+        JP      NZ,$50
+        LD      A,L
+        CP      D
+        CCF                     ; so we remember what if we subtracted
+        JP      NC,$50
+$40     LD      A,L             ; subtract divisor from remainder
+        SUB     D
+        LD      L,A
+        LD      A,H
+        SBC     A,C
+        LD      H,A
+        LD      A,E
+        SBC     A,B
+        LD      E,A
+        SCF                     ; so we remember we subtracted
+$50     EX      (SP),HL         ; Record if we subtracted
+        LD      A,L
+        RLA
+        LD      L,A
+        JP      NC,$70           ; Jump if byte not full
+        EX      DE,HL           ; Get some elbow room
+        PUSH    HL
+        LD      HL,0005         ; Point to most significant result byte
+        ADD     HL,SP
+        LD      A,(HL)          ; If non-zero we are done
+        TSTA
+        JP      NZ,$80
+        DEC     HL              ; move answer bytes up one byte
+        LD      A,(HL)
+        LD      (HL),D
+        INC     HL
+        LD      (HL),A
+        LD      D,E
+        LD      E,01            ; set up 8 more loops
+        TSTA                    ; if high byte now non-zero, only need
+        JP      Z,$60            ; two more loops for 26-bit precision.  (24 for
+        LD      E,40H           ; answer, 1 if high bit 0, 1 for rounding)
+$60     POP     HL              ; give back elbow room
+        EX      DE,HL
+$70     EX      (SP),HL         ; get back remainder
+        ADD     HL,HL           ; shift remainder left one bit
+        LD      A,E
+        RLA
+        LD      E,A
+        JP      $30             ; go for it again
+$80     POP     BC              ; junk remainder
+        POP     BC
+        POP     BC              ; get rest of answer
+        LD      A,E             ; put 25th and 26th bits in high part
+        RRCA                    ; of E
+        RRCA
+        LD      E,A
+        JP      FPLMULX         ; go normalize answer
+
+FPFFLOAT ; convert integer tos to fp number
+        POP     HL              ; return_address
+        POP     BC              ; arg to float
+        PUSH    HL
+        XOR     A               ; tell FPSTOR to cut stack back zero bytes,
+        PUSH    AF              ; and that no error has occurred.
+        LD      DE,0090H        ; set sign
+        PUSH    DE              ;  and exponent
+        LD      E,D             ; clear rest of mantissa
+        LD      A,B             ; set carry and sign flags if sign negative
+        CLRCF
+        RLA
+        JP      FPLSUMX         ; negate if necessary, then normalize
+
+
+FPFFIX  POP     HL              ; return_address
+        ; load high bytes of mantissa into BC, sign into D, exp into E
+        POP     DE              ; D := high byte mantissa, E := exp
+        LD      A,D
+        OR      80H             ; turn on hidden bit
+        POP     BC              ; C := middle byte mantissa
+        LD      B,A
+        LD      A,E             ; (only need 16 bits of man) if EXP >= 90H
+        SUB     90H
+        JP      C,$30
+        ; Overflow! check sign bit of answer
+        INC     D
+        DEC     D
+        JP      M,$10
+        LD      BC,7FFFH        ; load maxint.
+        JP      $20
+$10     LD      BC,8000H        ; load -maxint-1
+$20     PUSH    BC
+        LD      A,1             ; signify error
+        LD      (FPERROR),A
+        JP      (HL)            ; and return
+$30     CP      -16             ; max of 16 shifts
+        JP      NC,$40
+        LD      A,-16
+$40     LD      E,A             ; save shift count
+$50     ; shift mantissa right one bit
+        .IF Z80
+         SRL    B
+         RR     C
+        .ENDC
+        .IF ~Z80
+         CLRCF
+         LD     A,B             ; shift mantissa down
+         RRA
+         LD     B,A
+         LD     A,C
+         RRA
+         LD     C,A
+        .ENDC
+        INC     E
+        JP      NZ,$50
+        INC     D               ; test result sign
+        DEC     D
+        JP      P,$70
+        CLRA                    ; negate result
+        SUB     C
+        LD      C,A
+        LD      A,00H
+        SBC     A,B
+        LD      B,A
+$70     PUSH    BC              ; push answer
+        JP      (HL)            ; and return
+
+
+FPLNRM  POP     HL              ; get sign info and exponent
+        JP      NZ,FPLNRMX      ; jump if semi-normalized (high byte non-zero)
+        LD      A,E             ; check mantissa for zero
+        OR      D
+        OR      C
+        JP      Z,FPLZERO
+        LD      A,L             ; get exp
+$10     SUB     9               ; exp big enough to move 8 bits?
+        JP      C,FPLUND
+        INC     A
+        LD      B,C             ; shift mantissa one byte
+        LD      C,D
+        LD      D,E
+        LD      E,00
+        INC     B               ; check new high byte
+        DEC     B
+        JP      Z,$10
+        LD      L,A             ; put back exp
+FPLNRMX JP      M,FPLRND
+$20     DEC     L               ; decr exp
+        JP      Z,FPLUND
+        ; Shift mantissa lift one bit
+        .IF Z80
+         SLA    E
+         RL     D
+         RL     C
+         RL     B
+        .ENDC
+        .IF ~Z80
+         EX     DE,HL
+         ADD    HL,HL
+         EX     DE,HL
+         LD     A,C
+         RLA
+         LD     C,A
+         LD     A,B
+         ADC    A,B
+         LD     B,A
+        .ENDC
+        JP      P,$20
+
+FPLRND  LD      A,E             ; jump if round up unnecessary
+        RLA
+        JP      NC,FPLSIGN
+        INC     D
+        JP      NZ,FPLSIGN
+        INC     C
+        JP      NZ,FPLSIGN
+        INC     B
+        JP      NZ,FPLSIGN
+        LD      B,80H
+        INC     L               ; bump up exp
+        JP      FPLSIGN
+
+FPLZERO CLRA                    ; load a zero
+        JP      FPLSET          ; and propagate it
+FPLOVRX LD      H,B             ; position sign info
+FPLOVR  LD      A,0FFH
+        JP      FPLABN
+FPLUND  CLRA
+FPLABN   POP     HL              ; indicate error
+        INC     L
+        PUSH    HL
+        LD      B,A             ; propagate A through mantissa...
+FPLSET   LD      C,A
+        LD      D,A
+        LD      L,A             ; and exp
+        TSTA                    ; see if we just put in zero's
+        JP      Z,FPLSTOR
+FPLSIGN INC     L               ; last chance for overflow
+        DEC     L
+        JP      Z,FPLOVR
+        LD      A,H             ; set answer sign
+        INC     A
+        RRCA
+        AND     80H
+        XOR     B
+FPLSTOR ; result is LACD. put into a good format (ie. EDCB), cut the stack
+        ; back, and push result
+        LD      B,D
+        LD      D,A
+        LD      E,L
+        POP     HL              ; get cutback and error info
+        EX      (SP),HL
+        LD      (RETADR),HL
+        POP     HL
+        LD      A,L
+        AND     01H             ; junk all the high bits..they don't count
+        LD      L,A
+        LD      A,(FPERROR)     ; flip error on if error occured
+        OR      L
+        LD      (FPERROR),A
+        LD      L,H             ; calculate new tos
+        LD      H,00H
+        ADD     HL,SP
+        LD      SP,HL
+        PUSH    BC
+        PUSH    DE
+        LD      HL,(RETADR)
+        JP      (HL)
+
+; End of file FPL

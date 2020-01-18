@@ -1,0 +1,2 @@
+project_url .equ 'http://miller.emu.id.au/pmiller/ucsd-psystem-os/'
+version_stamp .equ '1.3.D001'

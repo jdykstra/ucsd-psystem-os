@@ -1,0 +1,116 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+SEGMENT FUNCTION OUT: BOOLEAN;
+LABEL 1,2;
+VAR
+  SAVE: PTRTYPE;
+  I: INTEGER;
+  BUF: PACKED ARRAY [0..1023] OF CHAR;
+  FN: STRING;
+BEGIN
+  OUT:=FALSE;
+  REPEAT
+    CLEARSCREEN;     (* Dumb terminal patch *)
+    SAVETOP:='>Quit:';
+    WRITELN(SAVETOP);
+    WRITELN('     U(pdate the workfile and leave');
+    WRITELN('     E(xit without updating');
+    WRITELN('     R(eturn to the editor without updating');
+    WRITELN('     W(rite to a file name and return');
+    CH:=UCLC(GETCH);
+  UNTIL CH IN ['U','E','R','W'];
+  IF CH='R' THEN GOTO 2;
+  IF CH='E' THEN BEGIN OUT:=TRUE; CLEARSCREEN; GOTO 2 END;
+  CLOSE(THEFILE);
+  IF CH='W' THEN
+    BEGIN
+      SAVE:=CURSOR;
+      BLANKCRT(1);
+      WRITE('Name of output file (<cr> to return)  -->');
+      READLN(FN);
+      IF LENGTH(FN)=0 THEN GOTO 2;
+      FOR I:=1 TO LENGTH(FN) DO FN[I]:=UCLC(FN[I]);
+      IF ((POS('.TEXT',FN)<>LENGTH(FN)-4) OR (LENGTH(FN)<=4)) AND
+         (FN[LENGTH(FN)]<>'.') THEN
+        FN:=CONCAT(FN,'.TEXT');
+      IF FN[LENGTH(FN)]='.' THEN DELETE(FN,LENGTH(FN),1);
+    END
+  ELSE
+    FN:='*SYSTEM.WRK.TEXT';
+  BLANKCRT(1);
+  WRITE('Writing');
+  OPENNEW(THEFILE,FN);
+  PAGEZERO.LASTUSED:=THEDATE;
+  IF BLOCKWRITE(THEFILE,PAGEZERO,2) <> 2 THEN GOTO 1;
+  WRITE('.');
+  CURSOR:=1;
+  WHILE CURSOR < BUFCOUNT-1023 DO
+    BEGIN
+      I:=SCAN(-1022,=CHR(EOL),EBUF^[CURSOR+1022]);
+      MOVELEFT(EBUF^[CURSOR],BUF,1023+I);
+      FILLCHAR(BUF[1023+I],ABS(I)+1,CHR(0));
+      IF BLOCKWRITE(THEFILE,BUF,2) <> 2 THEN GOTO 1;
+      CURSOR:=CURSOR+1023+I;
+      WRITE('.');
+    END;
+  IF CURSOR<BUFCOUNT THEN
+    BEGIN
+      FILLCHAR(BUF,SIZEOF(BUF),CHR(0));
+      MOVELEFT(EBUF^[CURSOR],BUF,BUFCOUNT-CURSOR);
+      IF BLOCKWRITE(THEFILE,BUF,2) <> 2 THEN GOTO 1; WRITE('.')
+    END;
+  CLOSE(THEFILE,LOCK);
+  WRITELN;
+  WRITELN('Your file is ',BUFCOUNT,' bytes long.');
+  IF CH='U' THEN
+    WITH USERINFO DO
+      BEGIN
+        SYMVID:=SYVID; SYMTID:='SYSTEM.WRK.TEXT'; GOTSYM:=TRUE;
+        OPENOLD(THEFILE,'*SYSTEM.WRK.CODE'); CLOSE(THEFILE,PURGE);
+        GOTCODE:=FALSE; CODETID:=''; OUT:=TRUE;
+      END
+    ELSE
+      BEGIN
+        WRITE('Do you want to E(xit from or R(eturn to the editor? ');
+        REPEAT CH:=UCLC(GETCH) UNTIL CH IN ['E','R'];
+        OUT:= CH='E';
+        CURSOR:=SAVE; (* QW returns to the editor *)
+      END;
+  GOTO 2; (* SORRY ABOUT THAT EDSGER *)
+1: ERROR('Writing out the file',NONFATAL);
+2:END;

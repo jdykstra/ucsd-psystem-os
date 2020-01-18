@@ -1,0 +1,466 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+(*
+ * Copyright (C) 2010 Peter Miller
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of the ucsd-psystem-os project nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *)
+
+(*$U-*)
+PROGRAM PASCALSYSTEM;  (* VERSION II.0  31-Jan-1979 *)
+
+
+(************************************************)
+(*                                              *)
+(*        UCSD  PASCAL  COMPILER                *)
+(*                                              *)
+(*    BASED ON ZURICH P2 PORTABLE               *)
+(*    COMPILER, EXTENSIVLY                      *)
+(*    MODIFIED BY ROGER T. SUMNER               *)
+(*    SHAWN FANNING AND ALBERT A. HOFFMAN       *)
+(*    1976..1979                                *)
+(*                                              *)
+(*    RELEASE LEVEL: I.3 AUGUST, 1977           *)
+(*                   I.4 JANUARY, 1978          *)
+(*                   I.5 SEPTEMBER, 1978        *)
+(*                  II.0 JANUARY, 1979          *)
+(*                                              *)
+(*    INSTITUTE FOR INFORMATION SYSTEMS         *)
+(*    UC SAN DIEGO, LA JOLLA, CA 92093          *)
+(*                                              *)
+(*    KENNETH L. BOWLES, DIRECTOR               *)
+(*                                              *)
+(************************************************)
+TYPE PHYLE = FILE;
+INFOREC = RECORD
+            WORKSYM,WORKCODE: ^PHYLE;
+            ERRSYM,ERRBLK,ERRNUM: INTEGER;
+            SLOWTERM,STUPID: BOOLEAN;
+            ALTMODE: CHAR
+          END;
+
+var
+  dummy_syscom: integer;
+  dummy_gfile: ARRAY [0..5] OF integer;
+  USERINFO: INFOREC;
+
+
+SEGMENT PROCEDURE pascalcompiler(junk1, junk2: integer); forward;
+
+SEGMENT PROCEDURE seg2;
+  (*
+   * By nesting them, they don't remain in the compiler symbol table,
+   * and this minimizes the memory consumed.
+   *)
+  SEGMENT PROCEDURE seg3;
+  BEGIN
+  END;
+
+  SEGMENT PROCEDURE seg4;
+  BEGIN
+  END;
+
+  SEGMENT PROCEDURE seg5;
+  BEGIN
+  END;
+
+  SEGMENT PROCEDURE seg6;
+  BEGIN
+  END;
+
+BEGIN (*seg2*)
+END; (*seg2*)
+
+SEGMENT PROCEDURE PASCALCOMPILER;
+
+CONST DISPLIMIT = 12; MAXLEVEL = 8; MAXADDR = 28000;
+      INTSIZE = 1; REALSIZE = 2; BITSPERWD = 16;
+      CHARSIZE = 1; BOOLSIZE = 1; PTRSIZE = 1;
+      FILESIZE = 300; NILFILESIZE = 40; BITSPERCHR = 8; CHRSPERWD = 2;
+      STRINGSIZE = 0; STRGLGTH = 255; MAXINT = 32767; MAXDEC = 36;
+      DEFSTRGLGTH = 80; LCAFTERMARKSTACK = 1; REFSPERBLK = 128;
+      EOL = 13; MAXCURSOR = 1023; MAXCODE = 1299;
+      MAXJTAB = 24; MAXSEG = 15; MAXPROCNUM = 149;
+
+TYPE
+                 (*BASIC SYMBOLS, MUST MATCH ORDER IN IDSEARCH*)
+
+     SYMBOL =  (IDENT, COMMA, COLON, SEMICOLON, LPARENT, RPARENT, DOSY, TOSY,
+                DOWNTOSY, ENDSY, UNTILSY, OFSY, THENSY, ELSESY, BECOMES, LBRACK,
+                RBRACK, ARROW, PERIOD, BEGINSY, IFSY, CASESY, REPEATSY, WHILESY,
+                FORSY, WITHSY, GOTOSY, LABELSY, CONSTSY, TYPESY, VARSY, PROCSY,
+                FUNCSY, PROGSY, FORWARDSY, INTCONST, REALCONST, STRINGCONST,
+                NOTSY, MULOP, ADDOP, RELOP, SETSY, PACKEDSY, ARRAYSY, RECORDSY,
+                FILESY, OTHERSY, LONGCONST, USESSY, UNITSY, INTERSY, IMPLESY,
+                EXTERNLSY, SEPARATSY);
+
+
+     OPERATOR = (MUL,RDIV,ANDOP,IDIV,IMOD,PLUS,MINUS,OROP,LTOP,LEOP,
+                 GEOP,GTOP,NEOP,EQOP,INOP,NOOP);
+
+     SETOFSYS = SET OF SYMBOL;
+
+     NONRESIDENT = (SEEK,FREADREAL,FWRITEREAL,FREADDEC,FWRITEDEC,DECOPS);
+     NONRESPFLIST = ARRAY[NONRESIDENT] OF INTEGER;
+
+                                              (*CONSTANTS*)
+     CSTCLASS = (REEL,PSET,STRG,TRIX,LONG);
+     CSP = ^ CONSTREC;
+     CONSTREC = RECORD CASE CCLASS: CSTCLASS OF
+                         LONG: (LLENG,LLAST: INTEGER;
+                                LONGVAL: ARRAY[1..9] OF INTEGER);
+                         TRIX: (CSTVAL: ARRAY [1..8] OF INTEGER);
+                               (*MUST COMPLETELY OVERLAP FOLLOWING FIELDS*)
+                         REEL: (RVAL: REAL);
+                         PSET: (PVAL: SET OF 0..127);
+                         STRG: (SLGTH: 0..STRGLGTH;
+                                SVAL: PACKED ARRAY [1..STRGLGTH] OF CHAR)
+                       END;
+
+     VALU = RECORD CASE BOOLEAN OF
+                     TRUE:  (IVAL: INTEGER);
+                     FALSE: (VALP: CSP)
+                   END;
+
+                                                  (*DATA STRUCTURES*)
+     BITRANGE = 0..BITSPERWD; OPRANGE = 0..80;
+     CURSRANGE = 0..MAXCURSOR; PROCRANGE = 0..MAXPROCNUM;
+     LEVRANGE = 0..MAXLEVEL; ADDRRANGE = 0..MAXADDR;
+     JTABRANGE = 0..MAXJTAB; SEGRANGE = 0..MAXSEG;
+     DISPRANGE = 0..DISPLIMIT;
+
+     STRUCTFORM = (SCALAR,SUBRANGE,POINTER,LONGINT,POWER,ARRAYS,
+                   RECORDS,FILES,TAGFLD,VARIANT);
+
+     DECLKIND = (STANDARD,DECLARED,SPECIAL);
+
+     STP = ^ STRUCTURE; CTP = ^ IDENTIFIER;
+
+     STRUCTURE = RECORD
+                   SIZE: ADDRRANGE;
+                   CASE FORM: STRUCTFORM OF
+                     SCALAR:   (CASE SCALKIND: DECLKIND OF
+                                  DECLARED: (FCONST: CTP));
+                     SUBRANGE: (RANGETYPE: STP; MIN,MAX: VALU);
+                     POINTER:  (ELTYPE: STP);
+                     POWER:    (ELSET: STP);
+                     ARRAYS:   (AELTYPE,INXTYPE: STP;
+                                CASE AISPACKD:BOOLEAN OF
+                                  TRUE: (ELSPERWD,ELWIDTH: BITRANGE;
+                                         CASE AISSTRNG: BOOLEAN OF
+                                          TRUE:(MAXLENG: 1..STRGLGTH)));
+                     RECORDS:  (FSTFLD: CTP; RECVAR: STP);
+                     FILES:    (FILTYPE: STP);
+                     TAGFLD:   (TAGFIELDP: CTP; FSTVAR: STP);
+                     VARIANT:  (NXTVAR,SUBVAR: STP; VARVAL: VALU)
+                   END;
+
+                                                            (*NAMES*)
+     IDCLASS = (TYPES,KONST,FORMALVARS,ACTUALVARS,FIELD,
+                PROC,FUNC,MODULE);
+     SETOFIDS = SET OF IDCLASS;
+     IDKIND = (ACTUAL,FORMAL);
+     ALPHA = PACKED ARRAY [1..8] OF CHAR;
+
+     IDENTIFIER = RECORD
+                   NAME: ALPHA; LLINK, RLINK: CTP;
+                   IDTYPE: STP; NEXT: CTP;
+                   CASE KLASS: IDCLASS OF
+                     KONST: (VALUES: VALU);
+                FORMALVARS,
+                ACTUALVARS: (VLEV: LEVRANGE;
+                             VADDR: ADDRRANGE;
+                             CASE BOOLEAN OF
+                               TRUE: (PUBLIC: BOOLEAN));
+                     FIELD: (FLDADDR: ADDRRANGE;
+                             CASE FISPACKD: BOOLEAN OF
+                               TRUE: (FLDRBIT,FLDWIDTH: BITRANGE));
+                     PROC,
+                     FUNC:  (CASE PFDECKIND: DECLKIND OF
+                              SPECIAL:  (KEY: INTEGER);
+                              STANDARD: (CSPNUM: INTEGER);
+                              DECLARED: (PFLEV: LEVRANGE;
+                                         PFNAME: PROCRANGE;
+                                         PFSEG: SEGRANGE;
+                                         CASE PFKIND: IDKIND OF
+                                          ACTUAL: (LOCALLC: ADDRRANGE;
+                                                   FORWDECL: BOOLEAN;
+                                                   EXTURNAL: BOOLEAN;
+                                                   INSCOPE: BOOLEAN;
+                                                   CASE BOOLEAN OF
+                                                    TRUE: (IMPORTED:BOOLEAN))));
+                   MODULE: (SEGID: INTEGER)
+                   END;
+
+
+     WHERE = (BLCK,CREC,VREC,REC);
+
+                                              (*EXPRESSIONS*)
+     ATTRKIND = (CST,VARBL,EXPR);
+     VACCESS = (DRCT,INDRCT,PACKD,MULTI,BYTE);
+
+     ATTR = RECORD TYPTR: STP;
+              CASE KIND: ATTRKIND OF
+                CST:   (CVAL: VALU);
+                VARBL: (CASE ACCESS: VACCESS OF
+                          DRCT:   (VLEVEL: LEVRANGE; DPLMT: ADDRRANGE);
+                          INDRCT: (IDPLMT: ADDRRANGE))
+            END;
+
+     TESTP = ^ TESTPOINTER;
+     TESTPOINTER = RECORD
+                     ELT1,ELT2 : STP;
+                     LASTTESTP : TESTP
+                   END;
+
+                                                   (*LABELS*)
+     LBP = ^ CODELABEL;
+     CODELABEL = RECORD
+                   CASE DEFINED: BOOLEAN OF
+                     FALSE: (REFLIST: ADDRRANGE);
+                     TRUE:  (OCCURIC: ADDRRANGE; JTABINX: JTABRANGE)
+                 END;
+
+     LABELP = ^ USERLABEL;
+     USERLABEL = RECORD
+                   LABVAL: INTEGER;
+                   NEXTLAB: LABELP;
+                   CODELBP: LBP
+                 END;
+
+     REFARRAY = ARRAY[1..REFSPERBLK] OF
+                  RECORD
+                    KEY,OFFSET: INTEGER
+                  END;
+
+     CODEARRAY = PACKED ARRAY [0..MAXCODE] OF CHAR;
+     SYMBUFARRAY = PACKED ARRAY [CURSRANGE] OF CHAR;
+
+     UNITFILE = (WORKCODE,SYSLIBRARY);
+
+     LEXSTKREC = RECORD
+                   DOLDTOP: DISPRANGE;
+                   DOLDLEV: 0..MAXLEVEL;
+                   POLDPROC,SOLDPROC: PROCRANGE;
+                   DOLDSEG: SEGRANGE;
+                   DLLC: ADDRRANGE;
+                   BFSY: SYMBOL;
+                   DFPROCP: CTP;
+                   DMARKP: ^INTEGER;
+                   ISSEGMENT: BOOLEAN;
+                   PREVLEXSTACKP: ^LEXSTKREC
+                 END;
+
+
+(*--------------------------------------------------------------------*)
+
+VAR
+
+    CODEP: ^ CODEARRAY;             (*CODE BUFFER UNTIL WRITEOUT*)
+    SYMBUFP: ^ SYMBUFARRAY;         (*SYMBOLIC BUFFER...ASCII OR CODED*)
+
+    GATTR: ATTR;                    (*DESCRIBES CURRENT EXPRESSION*)
+
+    TOP: DISPRANGE;                 (*TOP OF DISPLAY*)
+    LC,IC: ADDRRANGE;               (*LOCATION AND INSTRUCT COUNTERS*)
+    TEST: BOOLEAN;
+    INTPTR: STP;                    (*POINTER TO STANDARD INTEGER TYPE*)
+    SEG: SEGRANGE;                  (*CURRENT SEGMENT NO.*)
+                                    (*SCANNER GLOBALS...NEXT FOUR VARS*)
+                                    (*MUST BE IN THIS ORDER FOR IDSEARCH*)
+    SYMCURSOR: CURSRANGE;           (*CURRENT SCANNING INDEX IN SYMBUFP^*)
+    SY: SYMBOL;                     (*SYMBOL FOUND BY INSYMBOL*)
+    OP: OPERATOR;                   (*CLASSIFICATION OF LAST SYMBOL*)
+    ID: ALPHA;                      (*LAST IDENTIFIER FOUND*)
+
+    LGTH: INTEGER;                  (*LENGTH OF LAST STRING CONSTANT IN CHARS
+                                      OR LEN OF LAST LONG INTEGER CONSTANT
+                                       IN DIGITS*)
+    VAL: VALU;                      (*VALUE OF LAST CONSTANT*)
+    DISX: DISPRANGE;                (*LEVEL OF LAST ID SEARCHED*)
+
+    LCMAX: ADDRRANGE;               (*TEMPORARIES LOCATION COUNTER*)
+
+                                    (*SWITCHES:*)
+
+    PRTERR,GOTOOK,RANGECHECK,DEBUGGING,
+    NOISY,CODEINSEG,IOCHECK,BPTONLINE,
+    CLINKERINFO,DLINKERINFO,LIST,TINY,LSEPPROC,
+    DP,INCLUDING,USING,NOSWAP,SEPPROC,
+    STARTINGUP,INMODULE,ININTERFACE,FLIPBYTES,
+    LIBNOTOPEN,SYSCOMP,PUBLICPROCS,GETSTMTLEV: BOOLEAN;
+
+                                    (*POINTERS:*)
+    (*INTPTR,*)REALPTR,LONGINTPTR,
+    CHARPTR,BOOLPTR,
+    TEXTPTR,NILPTR,
+    INTRACTVPTR,STRGPTR: STP;       (*POINTERS TO STANDARD IDS*)
+
+    UTYPPTR,UCSTPTR,UVARPTR,
+    UFLDPTR,UPRCPTR,UFCTPTR,        (*POINTERS TO UNDECLARED IDS*)
+    MODPTR,INPUTPTR,OUTPUTPTR,
+    OUTERBLOCK,FWPTR,USINGLIST: CTP;
+
+    GLOBTESTP: TESTP;               (*LAST TESTPOINTER*)
+
+    LEVEL: LEVRANGE;                (*CURRENT STATIC LEVEL*)
+    BEGSTMTLEV,STMTLEV: INTEGER;    (*CURRENT STATEMENT NESTING LEVEL*)
+    MARKP: ^INTEGER;                (*FOR MARKING HEAP*)
+    TOS: ^LEXSTKREC;                (*TOP OF LEX STACK*)
+    GLEV: DISPRANGE;                (*GLOBAL LEVEL OF DISPLAY*)
+    NEWBLOCK: BOOLEAN;              (*INDICATES NEED TO PUSH LEX STACK*)
+
+    NEXTSEG: SEGRANGE;              (*NEXT SEGMENT #*)
+    SEGINX: INTEGER;                (*CURRENT INDEX IN SEGMENT*)
+    SCONST: CSP;                    (*INSYMBOL STRING RESULTS*)
+    STRGCSTIC: ADDRRANGE;           (*ADDR OF LAST STRING IN CODE*)
+
+    LOWTIME,LINEINFO,SCREENDOTS,STARTDOTS,SYMBLK,SMALLESTSPACE: INTEGER;
+    LINESTART: CURSRANGE;
+
+    CURPROC,NEXTPROC: PROCRANGE;     (*PROCEDURE NUMBER ASSIGNMENT*)
+
+    CONSTBEGSYS,SIMPTYPEBEGSYS,TYPEBEGSYS,
+    BLOCKBEGSYS,SELECTSYS,FACBEGSYS,STATBEGSYS,TYPEDELS: SETOFSYS;
+    VARS: SETOFIDS;
+
+    DISPLAY: ARRAY [DISPRANGE] OF
+                RECORD
+                  FNAME: CTP;
+                  CASE OCCUR: WHERE OF
+                    BLCK: (FFILE: CTP; FLABEL: LABELP);
+                    CREC: (CLEV: LEVRANGE; CDSPL: ADDRRANGE);
+                    VREC: (VDSPL: ADDRRANGE)
+                  END;
+
+    PFNUMOF: NONRESPFLIST;
+
+    PROCTABLE: ARRAY [PROCRANGE] OF INTEGER;
+
+    SEGTABLE: ARRAY [SEGRANGE] OF
+                RECORD
+                  DISKADDR,CODELENG: INTEGER;
+                  SEGNAME: ALPHA;
+                  SEGKIND,
+                  TEXTADDR: INTEGER
+                END (*SEGTABLE*) ;
+
+    COMMENT: ^STRING;
+    SYSTEMLIB: STRING[40];
+    NEXTJTAB: JTABRANGE;
+    JTAB: ARRAY [JTABRANGE] OF INTEGER;
+
+    REFFILE: FILE;
+    NREFS,REFBLK: INTEGER;
+    REFLIST: ^REFARRAY;
+    OLDSYMBLK,PREVSYMBLK: INTEGER;
+    OLDSYMCURSOR,OLDLINESTART,PREVSYMCURSOR,PREVLINESTART: CURSRANGE;
+    USEFILE: UNITFILE;
+    INCLFILE,LIBRARY: FILE;
+    LP: TEXT;
+
+    CURBYTE, CURBLK: INTEGER;
+    DISKBUF: PACKED ARRAY [0..511] OF CHAR;
+
+(*--------------------------------------------------------------------*)
+
+(* FORWARD DECLARED PROCEDURES NEEDED BY COMPINIT *)
+
+PROCEDURE ERROR(ERRORNUM: INTEGER);
+  FORWARD;
+PROCEDURE GETNEXTPAGE;
+  FORWARD;
+PROCEDURE PRINTLINE;
+  FORWARD;
+PROCEDURE ENTERID(FCP: CTP);
+  FORWARD;
+PROCEDURE INSYMBOL;
+  FORWARD;
+
+(* FORWARD DECLARED PROCEDURES USED IN BOTH DECLARATIONPART AND BODYPART *)
+
+PROCEDURE SEARCHSECTION(FCP:CTP; VAR FCP1: CTP);
+  FORWARD;
+PROCEDURE SEARCHID(FIDCLS: SETOFIDS; VAR FCP: CTP);
+  FORWARD;
+PROCEDURE GETBOUNDS(FSP: STP; VAR FMIN,FMAX: INTEGER);
+  FORWARD;
+PROCEDURE SKIP(FSYS: SETOFSYS);
+  FORWARD;
+FUNCTION PAOFCHAR(FSP: STP): BOOLEAN;
+  FORWARD;
+FUNCTION STRGTYPE(FSP: STP): BOOLEAN;
+  FORWARD;
+FUNCTION DECSIZE(I: INTEGER): INTEGER;
+  FORWARD;
+PROCEDURE CONSTANT(FSYS: SETOFSYS; VAR FSP: STP; VAR FVALU: VALU);
+  FORWARD;
+FUNCTION COMPTYPES(FSP1,FSP2: STP): BOOLEAN;
+  FORWARD;
+PROCEDURE GENBYTE(FBYTE: INTEGER);
+  FORWARD;
+PROCEDURE GENWORD(FWORD: INTEGER);
+  FORWARD;
+PROCEDURE WRITETEXT;
+  FORWARD;
+PROCEDURE WRITECODE(FORCEBUF: BOOLEAN);
+  FORWARD;
+PROCEDURE BLOCK(FSYS: SETOFSYS);
+  FORWARD;

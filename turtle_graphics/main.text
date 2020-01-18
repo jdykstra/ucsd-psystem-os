@@ -1,0 +1,76 @@
+(*
+ * UCSD p-System Operating System
+ * Copyright (C) 2000 Mario Klebsch
+ * Copyright (C) 2010 Peter Miller
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>
+ *)
+
+(*$S+*)
+unit turtlegr;
+intrinsic code 20 (* data 21 *);
+(* The ucsd-psystem-xc project cannot yet link DATASEG segments. *)
+
+interface
+
+type
+  screencolor = (none, white, black, reverse, radar, black1, green,
+                 violet, white1, black2, orange, blue, white2);
+
+procedure initturtle;
+procedure turn(angle: integer);
+procedure turnto(angle: integer);
+procedure move(dist: integer);
+procedure moveto(x, y: integer);
+procedure pencolor(penmode: screencolor);
+procedure textmode;
+procedure grafmode;
+procedure fillscreen(fillcolor: screencolor);
+procedure viewport(left, right, bottom, top: integer);
+function turtlex: integer;
+function turtley: integer;
+function turtleang: integer;
+function screenbit(x, y: integer): boolean;
+procedure drawblock(var source; rowsize, xskip, yskip, width, height,
+                    xscreen, yscreen, mode: integer);
+procedure wchar(ch: char);
+procedure wstring(s: string);
+procedure chartype(mode: integer);
+
+implementation
+
+(* var dummy: array[1..193] of integer; *)
+(* The ucsd-psystem-xc project cannot yet link DATASEG segments. *)
+
+procedure initturtle; external;
+procedure turn; external;
+procedure turnto; external;
+procedure move; external;
+procedure moveto; external;
+procedure pencolor; external;
+procedure textmode; external;
+procedure grafmode; external;
+procedure fillscreen; external;
+procedure viewport; external;
+function turtlex; external;
+function turtley; external;
+function turtleang; external;
+function screenbit; external;
+procedure drawblock; external;
+procedure wchar; external;
+procedure wstring; external;
+procedure chartype; external;
+
+begin
+end.

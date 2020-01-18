@@ -1,0 +1,460 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+(*
+ * UCSD p-System Operating System
+ * Copyright (C) 2010 Peter Miller
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of the ucsd-psystem-os project nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *)
+
+(* This is an unpublished work copyright by the Regents of
+   the University of California. This item is the property of SofTech
+   Microsystems Inc., and it may be used, copied or distributed only
+   as permitted in a written license from that company. *)
+
+(************************************************************************)
+
+PROCEDURE BOOLCOMP;
+VAR BOOL1,BOOL2:BOOLEAN;
+
+  function eq(a, b: boolean): boolean;
+  begin
+    eq := (a = b);
+  end;
+
+  function ne(a, b: boolean): boolean;
+  begin
+    ne := (a <> b);
+  end;
+
+  function lt(a, b: boolean): boolean;
+  begin
+    lt := (a < b);
+  end;
+
+  function le(a, b: boolean): boolean;
+  begin
+    le := (a <= b);
+  end;
+
+  function gt(a, b: boolean): boolean;
+  begin
+    gt := (a > b);
+  end;
+
+  function ge(a, b: boolean): boolean;
+  begin
+    ge := (a >= b);
+  end;
+
+BEGIN
+  CHK(INIT);
+
+  DESCRIPTION('EQUBOOL');
+  CHK(eq(TRUE, TRUE) AND eq(FALSE, FALSE) AND
+      (NOT eq(TRUE, FALSE)) AND (NOT eq(FALSE, TRUE)));
+
+  DESCRIPTION('NEQBOOL');
+  CHK((NOT ne(TRUE, TRUE)) AND (NOT ne(FALSE, FALSE)) AND
+      ne(TRUE, FALSE) AND ne(FALSE, TRUE));
+
+  DESCRIPTION('LESBOOL');
+  CHK((NOT lt(TRUE, TRUE)) AND (NOT lt(FALSE, FALSE)) AND
+      (NOT lt(TRUE, FALSE)) AND lt(FALSE, TRUE));
+
+  DESCRIPTION('GTRBOOL');
+  CHK((NOT gt(TRUE, TRUE)) AND (NOT gt(FALSE, FALSE)) AND
+      gt(TRUE, FALSE) AND (NOT gt(FALSE, TRUE)));
+
+  DESCRIPTION('GEQBOOL');
+  CHK(ge(TRUE, TRUE) AND ge(FALSE, FALSE) AND
+      ge(TRUE, FALSE) AND (NOT ge(FALSE, TRUE)));
+
+  DESCRIPTION('LEQBOOL');
+  CHK(le(TRUE, TRUE) AND le(FALSE, FALSE) AND
+      (NOT le(TRUE, FALSE)) AND le(FALSE, TRUE));
+
+  BOOL1:=ODD(3);
+  BOOL2:=ODD(5);
+
+  DESCRIPTION('BOOLEAN COMPARES  checking to see that only bit 0 is compared');
+  CHK((BOOL1=BOOL2) AND (BOOL1>=BOOL2) AND (NOT(BOOL2>BOOL1)));
+END;
+
+(************************************************************************)
+
+PROCEDURE BYTECOMP;
+VAR S1,S3,S2:PACKED ARRAY [1..10] OF CHAR;
+    GUMBY:INTEGER;
+BEGIN
+  CHK(INIT);
+
+  S1:='ABCDEFGHIJ';
+  S2:='BAABAAZZZZ';
+  S3:='ABCDEFGHIJ';
+  GUMBY:=0;
+
+  DESCRIPTION('LESBYTE  ''ABCDEFGHIJ''<''BAABAAZZZZ''');
+  CHK(S1<S2);
+
+  DESCRIPTION('GTRBYTE  ''BAABAAZZZZ''>''ABCDEFGHIJ''');
+  CHK(S2>S1);
+
+  DESCRIPTION('LEQBYTE  ''ABCDEFGHIJ''<=''BAABAAZZZZ''');
+  CHK(S1<=S2);
+
+  DESCRIPTION('GEQBYTE  ''BAABAAZZZZ''>=''ABCDEFGHIJ''');
+  CHK(S2>=S1);
+
+  DESCRIPTION('EQUBYTE  ''BAABAAZZZZ''=''ABCDEFGHIJ''');
+  CHK(NOT(S2=S1));
+
+  DESCRIPTION('NEQBYTE  ''BAABAAZZZZ''<>''ABCDEFGHIJ''');
+  CHK(S2<>S1);
+
+  DESCRIPTION('LESBYTE  ''ABCDEFGHIJ''<''ABCDEFGHIJ''');
+  CHK(NOT(S1<S3));
+
+  DESCRIPTION('GTRBYTE  ''ABCDEFGHIJ''>''ABCDEFGHIJ''');
+  CHK(NOT(S3>S1));
+
+  DESCRIPTION('LEQBYTE  ''ABCDEFGHIJ''<=''ABCDEFGHIJ''');
+  CHK(S1<=S3);
+
+  DESCRIPTION('GEQBYTE  ''ABCDEFGHIJ''>=''ABCDEFGHIJ''');
+  CHK(S3>=S1);
+
+  DESCRIPTION('EQUBYTE  ''ABCDEFGHIJ''=''ABCDEFGHIJ''');
+  CHK(S3=S1);
+
+  DESCRIPTION('NEQBYTE  ''ABCDEFGHIJ''<>''ABCDEFGHIJ''');
+  CHK(NOT(S3<>S1));
+END;
+
+(************************************************************************)
+
+PROCEDURE WRDCOMP;
+VAR SMALL1,SMALL2: ARRAY [1..10] OF INTEGER;
+    N:INTEGER;
+    BIG1,BIG2:ARRAY[1..1000] OF INTEGER;
+BEGIN
+  CHK(INIT);
+
+  SMALL2:=SMALL1;(*it isn't important what SMALL1 is  just that SMALL1=SMALL2*)
+
+  DESCRIPTION('EQUWORD comparing two 10 word arrays which are equal');
+  CHK(SMALL1=SMALL2);
+
+  DESCRIPTION('NEQWORD comparing two 10 word arrays which are equal');
+  CHK(NOT(SMALL1<>SMALL2));
+
+  SMALL2:=SMALL1;
+  SMALL2[1]:=SMALL2[1]+1;
+  DESCRIPTION('NEQWORD comparing two 10 word arrays which differ in 1st word');
+  CHK(SMALL1<>SMALL2);
+
+  DESCRIPTION('EQUWORD comparing two 10 word arrays which differ in 1st word');
+  CHK(NOT(SMALL1=SMALL2));
+
+  SMALL2:=SMALL1;
+  SMALL2[10]:=SMALL2[10]+1;
+  DESCRIPTION('NEQWORD comparing two 10 word arrays which differ in last word');
+  CHK(SMALL1<>SMALL2);
+
+  DESCRIPTION('EQUWORD comparing two 10 word arrays which differ in last word');
+  CHK(NOT(SMALL1=SMALL2));
+
+  BIG2:=BIG1;(*it isn't important what BIG1 is  just that BIG1=BIG2*)
+
+  DESCRIPTION('EQUWORD comparing two 1000 word arrays which are equal');
+  CHK(BIG1=BIG2);
+
+  DESCRIPTION('NEQWORD comparing two 1000 word arrays which are equal');
+  CHK(NOT(BIG1<>BIG2));
+
+  BIG2:=BIG1;
+  BIG2[1]:=BIG2[1]+1;
+  DESCRIPTION(
+             'NEQWORD comparing two 1000 word arrays which differ in 1st word');
+  CHK(BIG1<>BIG2);
+
+  DESCRIPTION(
+             'EQUWORD comparing two 1000 word arrays which differ in 1st word');
+  CHK(NOT(BIG1=BIG2));
+
+  BIG2:=BIG1;
+  BIG2[1000]:=BIG2[1000]+1;
+  DESCRIPTION(
+            'NEQWORD comparing two 1000 word arrays which differ in last word');
+  CHK(BIG1<>BIG2);
+
+  DESCRIPTION(
+            'EQUWORD comparing two 1000 word arrays which differ in last word');
+  CHK(NOT(BIG1=BIG2));
+END;
+
+(************************************************************************)
+
+(* The strings A and Z exist to generate the difference between a source
+   byte pointer to a one character long string and a literal character.
+   Where the variables A and Z are used, the compiler will generate a pointer
+   to the one char strings.  Where 'A' and 'Z' are used, you will get the
+   special case literal character. *)
+PROCEDURE EQUNEQSTRING;
+VAR A,Z:STRING;
+  this: string[5];
+  thiss: string[5];
+  empty: string[5];
+  bbbb: string[5];
+BEGIN
+  CHK(INIT);
+  A:='A';
+  Z:='Z';
+  this := 'THIS';
+  thiss := 'THISS';
+  empty := '';
+  bbbb := 'BBBB';
+
+  {string compares}
+  DESCRIPTION('EQUSTR  ''THIS''=''THIS''');
+  CHK(this = this);
+
+  DESCRIPTION('EQUSTR  ''THIS''=''THISS''');
+  CHK(NOT(this = thiss));
+
+  DESCRIPTION('EQUSTR  ''THISS''=''THIS''');
+  CHK(NOT(thiss = this));
+
+  DESCRIPTION('EQUSTR ''''=''Z'' Z is a string');
+  CHK(NOT(empty = Z));
+
+  DESCRIPTION('EQUSTR ''Z''='''' Z is a string');
+  CHK(NOT(Z = empty));
+
+  DESCRIPTION('EQUSTR ''''=''''');
+  CHK(empty = '');
+
+  DESCRIPTION('EQUSTR ''A''=''A'' A''s are strings');
+  CHK(A=A);
+
+  DESCRIPTION('EQUSTR ''A''=''Z'' A&Z are strings');
+  CHK(NOT(A=Z));
+
+  (*this is a test of the one character string special case*)
+  DESCRIPTION('EQUSTR ''A''=''A'' 1st A is a char');
+  CHK('A'=A);
+
+  DESCRIPTION('EQUSTR ''A''=''A'' 2nd A is a char');
+  CHK(A='A');
+
+  DESCRIPTION('EQUSTR ''A''=''AB'' A is a char');
+  CHK(NOT(A = 'AB'));
+
+  DESCRIPTION('NEQSTR ''BBBB''<>''BBBBB''');
+  CHK(bbbb <> 'BBBBB');
+
+  DESCRIPTION('NEQSTR ''BBBBB''<>''BBBB''');
+  CHK('BBBBB' <> bbbb);
+
+  DESCRIPTION('NEQSTR ''''<>''Z''');
+  CHK(''<>Z);
+
+  DESCRIPTION('NEQSTR ''Z''<>''''');
+  CHK(Z<>'');
+
+  DESCRIPTION('NEQSTR ''''<>''''');
+  CHK(NOT(empty <> ''));
+
+  DESCRIPTION('NEQSTR ''Z''<>''Z''');
+  CHK(NOT(Z<>Z));
+END;
+
+(************************************************************************)
+
+PROCEDURE GTRLESSTRING;
+VAR A,Z:STRING;
+    abcd: string[5];
+    abcde: string[5];
+    caaa: string[5];
+    empty: string[5];
+BEGIN
+  CHK(INIT);
+  A:='A';
+  Z:='Z';
+  abcd := 'ABCD';
+  abcde := 'ABCDE';
+  caaa := 'CAAA';
+  empty := '';
+
+  DESCRIPTION('GTRSTR ''ABCD''>''ABCC''');
+  CHK(abcd > 'ABCC');
+
+  DESCRIPTION('GTRSTR ''Z''>''WHY''');
+  CHK(Z>'WHY');
+
+  DESCRIPTION('GTRSTR ''ABCDEF''>''ABCDE''');
+  CHK('ABCDEF' > abcde);
+
+  DESCRIPTION('GTRSTR ''ABCDE''>''ABCDEF''');
+  CHK(NOT(abcde > 'ABCDEF'));
+
+  DESCRIPTION('GTRSTR ''ABCDE''>''ABCDE''');
+  CHK(NOT(abcde > 'ABCDE'));
+
+  DESCRIPTION('GTRSTR ''CAAA''>''BAAA''');
+  CHK(caaa > 'BAAA');
+
+  DESCRIPTION('GTRSTR ''Z''>''A''');
+  CHK(Z>A);
+
+  DESCRIPTION('GTRSTR ''''>''Z''');
+  CHK(NOT(''>Z));
+
+  DESCRIPTION('GTRSTR ''Z''>''''');
+  CHK(Z>'');
+
+  DESCRIPTION('GTRSTR ''''>''''');
+  CHK(NOT(''>''));
+
+  DESCRIPTION('LESSTR ''LLLL''<''LLLL''');
+  CHK(NOT(caaa < 'CAAA'));
+
+  DESCRIPTION('LESSTR ''A''<''Z''');
+  CHK(A<Z);
+
+  DESCRIPTION('LESSTR ''PLOP''<''PLOPZ''');
+  CHK(caaa < 'CAAAZ');
+
+  DESCRIPTION('LESSTR ''PLOPZ''<''PLOP''');
+  CHK(NOT('CAAAZ' < caaa));
+
+  DESCRIPTION('LESSTR ''''<''''');
+  CHK(NOT(empty < ''));
+
+  DESCRIPTION('LESSTR ''A''<''''');
+  CHK(NOT(A < ''));
+
+  DESCRIPTION('LESSTR ''''<''A''');
+  CHK(''<A);
+
+  DESCRIPTION('LESSTR ''A''<''Z''');
+  CHK(A<Z);
+
+  DESCRIPTION('LESSTR ''Z''<''A''');
+  CHK(NOT(Z<A));
+
+  caaa := 'TINY';
+  DESCRIPTION('LESSTR ''LONGER''<''TINY''');
+  CHK('LONGER' < caaa);
+END;
+
+(************************************************************************)
+
+PROCEDURE GEQLEQSTRING;
+VAR A,Z:STRING;
+  abcd: string[5];
+  bbbb: string[5];
+  empty: string[5];
+BEGIN
+  CHK(INIT);
+  A:='A';
+  Z:='Z';
+
+  bbbb := 'BBBB';
+  DESCRIPTION('LEQSTR ''BBBB''<=''BBBBC''');
+  CHK(BBBB <= 'BBBBC');
+
+  DESCRIPTION('LEQSTR ''BBBBC''<=''BBBB''');
+  CHK(NOT('BBBBC' <= BBBB));
+
+  empty := '';
+  DESCRIPTION('LEQSTR ''''< =''''');
+  CHK('' <= empty);
+
+  DESCRIPTION('LEQSTR ''''<=''A''');
+  CHK(''<=A);
+
+  DESCRIPTION('LEQSTR ''A''<=''''');
+  CHK(NOT(A<=''));
+
+  abcd := 'ABCD';
+  DESCRIPTION('LEQSTR ''ABCD''<=''ABCD''');
+  CHK(ABCD <= 'ABCD');
+
+  DESCRIPTION('GEQSTR ''BBBB''>=''BBBBC''');
+  CHK(NOT(BBBB >= 'BBBBC'));
+
+  DESCRIPTION('GEQSTR ''BBBBC''>=''BBBB''');
+  CHK('BBBBC' >= BBBB);
+
+  DESCRIPTION('GEQSTR ''''>=''''');
+  CHK(empty >= '');
+
+  DESCRIPTION('GEQSTR ''''>=''A''');
+  CHK(NOT(''>=A));
+
+  DESCRIPTION('GEQSTR ''A''>=''''');
+  CHK(A>='');
+
+  DESCRIPTION('GEQSTR ''ABCD''>=''ABCD''');
+  CHK(abcd >= 'ABCD');
+END;
+
+(************************************************************************)

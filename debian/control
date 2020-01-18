@@ -1,0 +1,17 @@
+Source: ucsd-psystem-os
+Section: utils
+Priority: optional
+Maintainer: Peter Miller <pmiller@opensource.org.au>
+Homepage: http://miller.emu.id.au/pmiller/ucsd-psystem-os/
+DM-Upload-Allowed: yes
+Build-Depends: debhelper (>= 5), groff, ucsd-psystem-fs, ucsd-psystem-xc
+Standards-Version: 3.9.1
+
+Package: ucsd-psystem-os
+Architecture: any
+Description: UCSD Pascal Operating System
+ This project is built from the original UCSD
+ Pascal sources.  The result is system disk images
+ that are completely legal.  They are NOT boot-leg
+ proprietary disk images.
+Depends: ${misc:Depends}, ${shlibs:Depends}, ucsd-psystem-fs, ucsd-psystem-vm, ucsd-psystem-xc

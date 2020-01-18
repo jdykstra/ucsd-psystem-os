@@ -1,0 +1,174 @@
+/*
+ * UCSD p-System Operating System
+ * Copyright (C) 2010, 2011 Peter Miller
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of the ucsd-psystem-os project nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
+
+stage1 =
+    stage1/basic.code
+    stage1/binder.code
+    stage1/bios.diag.code
+    stage1/calc.code
+    stage1/compiler.code
+    stage1/copydupdir.code
+    stage1/diagnostic.code
+    stage1/disassembler.code
+    stage1/editor.code
+    stage1/edittort11.code
+    stage1/execerr.code
+    stage1/filer.code
+    stage1/libmap.code
+    stage1/librarian.code
+    stage1/linker.code
+    stage1/markdupdir.code
+    stage1/radix.code
+    stage1/rt11toedit.code
+    stage1/setup.code
+    stage1/system.code
+    stage1/system.miscinfo
+    stage1/system.syntax
+    stage1/yaloe.code
+
+    /*
+     * These codefile are all glued together by the linker to produce
+     * the SYSTEM.LIBRARY library file
+     */
+    stage1/pascalio.code
+    ;
+
+stage1 +=
+    stage1/diagnostic.vol
+    stage1/diagnostic.check
+    stage1/system.vol
+    ;
+stage1: [stage1];
+all += stage1;
+
+function defined-or-null =
+{
+    if [defined [ @1 ]] then
+        return [[ @1 ]];
+}
+
+stage1/compiler.code_flags = -fignore-undefined-segment-zero;
+stage1/filer.code_flags = -fignore-undefined-segment-zero;
+stage1/yaloe.code_flags = -fignore-undefined-segment-zero;
+stage1/pascalio.code_flags = -fignore-undefined-segment-zero;
+
+stage1/%.code: %/main.text
+    /usr/local/bin/ucsdpsys_compile
+    set shallow
+{
+    ucsdpsys_compile
+        -Wshadow\=false
+        [defined-or-null [target]_flags]
+        [prepost "-I" "/%" [search_list]]
+        [resolve %/main.text]
+        -o [target]
+        ;
+}
+
+stage1/diagnostic.vol: stage1/diagnostic.code
+    set shallow
+{
+    ucsdpsys_mkfs --label\=diagnostic [target];
+    ucsdpsys_disk -f [target] --put
+        system.pascal\=[resolve stage1/diagnostic.code];
+    ucsdpsys_disk -f [target] --crunch --list;
+}
+
+
+stage1/system.vol:
+    stage1/basic.code
+    stage1/binder.code
+    stage1/copydupdir.code
+    stage1/disassembler.code
+    stage1/execerr.code
+    stage1/libmap.code
+    stage1/librarian.code
+    stage1/linker.code
+    stage1/markdupdir.code
+    stage1/pascalio.code
+    stage1/radix.code
+    stage1/setup.code
+    /* stage1/system.assmbler */
+    stage1/system.compiler
+    stage1/system.editor
+    stage1/system.filer
+    stage1/system.miscinfo
+    stage1/system.pascal
+{
+    ucsdpsys_mkfs -B 256 --label\=system [target];
+    ucsdpsys_disk -f [target] --put [resolve [need] ];
+    ucsdpsys_disk -f [target] --crunch --list;
+}
+
+stage1/system.pascal: stage1/system.code
+{
+    /*
+     * We need a non-pattern recipe for the system, because we do not
+     * delete the system segments as we do for the other tools.
+     */
+    cp [resolve stage1/system.code] [target];
+}
+
+stage1/system.%: stage1/%.code
+{
+    ucsdpsys_librarian
+        -o [target]
+        -f [resolve stage1/%.code]
+        --remove-system-segments
+        ;
+}
+
+stage1/diagnostic.check: stage1/diagnostic.vol
+{
+    ucsdpsys_vm -b- -f [resolve stage1/diagnostic.vol] > [target];
+
+    cat [target];
+    if [collect grep -c 'found.*error' stage1/diagnostic.check || true] then
+        fail Diagnostic Error;
+}
+
+stage1/system.miscinfo: host/klebsch/miscinfo.text
+{
+    ucsdpsys_setup -e [resolve host/klebsch/miscinfo.text] [target];
+}
+
+
+stage1/system.library: stage1/pascalio.code
+{
+    ucsdpsys_librarian
+        --create\=[target]
+        --copy\=[resolve stage1/pascalio.code] --segment PASCALIO\=31
+        ;
+    ucsdpsys_libmap [target];
+}
+
+stage1/system.syntax: compiler/error-messages.text
+{
+    cp [resolve compiler/error-messages.text] [target];
+}

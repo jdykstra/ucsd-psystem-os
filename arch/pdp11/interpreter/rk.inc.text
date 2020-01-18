@@ -1,0 +1,236 @@
+;
+; UCSD PASCAL - Version II.0
+; Copyright (C) 1978, 1979 Regents of the University of California
+; All Rights Reserved
+;
+; Permission to use, copy, modify and distribute any part of UCSD
+; PASCAL solely authored by UC authors before June 1, 1979 for
+; educational, research and non-profit purposes, without fee, and
+; without a written agreement is hereby granted, provided that the
+; above copyright notice, this paragraph and the following three
+; paragraphs appear in all copies.
+;
+; Those desiring to incorporate UCSD PASCAL into commercial products or
+; use for commercial purposes should contact the Technology Transfer &
+; Intellectual Property Services, University of California, San Diego,
+; 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+; Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+;
+; IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+; FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+; INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+; THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+; DAMAGE.
+;
+; THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+; OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+; UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+; MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+; EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+; WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+; THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+; OTHER RIGHTS.
+;
+; Case Number: SD1991-807 (2006)
+; http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+;
+;;; Source: http://bitsavers.org/bits/UCSD_Pascal/ucsd_II.0/
+;;;     U121.2_LSI-11_P-CODE_SOURCE.raw.gz
+;;; Description: RK05 disk driver.
+;;; Date: 1979-02-20
+        .TITLE  RK-11 (RK05) HANDLER    VERSION II.0.A
+        ; FOR VERSION I.5, II.0 INTERPS.
+        ;
+        ; COPYRIGHT (C) 1978 REGENTS OF THE UNIVERSTIY OF CALIFORNIA.
+        ; PERMISSION TO COPY OR DISTRIBUTE THIS SOFTWARE OR DOCUMEN-
+        ; TATION IN HARD COPY OR SOFT COPY GRANTED ONLY BY WRITTEN LICENSE
+        ; OBTAINED FROM THE INSTITUTE OF INFORMATION SYSTEMS.  ALL RIGHTS
+        ; RESERVED.  NO PART OF THIS PUBLICATION MAY BE REPRODUCED, STORED
+        ; IN A RETRIEVAL SYSTEM ( E.G., IN MEMORY, DISK, OR CORE) OR BE
+        ; TRANSMITTED BY ANY MEANS, ELECTRONIC, MECHANICAL, PHOTOCOPY,
+        ; RECORDING, OR OTHERWISE, WITHOUT PRIOR WRITTEN PERMISSION FROM THE
+        ; PUBLISHER.
+        ;
+        ;
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                                                                   ;
+;                       SYSTEM TABLE CONTENTS                       ;
+;                                                                   ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+        .ASECT          ; INTERRUPT HANDLER LOCATION IN VECTORS
+.=220
+        RK$INT
+        240
+
+        .CSECT  TABLES
+        .BLKW   128.    ; OPERATOR XFER TABLE
+        .REPT   9.
+        .BLKW   3
+        .ENDR
+        .WORD   INBIT!OUTBIT,RKSTRT,RKABRT
+        .WORD   INBIT!OUTBIT!400,RKSTRT,RKABRT
+        .WORD   INBIT!OUTBIT!1000,RKSTRT,RKABRT
+        .WORD   INBIT!OUTBIT!1400,RKSTRT,RKABRT
+        .PAGE
+        .CSECT  RKDRVR
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                                                                   ;
+;               R K - 0 5  HARD DISK HANDLER                        ;
+;                                                                   ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+RKUNIT: .WORD   0       ; ADDRESS OF UNIT TABLE ENTRY FOR I/O
+RKOFST  = 14
+
+DUMCSW: .WORD           ; START OF PHONY IO Q ENTRY FOR TERAK DRIVER
+        .WORD   DUMCSW  ; POINTER TO CSW
+DUMIOQ: .WORD           ; DISK BLOCK #
+        .WORD           ; SPEC FUNC (0) AND UNIT # IN HIGH BYTE
+        .WORD           ; BUFFER ADDRESS
+        .WORD           ; WORD COUNT
+        .WORD   1       ; ASYNCHRONOUS IO REQUEST
+
+RKSTRT: ; ENTER HERE TO START FLOPPY IO'S.   WE JUST SET UP A PHONY
+        ; IO Q FOR THE RT-11 DRIVER FROM TERAK AND LET IT DO ALL THE
+        ; DIRTY WORK.
+        TST     RKUNIT  ; ANY IO'S ALREADY GOING?
+        BNE     RKSTRT  ; IF SO THEN HANG!
+        MOV     R1,RKUNIT       ; NOW IO IS GOING ON RK
+        BIS     #BSYBIT,@R1
+        TST     (R3)+           ; SKIP PAST IO TYPE
+        MOV     R3,@SP          ; SAVE ALL REGISTERS...KLUDGE!!
+        MOV     R0,-(SP)
+        MOV     R1,-(SP)
+        MOV     R2,-(SP)
+        MOV     R4,-(SP)
+        MOV     R5,-(SP)
+        CLR     DUMCSW          ; CLEAR ANY HARD ERROR PROBS
+        MOV     #DUMIOQ,R5      ; POINT R5 AT IO Q...READY TO BUILD IT
+        MOV     <UBLOCK+RKOFST>(SP),(R5)+
+        MOV     @R1,(R5)+       ; UNIT # (SPECIAL FORMAT IN MY UNITABLE)
+        MOV     <UBUFFR+RKOFST>(SP),(R5)+
+        MOV     <URLENG+RKOFST>(SP),R0
+        ROR     R0              ; IN WORD COUNT (CBIT IS CLEAR)
+        TST     -(R3)           ; CHECK IF READ OR WRITE
+        BNE     1$              ; 1 IS A READ...0 IS A WRITE
+        NEG     R0              ; NEGATIVE WORD COUNT IF A WRITE
+1$:     MOV     R0,(R5)+        ; FINALLY WORD COUNT SET IN Q EL
+        JSR     PC,QENTRY       ; AND START UP DRIVER
+        MOV     (SP)+,R5        ; NOW RESTORE THOSE REGS
+        MOV     (SP)+,R4
+        MOV     (SP)+,R2
+        MOV     (SP)+,R1
+        MOV     (SP)+,R0
+        MOVB    DUMCSW,@R1      ; SEND POSSIBLE ERROR BACK TO USER
+        JMP     @(SP)+          ; RETURN TO UIO NOW (OLD R3 VAL @SP)
+
+$INTEN: ; FAKE $INTEN FOR DRIVERS BENEFIT
+        MOV     R4,-(SP)        ; R5 ALREADY ON STACK
+        JSR     PC,@R5
+        MOV     (SP)+,R4
+        MOV     (SP)+,R5
+        JMP     @#INTRTN
+
+RKQUIT: ; THIS IS THE DUMMY QMANAGR ENTERED UPON IO COMPLETE
+        MOVB    DUMCSW,@RKUNIT  ; PLACE POSSIBLE HARD ERROR IN RESULT BYTE
+        BIC     #BSYBIT,@RKUNIT
+        CLR     RKUNIT
+        RTS     PC              ; FALLS INTO $INTEN
+        .PAGE
+; RK CONTROL DEFINITIONS:
+RKDS    = 177400
+RKER    = 177402
+RKCS    = 177404
+RKWC    = 177406
+RKBA    = 177410
+RKDA    = 177412
+
+RKCNT   = 10                    ;# ERROR RETRYS
+
+RKCQE:  .WORD   DUMIOQ
+QENTRY: MOV     #RKCNT,(PC)+    ;SET ERROR RETRIES
+RETRY:  0                       ;HIGH ORDER BIT USED FOR RESET IN PROGRESS FLAG
+        MOV     RKCQE,R5        ;GET Q PARAMETER POINTER
+        MOV     @R5,R2          ;R2 = BLOCK NUMBER
+        MOV     2(R5),R4        ;R4 = UNIT NUMBER
+        ASR     R4              ;ISOLATE UNIT BITS IN HIGH 3 BITS
+        ASR     R4
+        ASR     R4
+        SWAB    R4
+        BIC     #^C<160000>,R4
+        BR      2$              ;ENTER COMPUTATION LOOP
+1$:     ADD     R2,R4           ;ADD 16R TO ADDRESS
+        ASR     R2              ;R2 = 8R
+        ASR     R2              ;R2 = 4R
+        ADD     R3,R2           ;R2 = 4R+S = NEW N
+2$:     MOV     R2,R3           ;R3 = N = 16R+S
+        BIC     #177760,R3      ;R3 = S
+        BIC     R3,R2           ;R2 = 16R
+        BNE     1$              ;LOOP IF R <> 0
+        CMP     #12.,R3         ;IF S < 12.
+        BGT     3$              ;   THEN F(S) = S
+        ADD     #4,R3           ;   ELSE F(S)=F(12+S')=16+S'=4+S
+3$:     ADD     R3,R4           ;R4 NOW CONTAINS RK ADDRESS
+        MOV     R4,DISKAD       ;SAVE DISK ADDRESS
+AGAIN:  MOV     RKCQE,R5        ;POINT R5 TO Q ELEMENT
+        MOV     #RKDA,R4        ;POINT TO DISK ADDRESS REG
+        MOV     (PC)+,@R4       ;PUT IN ADDRESS & UNIT SELECT
+DISKAD: 0                       ;SAVED COMPUTED DISK ADDRESS
+        CMP     (R5)+,(R5)+     ;ADVANCE TO BUFFER ADDRESS IN Q ELT
+        MOV     (R5)+,-(R4)     ;PUT IN BUFFER ADDRESS
+        MOV     (R5)+,-(R4)     ;PUT IN WORD COUNT
+        BEQ     6$              ;0 COUNT => SEEK
+        BMI     5$              ;NEGATIVE => WRITE
+        NEG     @R4             ;POSITIVE => READ. FIX FOR CONTROLLER
+        MOV     #105,-(R4)      ;START UP A READ
+        RTS     PC              ;RETURN TO MONITOR TO AWAIT INTERRUPT
+5$:     MOV     #103,-(R4)      ;START UP A WRITE
+        RTS     PC              ;AWAIT INTERRUPT
+6$:     MOV     #111,-(R4)      ;START UP A SEEK
+        RTS     PC              ;AWAIT INTERRUPT
+
+; NOTE THAT THE RTS PC ABOVE SERVES AS THE ABORT ENTRY FOR THE RK
+
+RK$INT: JSR     R5,$INTEN       ;DO IT. INTO MONITOR
+        MOV     #RKER,R5        ;POINT TO ERROR STATUS REGISTER
+        MOV     (R5)+,R4        ;SAVE ERRORS IN R4,POINT TO RKCS
+        TST     RETRY           ;WERE WE DOING A DRIVE RESET?
+        BPL     2$              ;NO-NORMAL OPERATION
+        TST     @R5             ;YES-ANY ERROR
+        BMI     2$              ;YES-HANDLE NORMALLY
+        BIT     #20000,@R5      ;RESET COMPLETE?
+        BEQ     RTSPC           ;NO-DISMISS INTERRUPT-RK11 WILL INTERRUPT
+                                ;AGAIN WHEN RESET COMPLETE
+1$:     CLRB    RETRY+1         ;YES-CLEAR RESET FLAG
+        BR      AGAIN           ;AND RETRY OPERATION
+
+2$:     CMP     @R5,#310        ;IS THIS FIRST OF TWO INTERRUPTS CAUSED BY SEEK?
+        BEQ     RTSPC           ;YES-IGNORE IT.RK WILL INTERRUPT AGAIN
+                                ;WHEN SEEK COMPLETE
+        TST     @R5             ;ANY ERRORS?
+        BPL     DONE            ;NO-OPERATION COMPLETE
+        MOV     #1,@R5          ;YES-RESET CONTROL
+3$:     TSTB    @R5             ;WAIT
+        BPL     3$
+        DECB    RETRY           ;DECREASE RETRY COUNT
+        BEQ     HERROR          ;NONE LEFT-HARD ERROR
+        BIT     #110000,R4      ;SEEK INCOMPLETE OR DRIVE ERROR?
+                                ; 100000=DRIVE ERROR
+                                ; 010000=SEEK ERROR
+        BEQ     1$              ;NO-RETRY OPERATION
+        MOV     DISKAD,@#RKDA   ;YES-RESELECT DRIVE
+        MOV     #115,@R5        ;START A DRIVE RESET
+        BIS     #100000,RETRY   ;SET FLAG
+RTSPC:  RTS     PC              ;AWAIT INTERRUPT
+
+HERROR: MOV     RKCQE,R5        ;GET POINTER TO Q ELEMENT
+        BIS     #1,@-(R5)       ;GIVE OUR USER AN ERROR IN CHANNEL
+DONE:   CLR     RETRY           ;CLEAR ANY FLAGS
+        JMP     RKQUIT
+
+RKABRT: TST     RKUNIT
+        BNE     RKABRT
+        RTS     PC

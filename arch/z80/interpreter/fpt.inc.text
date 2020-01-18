@@ -1,0 +1,673 @@
+;
+; UCSD PASCAL - Version I.5
+; Copyright (C) 1978, 1979 Regents of the University of California
+; All Rights Reserved
+;
+; Permission to use, copy, modify and distribute any part of UCSD
+; PASCAL solely authored by UC authors before June 1, 1979 for
+; educational, research and non-profit purposes, without fee, and
+; without a written agreement is hereby granted, provided that the
+; above copyright notice, this paragraph and the following three
+; paragraphs appear in all copies.
+;
+; Those desiring to incorporate UCSD PASCAL into commercial products or
+; use for commercial purposes should contact the Technology Transfer &
+; Intellectual Property Services, University of California, San Diego,
+; 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+; Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+;
+; IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+; FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+; INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+; THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+; DAMAGE.
+;
+; THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+; OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+; UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+; MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+; EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+; WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+; THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+; OTHER RIGHTS.
+;
+; Case Number: SD1991-807 (2006)
+; http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+;
+;;; Source: http://bitsavers.org/bits/UCSD_Pascal/ucsd_II.0/
+;;;     U120_Z80_P-CODE_SOURCE.raw.gz
+;;; Date: 1979-Feb-08
+
+        .IF ~LSTFPT
+         .NOLIST
+        .ELSE
+         .LIST
+        .ENDC
+
+; Copyright (c) 1978 by the Regents of the University of Califormia
+;   San Diego
+
+; Beginning of file FPT
+
+; Floating point transendental functions package.
+
+
+; Constants...
+FPCHALF .BYTE   80H, 00H, 00H, 00H      ; 0.5
+FPC1    .BYTE   81H, 00H, 00H, 00H      ; 1.0
+FPC2    .BYTE   82H, 00H, 00H, 00H      ; 2.0
+FPC6    .BYTE   83H, 40H, 00H, 00H      ; 6.0
+FPC9    .BYTE   84H, 10H, 00H, 00H      ; 9.0
+FPC10   .BYTE   84H, 20H, 00H, 00H      ; 10.0
+FPC14   .BYTE   84H, 60H, 00H, 00H      ; 14.0
+FPC17   .BYTE   85H, 08H, 00H, 00H      ; 17.0
+FPCE    .BYTE   82H, 2DH,0F8H, 54H      ; the number e (approx. 2.718281828)
+FPCPI4  .BYTE   80H, 49H, 0FH,0DBH      ; pi/4   (approx. 0.785398163)
+FPCPI2  .BYTE   81H, 49H, 0FH,0DBH      ; pi/2   (approx. 1.570796327)
+FPCPIP  .BYTE   7FH, 12H, 1FH,0B5H      ; pi/4 - 0.5   (approx. 0.285398163)
+FPCLN2  .BYTE   80H, 31H, 72H, 18H      ; ln(2)  (approx. 0.693147181)
+FPCLOG2 .BYTE   7FH, 1AH, 20H, 9BH      ; log(2) (approx. 0.301029996)
+FPCLOGE .BYTE   7FH, 5EH, 5BH,0D9H      ; log(e) (approx. 0.434294482)
+
+; Globals...
+FPGX    .EQU    TFPT            ; the number to transcend upon
+INTN    .EQU    TFPT+20.        ; trunc(abs(FPGX)/FPCPI4) {used in sin,cos}
+FPGN    .EQU    TFPT+4          ; float(INTN)
+FPGN1   .EQU    TFPT+8          ; FPGN + 1.0
+FPGR    .EQU    TFPT+12.        ; f and r are local variables in lots of
+FPGF    .EQU    TFPT+16.        ;   the routines below
+EFSAVE  .EQU    TFPT+22.        ; exponent field save
+LOGSGN  .EQU    TFPT+24.        ; log sign
+
+
+; Common sub-expression and common code routines
+
+FPFHALV ; tos * 0.5
+        POP     HL
+        POP     DE
+        INC     E
+        DEC     E
+        JP      Z,$10
+        DEC     E               ; don't worry about underflow
+$10     PUSH    DE
+        JP      (HL)
+
+FPFDOUB ; tos * 2.0
+        POP     HL
+        POP     DE
+        INC     E
+        DEC     E
+        JP      Z,$10
+        INC     E               ; don't worry about overflow
+$10     PUSH    DE
+        JP      (HL)
+
+
+FPLSEX1 ; Sub-expression 1 (r: real): real
+        ; computes FPLSEX1 := 2.0+r/(6.0+r/(10.0+r/14.0))
+        ; actually expression has been rearranged to compute
+        ; r/(r/(r/14.0+10.0)+6.0)+2.0
+        ; used by si, co, and ex support routines
+        FPMADJ
+        ; put 2 more copies of r on stack "for later"
+        FPMDUP  LHED
+        FPMDUP  LHED
+        FPMPUSH FPC14
+        CALL    FPFDIV          ; use one copy of r
+        FPMPUSH FPC10
+        CALL    FPFADD
+        CALL    FPFDIV          ; use second
+        FPMPUSH FPC6
+        CALL    FPFADD
+        CALL    FPFDIV          ; use third
+        FPMPUSH FPC2
+        CALL    FPFADD
+        FPMFRET                 ; return from fp function
+
+FPLSEX2 ; Sub-expression 2 (): real
+        ; computes FPLSEX2 := abs((abs(FPGX)-FPGN*0.5)-FPGN*PIP)
+        ; takes no arguments, but uses globals FPGN, FPGX
+        ; used by sin, cos functions
+        FPMPUSH FPGX
+        CALL    FPFABS
+        FPMPUSH FPGN
+        CALL    FPFHALV
+        CALL    FPFSUB
+        FPMPUSH FPGN
+        FPMPUSH FPCPIP
+        CALL    FPFMUL
+        CALL    FPFSUB
+        CALL    FPFABS
+        FPMFRET
+
+FPLSEX3 ; Sub-expression 3 (): real
+        ; computes FPLSEX3 := abs((abs(FPGX)-FPGN1*0.5)-FPGN1*PIP)
+        ; used by sin, cos functions
+        FPMPUSH FPGX
+        CALL    FPFABS
+        FPMPUSH FPGN1
+        CALL    FPFHALV
+        CALL    FPFSUB
+        FPMPUSH FPGN1
+        FPMPUSH FPCPIP
+        CALL    FPFMUL
+        CALL    FPFSUB
+        CALL    FPFABS
+        FPMFRET
+
+FPLSI   ; si(x:real): real
+        ;   var r, f: real
+        ; computes...
+        ; r := -sqr(x)
+        ; f := sex1(r)
+        ; si := x*f*2.0/(f*f-r)
+        ; used by sin, cos functions
+        FPMADJ
+        ; sneakily leave a copy of x around "for later"
+        FPMDUP  LHED
+        CALL    FPFSQR
+        CALL    FPFNEG
+        FPMSAVE FPGR
+        CALL    FPLSEX1
+        FPMSAVE FPGF
+        CALL    FPFMUL          ; multiply x*f
+        CALL    FPFDOUB
+        FPMPUSH FPGF
+        CALL    FPFSQR
+        FPMPUSH FPGR
+        CALL    FPFSUB
+        CALL    FPFDIV
+        FPMFRET
+
+FPLCO   ; co(x:real): real
+        ;   var r,f2: real
+        ; computes...
+        ; r := -sqr(x)
+        ; f2 := sqr(sex1(r))
+        ; co := (f2+r)/(f2-r)
+        ; used by sin, cos functions
+        FPMADJ
+        CALL    FPFSQR
+        CALL    FPFNEG
+        FPMSAVE FPGR
+        ; "for later"...see Bored of the Rings for origin of quote
+        FPMDUP  LHED
+        CALL    FPLSEX1
+        CALL    FPFSQR
+        FPMSAVE FPGF
+        CALL    FPFADD          ; pull dem "laters" out!
+        FPMPUSH FPGF
+        FPMPUSH FPGR
+        CALL    FPFSUB
+        CALL    FPFDIV
+        FPMFRET
+
+
+FPLSEX69 ; function Sub-code&expression 69 (x:real):real
+        ; computes INTN := trunc(abs(x)/pi4)
+        ; FPGN := float(INTN)
+        ; FPGN1 := FPGN + 1.0
+        ; INTN := INTN mod 8
+        ; if even(INTN) then sex2 else sex3
+        ; used by sin, cos functions
+        FPMADJ
+        CALL    FPFABS          ; compute INTN
+        FPMPUSH FPCPI4
+        CALL    FPFDIV
+        CALL    FPFFIX
+        POP     HL              ; do the mod 8 stuff now
+        PUSH    HL
+        LD      A,L
+        AND     07H
+        LD      (INTN),A
+        CALL    FPFFLOAT        ; compute FPGN
+        FPMSAVE FPGN
+        FPMPUSH FPC1
+        CALL    FPFADD          ; compute FPGN1
+        FPMPOP  FPGN1
+        ; is INTN even or odd ?
+        LD      A,(INTN)
+        AND     01H
+        JP      NZ, $10
+        CALL    FPLSEX2
+        JP      $20
+$10     CALL    FPLSEX3
+$20     FPMFRET
+
+
+
+FPFSIN  ; sin(x:real):real
+        ; computes
+        ; val := FPLSEX69(x)
+        ; if INTN in [0,3,4,7] then val := si(val) else val := co(val)
+        ; if INTN >= 4 then val := -val
+        ; if x < 0 then val := -val
+        FPMADJ  FPGX
+        CALL    FPLSEX69
+        ; is INTN = 0,3,4, or 7 ?
+        LD      A,(INTN)
+        AND     03H           ; now is INTN = 0 or 3 ?
+        JP      Z,$10           ; if ZERO set, INTN = 0
+        CP      3
+        JP      NZ,$20
+$10     CALL    FPLSI
+        JP      $30
+$20     CALL    FPLCO
+$30     ; is INTN >=4 ?
+        LD      A,(INTN)
+        CP      4
+        JP      C,$40
+        CALL    FPFNEG
+$40     ; is x < 0 ?
+        LD      A,(FPGX+1)      ; grab sign byte
+        TSTA
+        JP      P,$50
+        CALL    FPFNEG
+$50     FPMFRET                 ; all done.
+
+
+FPFCOS  ; cos(x: real): real
+        ; computes
+        ; val := sex69(x)
+        ; if INTN IN [0,3,4,7] then val := co(x) else val := si(x)
+        ; if 2 <= INTN <= 5 then val := -val
+        FPMADJ  FPGX
+        CALL    FPLSEX69
+        ; call either si or co
+        LD      A,(INTN)
+        AND     03H
+        JP      Z,$10
+        CP      3
+        JP      NZ,$20
+$10     CALL    FPLCO
+        JP      $30
+$20     CALL    FPLSI
+$30     ; should we negate ?
+        LD      A,(INTN)
+        SUB     2
+        CP      4
+        JP      NC,$40
+        CALL    FPFNEG
+$40     FPMFRET
+
+
+FPLEPWR ; epwr(n: integer): real
+        ; computes e ^ n
+        POP     HL              ; ret addr
+        POP     DE              ; n (Should be in 0..110)
+        PUSH    HL
+        LD      A,E
+        FPMPUSH FPC1
+        TSTA
+        JP      Z,$20           ; are we done before we really start?
+$10     LD      (INTN),A
+        FPMPUSH FPCE
+        CALL    FPFMUL
+        LD      A,(INTN)
+        DEC     A
+        JP      NZ,$10
+$20     FPMFRET
+
+
+FPLEX   ; ex(r: real): real
+        ; computes e ^ r, but only used if r is "small"
+        ;  var f: real;
+        ; f := sex1(sqr(x))
+        ; ex := (f+r)/(f-r)
+        FPMADJ  FPGR
+        ; you guessed it..."for later"
+        FPMDUP  LHED
+        CALL    FPFSQR
+        CALL    FPLSEX1
+        FPMSAVE FPGF
+        CALL    FPFADD          ; you will notice, observant reader, it is
+                                ; now "later"
+        FPMPUSH FPGF
+        FPMPUSH FPGR
+        CALL    FPFSUB
+        CALL    FPFDIV
+        FPMFRET
+
+
+FPFEXP  ; exp(x: real): real
+        ; computes e ^ x, by doing fractional part, then integral part
+        ; INTN := trunc(abs(x))
+        ; exp := ex(abs(x)-INTN) * epwr(INTN)
+        ; if x < 0 then exp := 1/exp
+        ; save x (actually we only need the sign bit for later use)
+        FPMADJ  FPGX
+        CALL    FPFABS
+        FPMDUP                    ; need I say it ?
+        CALL    FPFFIX
+        POP     HL
+        PUSH    HL
+        LD      (INTN),HL
+        CALL    FPFFLOAT
+        CALL    FPFSUB
+        CALL    FPLEX
+        LD      HL,(INTN)
+        PUSH    HL
+        CALL    FPLEPWR
+        CALL    FPFMUL
+        LD      A,(FPGX+1)      ; get the sign of x
+        TSTA
+        JP      P,$10
+        CALL    FPFINV
+$10     FPMFRET
+
+
+FPFATAN ; atan(x: real): real
+        ;   var r, f: real
+        ; computes...
+        ; r := sqr(x)
+        ; if abs(x) >= 1.0 then r := 1.0/r
+        ; f := 17.0 {2*i+1}
+        ; for i := 8 downto 1 do
+        ;   f := (2*i-1) + (sqr(i)*r/f)
+        ; if abs(x) >= 1.0 then atan := pi2-1.0/(x*f) else atan := x/f
+        FPMADJ  FPGX
+        CALL    FPFSQR
+        LD      A,E             ; get exp (use neat properties of x^2)
+        CP      81H             ; if exp >= 81, number is >= 1.0
+        JP      C,$10
+        CALL    FPFINV
+$10     FPMPOP  FPGR
+        ; f := 17.0, set up loop
+        LD      HL,(FPC17)
+        LD      (FPGF  ),HL
+        LD      HL,(FPC17+2)
+        LD      (FPGF  +2),HL
+        LD      HL,8
+$20     LD      (INTN),HL
+        ADD     HL,HL           ; calculate 2*i-1
+        DEC     L
+        PUSH    HL
+        CALL    FPFFLOAT
+        LD      HL,(INTN)       ; calculate i*i
+        EX      DE,HL
+        LD      C,E
+        LD      B,D
+        CALL    MULT
+        PUSH    HL
+        CALL    FPFFLOAT
+        FPMPUSH FPGR
+        CALL    FPFMUL
+        FPMPUSH FPGF
+        CALL    FPFDIV
+        CALL    FPFADD
+        FPMPOP  FPGF
+        LD      HL,(INTN)
+        DEC     L
+        JP      NZ,$20
+        ; and now, the grand finale...
+        ;   (and the grand illusion, if you really think all this will work!)
+        LD      A,(FPGX)        ; get exp
+        CP      81H
+        JP      C,$30
+        ; atan := pi2-1.0/(x*f)
+        FPMPUSH FPCPI2
+        FPMPUSH FPGX
+        FPMPUSH FPGF
+        CALL    FPFMUL
+        CALL    FPFINV
+        CALL    FPFSUB
+        JP      $40
+$30     ; atan := x/f
+        FPMPUSH FPGX
+        FPMPUSH FPGF
+        CALL    FPFDIV
+$40     FPMFRET
+
+
+FPFSQRT ;sqrt(x: real): real
+        ;   {algorithm scales x down to a reasonable size, takes the
+        ;    sqrt via simple succesive approximations, then scales
+        ;    back up...sqrt(x'*2^(2*n)) = sqrt(x') * 2^n}
+        ; computes...
+        ; if x < 0 then error
+        ; else if x = 0.0 then sqrt := 0
+        ; else begin
+        ;   if x < 1.0 then y := 1.0/x else y := x
+        ;   {scale y such that 1.0 <= y < 4.0}
+        ;   efsave := (x.expfield - 81) and 8E#16 {even power of two}
+        ;   y.expfield := y.expfield - efsave
+        ;   z := 2.0    {our first approximation}
+        ;   for i := 1 to 8 do z := 0.5*(z+y/z)
+        ;   {scale answer back up}
+        ;   z.expfield := z.expfield + (efsave div 2)
+        ;   if x < 1.0 then sqrt := 1.0/z else sqrt := z
+        ;   end
+SQRTLY  .EQU    TFPT+12.
+SQRTLZ  .EQU    TFPT+16.
+        FPMADJ  FPGX
+        LD      A,H             ; is number negative ?
+        TSTA
+        JP      P,$10
+        ; it most assuredly is...tell the dumbshit.
+        LD      A,1
+        LD      (FPERROR),A
+        JP      $20             ; pretend we just found out x = 0.0
+$10     LD      A,L             ; is number 0.0 ?
+        TSTA
+        JP      NZ,$30
+$20     ; junk the val on the stack, and return 0.0
+        POP     HL
+        POP     HL
+        POP     HL              ; ret addr
+        LD      DE,0
+        PUSH    DE
+        PUSH    DE
+        JP      (HL)            ; note that for fast and accurate answers,
+                                ; it is best to only compute sqrt(0.0) !
+$30     ; ahhh...a decent sort of number, worthy of our esteemed consideration
+        CP      81H             ; x < 1.0 ? (exp still in A)
+        JP      NC,$40
+        CALL    FPFINV          ; yes.  invert it.
+$40     POP     HL              ; get expfield again
+        LD      A,L             ; calc efsave, and scale tos
+        SUB     81H             ;  128 bias, and 0.1a => 1.a conversion
+        AND     0FEH            ;  make even
+        LD      (EFSAVE),A
+        LD      E,A
+        LD      A,L
+        SUB     E
+        LD      L,A
+        LD      (SQRTLY),HL     ; and save tos
+        POP     HL
+        LD      (SQRTLY+2),HL
+        ; push original approximation, and also save it
+        LD      HL,(FPC2+2)
+        PUSH    HL
+        LD      (SQRTLZ+2),HL
+        LD      HL,(FPC2)
+        PUSH    HL
+        LD      (SQRTLZ),HL
+        LD      A,8             ; prime the loop
+$50     LD      (INTN),A
+        FPMPUSH SQRTLY
+        FPMPUSH SQRTLZ
+        CALL    FPFDIV
+        CALL    FPFADD
+        CALL    FPFHALV
+        FPMSAVE SQRTLZ
+        LD      A,(INTN)
+        DEC     A
+        JP      NZ,$50
+        ; rescale tos
+        POP     HL
+        LD      A,(EFSAVE)
+        RRCA                    ; sneaky divide by two..low bit is zero
+        ADD     A,L
+        LD      L,A
+        PUSH    HL
+        ; invert if x < 1.0
+        LD      A,(FPGX)        ; get exp once more
+        CP      81H
+        JP      NC,$60
+        CALL    FPFINV
+$60     FPMFRET
+
+FPLLNX  ; calculates ln(x), where x is "small"
+        ;   (in this case 1.0 <= x < 2.0)
+        ; algorithm...
+        ; r := x-1.0
+        ; f := 17.0 (* 2*8+1 *)
+        ; for i := 8 downto 1 do
+        ;   f := i + sqr((i+1) div 2)*r/f
+        ; lnx := r/f
+        FPMADJ
+        FPMPUSH FPC1            ; calculate r
+        CALL    FPFSUB
+        FPMPOP  FPGR
+        LD      HL,(FPC17)      ; and start off f
+        LD      (FPGF ),HL
+        LD      HL,(FPC17+2)
+        LD      (FPGF +2),HL
+        LD      A,8             ; prime loop
+$10     LD      (INTN),A
+        LD      L,A             ; push float(i)
+        LD      H,0
+        PUSH    HL
+        CALL    FPFFLOAT
+        LD      A,(INTN)
+        INC     A               ; calculate sqr((i+1) div 2)
+        CLRCF
+        RRA
+        LD      C,A
+        LD      B,0
+        LD      E,C
+        LD      D,B
+        CALL    MULT
+        PUSH    HL
+        CALL    FPFFLOAT
+        FPMPUSH FPGR
+        CALL    FPFMUL
+        FPMPUSH FPGF
+        CALL    FPFDIV
+        CALL    FPFADD
+        FPMPOP  FPGF
+        LD      A,(INTN)
+        DEC     A
+        JP      NZ,$10
+        FPMPUSH FPGR
+        FPMPUSH FPGF
+        CALL    FPFDIV
+        FPMFRET
+
+FPLBLOG ; function blog(x: real): real  (* plus side-effects *)
+        ; does stuff common to both logs...
+        ; algorithm...
+        ; if x <= 0.0 then blog := x (* garbage *)
+        ; else
+        ;   begin
+        ;   sgn := plus
+        ;   if x < 1.0 then begin x := 1/x; sgn := minus end
+        ;   efsave := x.expfield-81#16
+        ;   x.expfield := 81#16
+        ;   blog := lnx(x)
+        FPMADJ
+        LD      A,H             ; is arg negative ?
+        TSTA
+        JP      M,$10
+        LD      A,L             ; is arg 0.0 ?
+        TSTA
+        JP      NZ,$20
+$10     ; bummer.  return garbage.
+        LD      A,1
+        LD      (FPERROR),A
+        JP      $40
+$20     ; is arg < 1.0 ?
+        CP      81H             ; set flags
+        LD      A,0             ; and assume bigger than 1.0
+        LD      (LOGSGN),A
+        JP      NC,$30
+        ; our assumtion was wrong...
+        CALL    FPFINV
+        LD      A,80H
+        LD      (LOGSGN),A
+$30     POP     HL              ; get exp once more !
+        LD      A,L             ; and scale tos down to size
+        SUB     81H
+        LD      (EFSAVE),A      ; stash exponent in a safe place
+        LD      L,81H
+        PUSH    HL
+        CALL    FPLLNX
+$40     FPMFRET
+
+FPFLN   ; natural log (base e, for all you non-organic types)
+        FPMADJ
+        CALL    FPLBLOG         ; let others do all the hard work...
+        ; ... while we simply multiply results by a few constants
+        ; ln := blog + efsave*ln(2)
+        LD      HL,(EFSAVE)
+        LD      H,0
+        PUSH    HL
+        CALL    FPFFLOAT
+        FPMPUSH FPCLN2
+        CALL    FPFMUL
+        CALL    FPFADD
+        POP     HL              ; now stick in proper sign
+        LD      A,(LOGSGN)
+        OR      H
+        LD      H,A
+        PUSH    HL
+        FPMFRET
+
+FPFLOG  ; log base 10
+        FPMADJ
+        CALL    FPLBLOG
+        ; log := blog*log(e) + efsave*log(2)
+        FPMPUSH FPCLOGE
+        CALL    FPFMUL
+        LD      HL,(EFSAVE)
+        LD      H,0
+        PUSH    HL
+        CALL    FPFFLOAT
+        FPMPUSH FPCLOG2
+        CALL    FPFMUL
+        CALL    FPFADD
+        POP     HL
+        LD      A,(LOGSGN)
+        OR      H
+        LD      H,A
+        PUSH    HL
+        FPMFRET
+
+
+
+SIN     ; sin standard procedure
+        CALL    FPLCBEG
+        CALL    FPFSIN
+        JP      FPLCHK
+
+COS     ; cos standard procedure
+        CALL    FPLCBEG
+        CALL    FPFCOS
+        JP      FPLCHK
+
+EXP     ; exp standard procedure
+        CALL    FPLCBEG
+        CALL    FPFEXP
+        JP      FPLCHK
+
+ATAN    ; atan standard procedure
+        CALL    FPLCBEG
+        CALL    FPFATAN
+        JP      FPLCHK
+
+SQT    ; sqrt standard procedure
+        CALL    FPLCBEG
+        CALL    FPFSQRT
+        JP      FPLCHK
+
+LOG     ; log base 10
+        CALL    FPLCBEG
+        CALL    FPFLOG
+        JP      FPLCHK
+
+LN      ; log base e
+        CALL    FPLCBEG
+        CALL    FPFLN
+        JP      FPLCHK
+
+; End of file FPT

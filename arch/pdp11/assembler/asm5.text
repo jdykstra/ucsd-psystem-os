@@ -1,0 +1,555 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+ PROCEDURE NEWFILE;
+ BEGIN
+   (*$I-*)
+   TEXTLINE:=BLANKLINE; TEXTINDEX:=0;
+   IF ALTINPUT THEN
+     BNUM:=BLOCKREAD(ALTFILE,XBLOCK,2,BLOCKNO)
+   ELSE
+     BNUM:=BLOCKREAD(USERINFO.WORKSRC^,XBLOCK,2,BLOCKNO);
+   BLOCKPTR:=0;
+   BLOCKNO:=BLOCKNO+BNUM;
+   IF DEBUG THEN
+      WRITELN('BLOCKREAD=',BLOCKNO);
+   IF BNUM=0 THEN
+     IF ALTINPUT THEN
+       BEGIN
+         BLOCKNO:=ALTBLOCNO;
+         BLOCKPTR:=ALTBLOCPTR;
+         BNUM:=BLOCKREAD(USERINFO.WORKSRC^,XBLOCK,2,BLOCKNO - 2);
+         ALTINPUT:=FALSE;
+         CLOSE(ALTFILE);
+         CURFNAME:=FIRSTFNAME;
+       END
+     ELSE
+       BEGIN
+         ERROR(36);
+         UNITCLEAR(3);
+         EXIT(LEX);
+       END;
+   IOCHECK(TRUE);
+   (*$I+*)
+ END;
+
+ PROCEDURE GETCHAR;
+ VAR I:INTEGER;
+ BEGIN
+   IF DEBUG THEN WRITE(LISTFILE,'Getchar ');
+   CASE SOURCE OF
+     MACROSOURCE:BEGIN
+                   IF ADVANCE THEN
+                     BEGIN
+                       MACROINDEX:=MACROINDEX + 1;
+                       TEXTINDEX:=TEXTINDEX + 1;
+                     END
+                   ELSE ADVANCE:=TRUE;
+                   IF MCPTR^[MACROINDEX]=CHR(16) THEN
+                     BEGIN
+                       CH:=MCPTR^[MACROINDEX + 1];
+                       STARTLINE:=(ORD(CH) - 32=0);
+                       IF TEXTINDEX<79 THEN
+                         BEGIN
+                           TEXTLINE[TEXTINDEX]:=CHR(16);
+                           TEXTLINE[TEXTINDEX + 1]:=CH;
+                           TEXTINDEX:=TEXTINDEX+2;
+                         END;
+                       MACROINDEX:=MACROINDEX + 2;
+                     END;
+                   CH:=MCPTR^[MACROINDEX];
+                   IF CH='%' THEN
+                     BEGIN
+                       CH:=MCPTR^[MACROINDEX + 1];
+                       MACROINDEX:=MACROINDEX + 2;
+                       IF (CH<'1') OR (CH>'9') THEN
+                         ERROR(22{illegal macro parameter index})
+                       ELSE
+                         BEGIN
+                           I:=ORD(CH)-ORD('1');
+                           PARMPTR:=MCINDEX[MCSTKINDEX-1];
+                           IF MCSTKINDEX>1 THEN
+                             BEGIN
+                               MCPTR:=MACROSTACK[MCSTKINDEX - 1];
+                               WHILE (I<>0) AND (MCPTR^[PARMPTR]<>CHR(13)) DO
+                                 BEGIN
+                                   IF MCPTR^[PARMPTR]=',' THEN I:=I-1;
+                                   PARMPTR:=PARMPTR + 1;
+                                 END;
+                               I:=SCAN(80,<>' ',MCPTR^[PARMPTR]);
+                               PARMPTR:=PARMPTR + I;
+                               CH:=MCPTR^[PARMPTR];
+                               IF (CH=CHR(13)) OR (CH=';') THEN
+                                 MCPTR:=MACROSTACK[MCSTKINDEX];
+                             END
+                           ELSE
+                             BEGIN
+                               WHILE (I<>0) AND (XBLOCK[PARMPTR]<>CHR(13)) DO
+                                 BEGIN
+                                   IF XBLOCK[PARMPTR]=',' THEN I:=I-1;
+                                   PARMPTR:=PARMPTR + 1;
+                                 END;
+                               I:=SCAN(80,<>' ',XBLOCK[PARMPTR]);
+                               PARMPTR:=PARMPTR + I;
+                               CH:=XBLOCK[PARMPTR];
+                             END;
+                           IF (CH<>CHR(13)) AND (CH<>';')
+                             THEN
+                               SOURCE:=PARMSOURCE;
+                           ADVANCE:=FALSE;
+                           GETCHAR;
+                         END;
+                     END
+                   ELSE IF (CH=' ') AND NOTSTRING THEN
+                     BEGIN
+                       I:=SCAN(80,<>' ',MCPTR^[MACROINDEX]);
+                       IF TEXTINDEX + I<80 THEN
+                         BEGIN
+                           FILLCHAR(TEXTLINE[TEXTINDEX],I,' ');
+                           TEXTINDEX:=TEXTINDEX + I - 1;
+                         END;
+                       MACROINDEX:=MACROINDEX + I - 1;
+                     END
+                   ELSE IF (EXPANDMACRO) AND (CH<>CHR(13)) THEN
+                     BEGIN
+                       IF TEXTINDEX<80 THEN TEXTLINE[TEXTINDEX]:=CH;
+                       IF CH=TAB THEN CH:=' ';
+                     END;
+                 END;
+      PARMSOURCE:BEGIN
+                   IF ADVANCE THEN
+                     BEGIN
+                       PARMPTR:=PARMPTR + 1;
+                       TEXTINDEX:=TEXTINDEX + 1;
+                     END
+                   ELSE ADVANCE:=TRUE;
+                   IF MCSTKINDEX>1 THEN CH:=MCPTR^[PARMPTR]
+                     ELSE CH:=XBLOCK[PARMPTR];
+                   IF (CH=',') OR (CH=CHR(13)) OR (CH=';') THEN
+                     BEGIN
+                       IF MCSTKINDEX>1 THEN
+                         I:=SCAN(-70,<>' ',MCPTR^[PARMPTR - 1])
+                       ELSE
+                         I:=SCAN(-70,<>' ',XBLOCK[PARMPTR - 1]);
+                       TEXTINDEX:=TEXTINDEX + I;
+                       SOURCE:=MACROSOURCE;
+                       MCPTR:=MACROSTACK[MCSTKINDEX];
+                       ADVANCE:=FALSE;
+                       GETCHAR;
+                     END
+                   ELSE IF (CH=' ') AND NOTSTRING THEN
+                     BEGIN
+                       REPEAT
+                         IF TEXTINDEX<80 THEN TEXTLINE[TEXTINDEX]:=' ';
+                         TEXTINDEX:=TEXTINDEX + 1;
+                         PARMPTR:=PARMPTR + 1;
+                         IF MCSTKINDEX>1 THEN CH:=MCPTR^[PARMPTR]
+                           ELSE CH:=XBLOCK[PARMPTR];
+                       UNTIL CH<>' ';
+                       CH:=' ';
+                       PARMPTR:=PARMPTR - 1;
+                       TEXTINDEX:=TEXTINDEX - 1;
+                     END
+                   ELSE
+                     BEGIN
+                       IF TEXTINDEX<80 THEN TEXTLINE[TEXTINDEX]:=CH;
+                       IF CH=TAB THEN CH:=' ';
+                     END;
+                 END;
+      FILESOURCE:BEGIN
+                   IF ADVANCE THEN
+                     BEGIN
+                       BLOCKPTR:=BLOCKPTR + 1;
+                       TEXTINDEX:=TEXTINDEX + 1;
+                     END
+                   ELSE ADVANCE:=TRUE;
+                   IF BLOCKPTR>1023 THEN NEWFILE
+                     ELSE IF (XBLOCK[BLOCKPTR]=CHR(0)) THEN NEWFILE;
+                   IF (XBLOCK[BLOCKPTR]=CHR(16)) AND NOT DEFMCHOOK THEN
+                     BEGIN
+                       CH:=XBLOCK[BLOCKPTR+1];
+                       STARTLINE:=(ORD(CH) - 32=0);
+                       IF TEXTINDEX<79 THEN
+                         BEGIN
+                           TEXTLINE[TEXTINDEX]:=CHR(16);
+                           TEXTLINE[TEXTINDEX + 1]:=CH;
+                           TEXTINDEX:=TEXTINDEX + 2;
+                         END;
+                       BLOCKPTR:=BLOCKPTR+2;
+                     END;
+                   CH:=XBLOCK[BLOCKPTR];
+                   IF CH=';' THEN
+                     BEGIN
+                       I:=SCAN(80,=CHR(13),XBLOCK[BLOCKPTR]);
+                       IF TEXTINDEX+I<80 THEN
+                         BEGIN
+                           MOVELEFT(XBLOCK[BLOCKPTR],TEXTLINE[TEXTINDEX],I);
+                           TEXTINDEX:=TEXTINDEX + I - 1;
+                         END;
+                       BLOCKPTR:=BLOCKPTR + I;
+                       CH:=CHR(13);
+                     END
+                   ELSE IF (CH=' ') AND NOTSTRING AND NOT DEFMCHOOK THEN
+                     BEGIN
+                       I:=SCAN(80,<>' ',XBLOCK[BLOCKPTR]);
+                       IF TEXTINDEX+I<80 THEN
+                         BEGIN
+                           FILLCHAR(TEXTLINE[TEXTINDEX],I,' ');
+                           TEXTINDEX:=TEXTINDEX + I - 1;
+                         END;
+                       BLOCKPTR:=BLOCKPTR + I - 1;
+                     END
+                   ELSE IF CH<>CHR(13) THEN
+                     BEGIN
+                       IF TEXTINDEX<80 THEN TEXTLINE[TEXTINDEX]:=CH;
+                       IF CH=TAB THEN CH:=' ';
+                     END;
+                 END
+      END;{CASE}
+   IF DEBUG THEN WRITELN(LISTFILE,'CH=',CH,'|ORD:',ORD(CH),
+        ' FROM:',ORD(SOURCE));
+ END;
+
+ FUNCTION CHECKOPERAND; {CKSPSTK,CKABS,CKRANGE:BOOLEAN; LO,HI:INTEGER}
+ {Tests the result of an operand for correctness}
+ BEGIN
+   IF CKABS AND NOT (RESULT.ATTRIBUTE IN [ABS,DEFABS,DEFREG,DEFRP,DEFCC,DEFIR])
+    THEN
+     BEGIN
+       ERROR(24{operand not absolute});
+       CHECKOPERAND:=FALSE;
+     END
+   ELSE IF CKRANGE AND
+         ((RESULT.OFFSETORVALUE<LO) OR (RESULT.OFFSETORVALUE>HI)) THEN
+     BEGIN
+       ERROR(2{operand out of range});
+       CHECKOPERAND:=FALSE;
+     END
+   ELSE IF CKSPCSTK AND (SPCIALSTKINDEX<>-1) THEN
+     BEGIN
+       ERROR(25{illegal use of special symbols});
+       SPCIALSTKINDEX:=-1;
+       CHECKOPERAND:=TRUE {operand maybe ok - just warning}
+     END
+   ELSE CHECKOPERAND:=TRUE;
+ END;
+
+ FUNCTION EXPRESS; {OPERANDREQUIRED:BOOLEAN}
+ TYPE  STACKTYPE=PACKED RECORD     {expression evaluator stack}
+          TIPE:TOKENS;
+          ATRIB:ATRIBUTETYPE;
+          VALUE:INTEGER
+       END;
+ VAR  STKINDEX,COUNT:INTEGER;
+      STK:ARRAY[0..10] OF STACKTYPE;
+      UNDEFINED:BOOLEAN;
+ {The value and type of the calculation should be returned in the
+  variable record RESULT}
+
+ PROCEDURE EXPREXIT;
+ BEGIN
+   ERROR(26{ill formed expression});
+   WHILE (LEXTOKEN<>TEOF) AND (LEXTOKEN<>ENDLINE) DO LEX;
+   EXPRESS:=FALSE;
+   EXIT(EXPRESS);
+ END;
+
+ PROCEDURE EXPREND;
+ BEGIN
+   IF (LEXTOKEN IN [OPENPAREN,EQUAL,NOTEQUAL]) THEN
+     BEGIN
+       SPCIALSTKINDEX:=SPCIALSTKINDEX + 1;
+       SPECIALSTK[SPCIALSTKINDEX]:=LEXTOKEN;
+     END;
+   IF STKINDEX=-1 THEN
+     IF LEXTOKEN=OPENPAREN THEN
+       BEGIN
+         EXPRESS:=FALSE;
+         EXIT(EXPRESS);
+       END
+     ELSE IF OPERANDREQUIRED THEN
+       BEGIN
+         ERROR(27{not enough operands});
+         EXPRESS:=FALSE;
+       END
+     ELSE EXPRESS:=FALSE
+   ELSE IF (STKINDEX=0) AND (STK[STKINDEX].TIPE=TNULL) THEN
+     BEGIN
+       RESULT.OFFSETORVALUE:=STK[STKINDEX].VALUE;
+       RESULT.ATTRIBUTE:=STK[STKINDEX].ATRIB;
+       RELOCATE.ATTRIBUTE:=RESULT.ATTRIBUTE;
+       RELOCATE.OFFSETORVALUE:=RESULT.OFFSETORVALUE;
+       EXPRESS:=TRUE
+     END
+   ELSE IF (STKINDEX=1) AND (STK[0].TIPE=TNULL) AND
+    (STK[STKINDEX].TIPE IN [PLUS,MINUS,ASTERISK]) THEN
+     BEGIN
+       SPCIALSTKINDEX:=SPCIALSTKINDEX + 1;
+       CASE STK[STKINDEX].TIPE OF
+         PLUS:SPECIALSTK[SPCIALSTKINDEX]:=AUTOINCR;
+         MINUS:SPECIALSTK[SPCIALSTKINDEX]:=AUTODECR;
+         ASTERISK:SPECIALSTK[SPCIALSTKINDEX]:=LEXTOKEN
+       END;
+       RESULT.OFFSETORVALUE:=STK[0].VALUE;
+       RESULT.ATTRIBUTE:=STK[0].ATRIB;
+       RELOCATE.ATTRIBUTE:=RESULT.ATTRIBUTE;
+       RELOCATE.OFFSETORVALUE:=RESULT.OFFSETORVALUE;
+       EXPRESS:=TRUE;
+     END
+   ELSE EXPRESS:=FALSE;
+   EXIT(EXPRESS);
+ END;
+
+ PROCEDURE OPERFOLD;
+ VAR  LATTRIBUTE,RATTRIBUTE:ATRIBUTETYPE;
+      KLUDGETYPE:TOKENS;
+      RVALUE:INTEGER;
+      BOTHABSOLUTE:BOOLEAN;
+
+ BEGIN
+   IF (STKINDEX=0) THEN
+     EXIT(OPERFOLD)
+   ELSE IF (STK[STKINDEX-1].TIPE=OPNBROKEN) THEN
+     EXIT(OPERFOLD)
+   ELSE IF STKINDEX>=2 THEN
+     BEGIN
+       IF STK[STKINDEX-2].TIPE=TNULL THEN
+       BEGIN
+         LATTRIBUTE:=STK[STKINDEX-2].ATRIB;
+         RATTRIBUTE:=STK[STKINDEX].ATRIB;
+         IF (LATTRIBUTE IN [DEFABS,DEFRP,DEFREG,DEFCC]) THEN LATTRIBUTE:=ABS;
+         IF (RATTRIBUTE IN [DEFABS,DEFRP,DEFREG,DEFCC]) THEN RATTRIBUTE:=ABS;
+         BOTHABSOLUTE:=((LATTRIBUTE=ABS) AND (RATTRIBUTE=ABS));
+         RVALUE:=STK[STKINDEX].VALUE;
+         KLUDGETYPE:=STK[STKINDEX-1].TIPE;
+         WITH STK[STKINDEX-2] DO
+         BEGIN
+           IF NOT (KLUDGETYPE IN [PLUS,MINUS,BITWISEOR,AMPERSAND,
+             EXCLUSIVEOR,ASTERISK,DIVIDE,MODULO]) THEN
+               EXPREXIT
+           ELSE CASE KLUDGETYPE OF
+             PLUS:IF (LATTRIBUTE=ABS) OR (RATTRIBUTE=ABS) THEN
+                    BEGIN
+                      VALUE:=VALUE + RVALUE;
+                      IF RATTRIBUTE<>ABS THEN ATRIB:=RATTRIBUTE;
+                    END
+                  ELSE EXPREXIT;
+            MINUS:IF (RATTRIBUTE=ABS) OR
+                    ((RATTRIBUTE<>ABS) AND (LATTRIBUTE=RATTRIBUTE)) THEN
+                    BEGIN
+                      VALUE:=VALUE - RVALUE;
+                      IF RATTRIBUTE<>ABS THEN ATRIB:=ABS;
+                    END
+                  ELSE EXPREXIT;
+        BITWISEOR:IF BOTHABSOLUTE THEN
+                    VALUE:=ORD(ODD(VALUE) OR ODD(RVALUE))
+                  ELSE EXPREXIT;
+        AMPERSAND:IF BOTHABSOLUTE THEN
+                    VALUE:=ORD(ODD(VALUE) AND ODD(RVALUE))
+                  ELSE EXPREXIT;
+      EXCLUSIVEOR:IF BOTHABSOLUTE THEN
+                    VALUE:=ORD((ODD(VALUE) AND NOT ODD(RVALUE)) OR
+                        (NOT ODD(VALUE) AND ODD(RVALUE)))
+                  ELSE EXPREXIT;
+         ASTERISK:IF BOTHABSOLUTE THEN
+                    VALUE:=VALUE*RVALUE
+                  ELSE EXPREXIT;
+           DIVIDE:IF BOTHABSOLUTE THEN
+                    VALUE:=VALUE DIV RVALUE
+                  ELSE EXPREXIT;
+           MODULO:IF BOTHABSOLUTE THEN
+                    VALUE:=VALUE MOD RVALUE
+                  ELSE EXPREXIT
+           END;{CASE}
+         END;{WITH}
+         STKINDEX:=STKINDEX-2;
+       END ELSE EXPREXIT;
+     END
+   ELSE IF STK[STKINDEX].ATRIB=ABS THEN {check for unary operator}
+     BEGIN
+       CASE STK[STKINDEX-1].TIPE OF
+         MINUS:STK[STKINDEX-1].VALUE:=-STK[STKINDEX].VALUE;
+         PLUS:STK[STKINDEX-1].VALUE:=STK[STKINDEX].VALUE;
+         ONESCOMPLEMENT:STK[STKINDEX-1].VALUE:=-STK[STKINDEX].VALUE - 1
+       END;
+       STKINDEX:=STKINDEX - 1;
+       STK[STKINDEX].TIPE:=TNULL;
+       STK[STKINDEX].ATRIB:=ABS;
+     END
+   ELSE EXPREXIT; {whatever he wanted i couldn't do}
+ END;
+
+ BEGIN  {EXPRESS}
+   RELOCATE:=NULLREL;
+   STKINDEX:=-1;
+   REPEAT
+     IF EXPRSSADVANCE THEN LEX
+       ELSE EXPRSSADVANCE:=TRUE;
+     IF NOT (LEXTOKEN IN [PLUS,MINUS,BITWISEOR,AMPERSAND,EXCLUSIVEOR,
+       ASTERISK,DIVIDE,MODULO,AUTOINCR,AUTODECR,EQUAL,NOTEQUAL,
+       ENDLINE,COMMA,OPNBROKEN,OPENPAREN,NUMBERSIGN,ATSIGN,LOCCTR,
+       TNOT,CLOSEPAREN,CLSBROKEN,ONESCOMPLEMENT,
+       CONSTANT,TSTRING,LOCLABEL,TIDENTIFIER]) THEN EXPREXIT
+     ELSE
+     CASE LEXTOKEN OF
+       PLUS,MINUS,BITWISEOR,AMPERSAND,EXCLUSIVEOR,
+       DIVIDE,MODULO,OPNBROKEN,ONESCOMPLEMENT:
+                  BEGIN
+                    STKINDEX:=STKINDEX + 1;
+                    STK[STKINDEX].TIPE:=LEXTOKEN;
+                  END;
+         ASTERISK:IF STKINDEX=-1 THEN
+                    IF LCCHAR='*' THEN
+                      BEGIN
+                        STKINDEX:=STKINDEX + 1;
+                        IF CODESECTION=A THEN
+                          STK[STKINDEX].VALUE:=ALC
+                        ELSE STK[STKINDEX].VALUE:=LASTLC;
+                        RELOCATE.TIPE:=LCREL;
+                        STK[STKINDEX].ATRIB:=LABELS;
+                        STK[STKINDEX].TIPE:=TNULL;
+                        OPERFOLD;
+                      END
+                    ELSE
+                      BEGIN
+                        SPCIALSTKINDEX:=SPCIALSTKINDEX + 1;
+                        SPECIALSTK[SPCIALSTKINDEX]:=LEXTOKEN;
+                      END
+                  ELSE
+                    BEGIN
+                      STKINDEX:=STKINDEX + 1;
+                      STK[STKINDEX].TIPE:=LEXTOKEN;
+                    END;
+           LOCCTR:BEGIN
+                    STKINDEX:=STKINDEX + 1;
+                    IF CODESECTION=A THEN
+                      STK[STKINDEX].VALUE:=ALC
+                    ELSE STK[STKINDEX].VALUE:=LASTLC;
+                    IF RELOCATE=NULLREL THEN
+                      RELOCATE.TIPE:=LCREL
+                    ELSE IF RELOCATE.TIPE=LCREL THEN
+                      RELOCATE:=NULLREL;
+                    STK[STKINDEX].ATRIB:=LABELS;
+                    STK[STKINDEX].TIPE:=TNULL;
+                    OPERFOLD;
+                  END;
+ CONSTANT,TSTRING:BEGIN
+                    STKINDEX:=STKINDEX + 1;
+                    STK[STKINDEX].VALUE:=0;
+                    IF LEXTOKEN=CONSTANT THEN
+                      STK[STKINDEX].VALUE:=CONSTVAL
+                    ELSE IF LENGTH(STRVAL)<=2 THEN
+                      FOR COUNT:=1 TO LENGTH(STRVAL) DO
+                        STK[STKINDEX].VALUE:=
+                          STK[STKINDEX].VALUE*256 + ORD(STRVAL[COUNT])
+                    ELSE EXPREXIT;
+                    STK[STKINDEX].ATRIB:=ABS; {Constants are absolute}
+                    STK[STKINDEX].TIPE:=TNULL;
+                    OPERFOLD;
+                  END;
+        LOCLABEL: BEGIN
+                    IF (RELOCATE<>NULLREL) AND (RELOCATE.TIPE<>LCREL) THEN
+                      BEGIN
+                        IF TEMP[TEMPLABEL].TEMPATRIB=UNKNOWN THEN
+                          ERROR(28{cannot handle this relative});
+                      END
+                    ELSE
+                      BEGIN
+                        RELOCATE.TIPE:=LLREL;
+                        RELOCATE.TEMPLABEL:=TEMPLABEL;
+                      END;
+                    STKINDEX:=STKINDEX + 1;
+                    STK[STKINDEX].VALUE:=TEMP[TEMPLABEL].DEFOFFSET;
+                    STK[STKINDEX].ATRIB:=LABELS;
+                    STK[STKINDEX].TIPE:=TNULL;
+                    OPERFOLD;
+                  END;
+     TIDENTIFIER: BEGIN
+                    UNDEFINED:=FALSE;
+                    STKINDEX:=STKINDEX + 1;
+                    IF SYM^.ATTRIBUTE IN
+                      [ABS,DEFABS,DEFRP,DEFREG,DEFCC,DEFIR,LABELS] THEN
+                        STK[STKINDEX].VALUE:=SYM^.OFFSETORVALUE
+                    ELSE IF (SYM^.ATTRIBUTE=DEFS) AND (SYM^.CODEOFFSET<>-1) THEN
+                      STK[STKINDEX].VALUE:=SYM^.CODEOFFSET
+                    ELSE
+                      BEGIN
+                        STK[STKINDEX].VALUE:=0;
+                        UNDEFINED:=TRUE;
+                      END;
+                    IF (SYM^.ATTRIBUTE<>UNKNOWN) AND (SYM^.ATTRIBUTE<>DEFS) THEN
+                      STK[STKINDEX].ATRIB:=SYM^.ATTRIBUTE
+                    ELSE
+                      STK[STKINDEX].ATRIB:=LABELS;
+                    IF NOT (SYM^.ATTRIBUTE IN
+                                  [ABS,DEFABS,DEFRP,DEFREG,DEFCC,DEFIR])
+                     THEN
+                      BEGIN
+                        IF (RELOCATE<>NULLREL) AND (RELOCATE.TIPE<>LCREL) THEN
+                          BEGIN
+                            IF UNDEFINED THEN
+                              ERROR(28{cannot handle this relative});
+                          END
+                        ELSE
+                          BEGIN
+                            RELOCATE.TIPE:=LABELREL;
+                            RELOCATE.SYM:=SYM;
+                          END;
+                      END;
+                    STK[STKINDEX].TIPE:=TNULL;
+                    OPERFOLD;
+                  END;
+       ENDLINE,COMMA,OPENPAREN,EQUAL,NOTEQUAL:
+                  EXPREND;
+       NUMBERSIGN,ATSIGN,TNOT,AUTOINCR,AUTODECR,CLOSEPAREN:
+                  BEGIN
+                    SPCIALSTKINDEX:=SPCIALSTKINDEX + 1;
+                    SPECIALSTK[SPCIALSTKINDEX]:=LEXTOKEN;
+                  END;
+        CLSBROKEN:BEGIN
+                    IF STKINDEX=0 THEN EXPREXIT;
+                    IF (STK[STKINDEX-1].TIPE<>OPNBROKEN) THEN EXPREXIT;
+                    STK[STKINDEX-1].VALUE:=STK[STKINDEX].VALUE;
+                    STK[STKINDEX-1].ATRIB:=STK[STKINDEX].ATRIB;
+                    STK[STKINDEX-1].TIPE:=STK[STKINDEX].TIPE;
+                    STKINDEX:=STKINDEX - 1;
+                    IF (STK[STKINDEX].TIPE<>TNULL) THEN EXPREXIT;
+                    OPERFOLD;
+                  END
+     END; {CASE STATEMENT}
+   UNTIL FALSE;
+ END;

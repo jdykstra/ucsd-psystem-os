@@ -1,0 +1,248 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+{******************************************************************************}
+
+  { This procdure is called in an infinite loop. Used to exit from when an     }
+  { error condition is encountered. Will return to main FILER prompt line      }
+  PROCEDURE CALLPROC;
+    FORWARD;
+
+  { Trick procedure used to change a pointer to a UNTYPED file to a pointer to }
+  { the header of that file FIBP                                               }
+  FUNCTION GETPTR(VAR DUMMY : UNTYPED) : FIBP;  { DUMMY is placed on the stack }
+  VAR
+    TRIX : ARRAY [0..0] OF FIBP;                { TRIX is placed on the stack  }
+  BEGIN
+    GETPTR := TRIX[-1]                          { We access DUMMY as TYPE FIBP }
+  END;
+
+{******************************************************************************}
+{******************************************************************************}
+
+  { Initializes global variables for the FILER }
+  PROCEDURE INITGLOBALS;
+  BEGIN
+    GVID := '';
+    STRING1 := '';
+    STRING2 := '';
+    STRING3 := '';
+    STRING4 := '';
+    TOWHERE := '';
+    VOLNAME1 := '';
+    VOLNAME2 := '';
+    FROMWHERE := '';
+    SOURCEVID := '';
+    DESTVID := '';
+    SOURCEUNIT := 0;
+    DESTUNIT := 0;
+    FOUND := NOFILES;
+    WILDCARD := FALSE;
+    QUESTION := FALSE;
+    FILLCHAR(DIRMAP,SIZEOF(DIRMAP),0)
+  END;
+
+{-------------------------- FILER ERROR MESSAGES ------------------------------}
+
+  { Writes out most FILER related and I/O errors. If NUMBER <> 0 and EXXIT }
+  { then this procedure will return to the FILER prompt line               }
+  PROCEDURE MESSAGES(NUMBER : INTEGER; EXXIT : BOOLEAN);
+  VAR
+    STR : STRING[40];
+  BEGIN
+    STR := '';
+
+    {----------------- I/O ERRORS --------------------}
+    CASE NUMBER OF
+      1 : STR := 'Parity (CRC) error';
+      2 : STR := 'Bad unit number';
+      3 : STR := 'Bad I/O operation';
+      4 : STR := 'Timeout error';
+      5 : STR := 'Vol went off-line';
+      6 : STR := 'File lost in dir';
+      7 : STR := 'Bad file name';
+      8 : STR := 'No room on vol';
+      9 : STR := 'No such vol on-line';
+      10: STR := 'File not found';
+    END;
+
+    {------------ FILER RELATED ERRORS ---------------}
+    CASE NUMBER OF
+      1013: STR := 'Vol already on-line';
+      1014: STR := 'Text file lost';
+      1015: STR := 'Code file lost';
+      1016: STR := 'File found';
+      1017,1033: STR := 'Blkd vol';
+      1018,1034: STR := 'Ublkd vol';
+      1019: STR := 'File name';
+      1020: STR := 'File/(unblkd vol)';
+      1021: STR := 'File/(blkd vol)';
+      1022: STR := 'File/vol';
+      1023: STR := 'Vol name';
+      1024: STR := 'Output file full';
+      1025: STR := 'Workfile is saved';
+      1026: STR := 'No directory on vol';
+      1027: STR := 'No workfile to save';
+      1028: STR := 'Wildcard not allowed';
+      1029: STR := 'Bad format (Wildcard <to> Non-Wildcard)';
+      1030: STR := 'Illegal file/vol name';
+      1031: STR := 'Illegal change (Vol <to> file) name';
+      1032: STR := 'Bad dest for files found'
+    END;
+    IF NUMBER IN [1017..1023] THEN
+      STR := CONCAT(STR,' expected');
+    CLEARLINE;
+    IF (NUMBER > 10) AND (NUMBER < 1000) OR SYSCOM^.MISCINFO.SLOWTERM THEN
+      WRITE('I/O error #',NUMBER)  { Misc. I/O error. Print out error # only }
+    ELSE
+      WRITE(STR);
+    IF EXXIT THEN
+      EXIT(CALLPROC)
+  END;
+
+  { Checks for selected I/O errors. Will print out error and }
+  { return to FILER prompt line if one is found              }
+  PROCEDURE CHECKRSLT(RSLT : INTEGER);
+  BEGIN
+    IF (RSLT > 0) AND NOT (RSLT IN [13,14]) THEN
+      MESSAGES(RSLT,TRUE)
+  END;
+
+{------------------------ Widely used command sequences -----------------------}
+
+  { Performs a writeln followed by a clearline }
+  PROCEDURE WRITEANDCLEAR;
+  BEGIN
+    WRITELN;
+    CLEARLINE
+  END;
+
+  { Reads a character from INPUT. Returns true if the character was a ('Y','y')}
+  { false otherwise. Exits to prompt line if the character was an <ESC>. Will  }
+  { position cursor at start of next line if all went o.k.                     }
+  FUNCTION NGETCHAR(FLUSH : BOOLEAN) : BOOLEAN;
+  BEGIN
+    CH := GETCHAR(FLUSH);
+    IF (CH = SYSCOM^.CRTINFO.ALTMODE) THEN
+      EXIT(CALLPROC);
+    NGETCHAR := CH = 'Y';
+    IF NOT EOLN THEN
+      WRITELN
+  END;
+
+  { Asks the user to type a space to continue. Will return to the FILER prompt }
+  { line if the user responds with an <ESC>. If FLUSH then precludes type-ahead}
+  PROCEDURE NSPACEWAIT(FLUSH : BOOLEAN);
+  BEGIN
+    IF SPACEWAIT(FLUSH) THEN
+      EXIT(CALLPROC)
+  END;
+
+  { Used to update directory and checks the I/O result }
+  PROCEDURE UPDATEDIR;
+  BEGIN
+    WRITEDIR(SOURCEUNIT,GDIR);
+    CHECKRSLT(IORESULT)
+  END;
+
+{------------------ Miscellaneous Grundge Procedures --------------------------}
+
+  { Removes spaces and unprintable characters from input string. }
+  { Changes all lower-case characters to upper-case              }
+  PROCEDURE EATSPACES(VAR STRG : LONGSTRING);
+  VAR
+    I : INTEGER;
+
+  BEGIN
+    I := 1;
+    WHILE I <= LENGTH(STRG) DO
+      IF (ORD(STRG[I]) >= 33) AND (ORD(STRG[1]) <= 125) THEN
+        BEGIN
+          IF (STRG[I] >= 'a') AND (STRG[I] <= 'z') THEN
+            STRG[I] := CHR( ORD( STRG[I] ) - ORD( 'a' ) + ORD ('A' ));
+          I := I + 1
+        END
+      ELSE
+        DELETE(STRG,I,1);
+    IF STRG = '' THEN
+      EXIT(CALLPROC);
+  END;
+
+  { Ascertains the correct block number for procedures to use at a given time }
+  { If a valid DEOVBLK exists on the present directory then the user will be  }
+  { asked if that value is the correct one. Otherwise a valid block must be   }
+  { entered. For a block to be valid it must be >= LASTBLK                    }
+  PROCEDURE GETBLOCKS(MESS1,MESS2,MESS3 : SHORTSTRING; LASTBLK: INTEGER;
+                                        VAR NBLOCKS: INTEGER);
+  VAR
+    OK : BOOLEAN;
+  BEGIN
+    OK := FALSE;
+    IF GDIR <> NIL THEN
+      IF GDIR^[0].DEOVBLK >= LASTBLK THEN
+        BEGIN
+          CLEARLINE;
+          WRITE(MESS1,' ',GDIR^[0].DEOVBLK,' ',MESS2,' ? (Y/N) ');
+          OK := NGETCHAR(TRUE);
+          NBLOCKS := GDIR^[0].DEOVBLK
+        END;
+    IF NOT OK THEN
+      BEGIN
+        CLEARLINE;
+        WRITE(MESS3,' ? ');
+        READLN(NBLOCKS);
+        IF NBLOCKS < LASTBLK THEN
+          BEGIN
+            CLEARLINE;
+            WRITE('Invalid #');
+            EXIT(CALLPROC)
+          END;
+      END
+  END;
+
+  { Ascertains if the user really wants to destroy the directory of a disk  }
+  { If the user doesn't this procedure will return to the FILER prompt line }
+  PROCEDURE RISKVOLUME;
+  BEGIN
+    IF (LASTSTATE = OKDIR) AND (GDIR <> NIL) THEN
+      BEGIN
+        CLEARLINE;
+        WRITE('Destroy ',GVID,': ? ');
+        IF NOT NGETCHAR(TRUE) THEN
+          EXIT(CALLPROC)
+      END
+  END;

@@ -1,0 +1,393 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+{
+*  Phase2 reads in all linker info associated with
+*  the segs in seginfo and sep seg list.  Again all
+*  fields are checked carefully.  As a help to phase3,
+*  ref lists are collected and place records for sep
+*  proc/func are computed.  Some small optimization is
+*  done to eliminate the sep seg list if it is not
+*  going to be needed, saving a few disk IO's.
+}
+
+procedure phase2;
+  var s: segindex;
+      sp: segp;
+      dumpseps: boolean;
+
+    {
+    *  Readlinkinfo reads in the link info for segment sp
+    *  and builds its symtab.  Some simple disk io routines
+    *  do unblocking, and all fields are again verified.
+    *  The only legal litypes are in oktypes. Assume that
+    *  sp <> NIL
+    }
+
+    procedure readlinkinfo(sp: segp; oktypes: liset);
+      var rp, rq: refp;
+          syp: symp;
+          w, errs, nrecs, nextblk, recsleft: integer;
+          entry, temp: lientry;
+          buf: array [0..31] of
+                 array [0..7] of integer;
+          tentry: array [0..7] of integer;
+          oktoadd: boolean;
+
+        {
+        *  Getentry reads an 8 word record from disk buf
+        *  sequentially.  No validity checking is done here,
+        *  only disk read errors.
+        }
+
+        procedure getentry(var entry: lientry);
+          var err: boolean;
+        begin
+          err := FALSE;
+          if recsleft = 0 then
+            begin
+              recsleft := 32;
+              err := blockread(sp^.srcfile^.code^, buf, 1, nextblk) <> 1;
+              if err then
+                error('li read err')
+              else
+                nextblk := nextblk+1
+            end;
+          moveleft(buf[32-recsleft], entry, 16);
+          if err then
+            entry.litype := EOFMARK;
+          recsleft := recsleft-1
+        end { getentry } ;
+
+        {
+        *  Addunit is called to find or allocate a library unit
+        *  that is found in link info as an external ref.  This
+        *  occurs in lib units which use other units.  If
+        *  the unit can't be found or no room, error is called.
+        }
+
+        procedure addunit(var name: alpha);
+          var fp: finfop; seg: integer;
+        begin
+          fp := unitsrch(hostfile, name, seg);
+          if fp <> NIL then
+            if fp <> hostfile then
+              if fp^.segtbl.diskinfo[seg].codeleng <> 0 then
+                if nextseg = MAXSEG1 then
+                  error('no room in seginfo')
+                else
+                  begin { allocate new seginfo el }
+                    new(seginfo[nextseg]);
+                    with seginfo[nextseg]^ do
+                      begin
+                        srcfile := fp;
+                        srcseg := seg;
+                        segkind := UNITSEG;
+                        symtab := NIL
+                      end;
+                    nextseg := nextseg+1
+                  end
+        end { addunit } ;
+
+        {
+        *  Validate verifies lientry format.
+        *  If the entry is SEPPROC or FUNC
+        *  then a place rec is allocated for buildplace.  If
+        *  a UNITREF is found, it searched for and possibly
+        *  allocated.  If the unit must be added to seginfo,
+        *  it is placed after current position so it will have
+        *  its link info read as well.
+        }
+
+        procedure validate(var entry: lientry);
+        begin
+          with entry do
+            if not alphabetic(name) then
+              error('non-alpha name')
+            else
+              case litype of
+                SEPPREF,
+                SEPFREF,
+                UNITREF,
+                GLOBREF,
+                PUBLREF,
+                PRIVREF,
+                CONSTREF:  begin
+                             reflist := NIL;
+                             if (nrefs < 0)
+                             or (nrefs > 500) then
+                               error('too many refs');
+                             if not (format in [WORD, BYTE, BIG]) then
+                               error('bad format');
+                             if litype = PRIVREF then
+                               if (nwords <= 0)
+                               or (nwords > MAXLC) then
+                                 error('bad private');
+                             if litype = UNITREF then
+                               if nrefs <> 0 then
+                                 addunit(name)
+                           end;
+                GLOBDEF:   if (homeproc <= 0)
+                           or (homeproc > MAXPROC)
+                           or (icoffset < 0)
+                           or (icoffset > MAXIC) then
+                             error('bad globdef');
+                PUBLDEF:   if (baseoffset <= 0)
+                           or (baseoffset > MAXLC) then
+                             error('bad publicdef');
+                EXTPROC,
+                EXTFUNC,
+                SEPPROC,
+                SEPFUNC:   begin
+                             if litype in [SEPPROC,SEPFUNC] then
+                               new(place) { for use in buildplaces }
+                             else
+                               place := NIL;
+                             if (srcproc <= 0)
+                             or (srcproc > MAXPROC)
+                             or (nparams < 0)
+                             or (nparams > 100) then
+                               error('bad proc/func')
+                           end
+              end { case litype }
+        end { validate } ;
+
+    begin { readlinkinfo }
+      recsleft := 0;      { 8 wd recs left in buf }
+      with sp^.srcfile^.segtbl, diskinfo[sp^.srcseg] do
+        begin { seek to linkinfo }
+          nextblk := codeaddr + (codeleng+511) div 512;
+          if talkative then
+            writeln('Reading ', segname[sp^.srcseg])
+        end;
+      repeat
+        oktoadd := TRUE;
+        getentry(entry);
+        if flipped then { flip word quantities in lientry }
+        begin
+          moveleft(entry, tentry, 16);
+          for w := 4 to 7 do
+            byteswap(tentry[w]);
+          moveleft(tentry, entry, 16);
+        end;
+        errs := errcount;
+        if entry.litype <> EOFMARK then
+          if entry.litype in oktypes then
+            validate(entry)
+          else
+            begin
+              error('bad litype');
+              entry.litype := EOFMARK
+            end;
+        if dumpseps then
+          if entry.litype in [SEPPREF, SEPFREF,
+                              EXTPROC, EXTFUNC,
+                              GLOBREF] then
+            dumpseps := FALSE;  { we need them! }
+        if entry.litype in reflitypes then
+          if entry.nrefs = 0 then
+            oktoadd:= FALSE
+          else
+          begin { read ref list }
+            nrecs := (entry.nrefs+7) div 8;
+            while nrecs > 0 do
+              begin { read ref rec }
+                getentry(temp);
+                new(rp);
+                moveleft(temp, rp^.refs, 16);
+                if flipped then { flip ref words }
+                  for w := 0 to 7 do
+                    byteswap(rp^.refs[w]);
+                rp^.next := entry.reflist;
+                entry.reflist := rp;
+                nrecs := nrecs-1
+              end;
+            { reverse ref list }
+            rp := entry.reflist;
+            entry.reflist := NIL;
+            while rp <> NIL do
+              begin
+                rq := rp^.next;
+                rp^.next := entry.reflist;
+                entry.reflist := rp;
+                rp := rq
+              end
+          end;
+        if entry.litype = EOFMARK then
+          if sp^.segkind = HOSTSEG then
+            if (entry.nextlc > 0)
+            and (entry.nextlc <= MAXLC) then
+              nextbaselc := entry.nextlc
+            else
+              error('bad host LC')
+          else
+        else
+          if (errs = errcount) and oktoadd then
+            begin { ok...add to symtab }
+              new(syp);
+              syp^.entry := entry;
+              entersym(syp, sp^.symtab)
+            end
+      until entry.litype = EOFMARK
+    end { readlinkinfo } ;
+
+    {
+    *  Buildplaces reads code of sep segs from disk to generate
+    *  the placerec entries for use during phase3.  The seg is
+    *  read into the heap and the grossness begins. Assume that
+    *  sp <> NIL
+    }
+
+    procedure buildplaces(sp: segp);
+      var cp: codep; heap: ^integer;
+          nbytes, nblocks, nprocs, n: integer;
+
+        {
+        *  procsrch recursivly searches symtab of sp to find
+        *  sepproc and sepfunc entries and build the actual
+        *  place record for the link info entry by indexing
+        *  thru proc dict to jtab and using entric field.
+        }
+
+        procedure procsrch(symtab: symp);
+          var i, j: integer;
+        begin
+          if symtab <> NIL then
+            begin
+              procsrch(symtab^.llink);
+              procsrch(symtab^.rlink);
+              procsrch(symtab^.slink);
+              with symtab^.entry do
+                if litype in [SEPPROC, SEPFUNC] then
+                  if (srcproc <= 0) or (srcproc > nprocs) then
+                    error('bad proc #')
+                  else { find byte place in code }
+                    begin
+                      i := nbytes-2-2*srcproc;      { point i at proc dict }
+                      i := i-fetchword(cp, i);      { point i at jtab }
+                      if (fetchbyte(cp, i) <> srcproc)
+                      and (fetchbyte(cp, i) <> 0) then
+                        error('disagreeing p #')
+                      else
+                        begin
+                          j := fetchword(cp, i-2)+4;
+                          place^.srcbase := i+2-j;
+                          if (place^.srcbase < 0)
+                          or (j <= 0) or (j > MAXIC) then
+                            error('proc place err')
+                          else
+                            place^.length := j
+                        end
+                    end
+            end
+        end { procsrch } ;
+
+    begin { buildplaces }
+      nbytes := sp^.srcfile^.segtbl.diskinfo[sp^.srcseg].codeleng;
+      nblocks := (nbytes+511) div 512;
+      if memavail-400 < nblocks*256 then
+        error('sep seg 2 big')
+      else
+        begin { alloc space in heap }
+          mark(heap);
+          n := nblocks;
+          repeat
+            new(cp);
+            n := n-1
+          until n <= 0;
+          if blockread(sp^.srcfile^.code^, heap^, nblocks,
+               sp^.srcfile^.segtbl.diskinfo[sp^.srcseg].codeaddr) <> nblocks then
+            error('sep seg read err')
+          else
+            begin
+              cp := getcodep(ord(heap));
+              nprocs := fetchbyte(cp, nbytes-1);
+              if (nprocs < 0) or (nprocs > MAXPROC) then
+                error('bad proc dict')
+              else
+                procsrch(sp^.symtab)
+            end;
+          release(heap)
+        end
+    end { buildplaces } ;
+
+begin { phase2 }
+
+  mark(heapbase);
+  unitwrite(3, heapbase^, 35);
+
+  { read link info for host segs }
+
+  dumpseps := TRUE;     { assume we don't need sep segs }
+  for s := 0 to MAXSEG do
+    if seginfo[s] <> NIL then
+      case seginfo[s]^.segkind of
+        LINKED:    ; { nothin }
+        UNITSEG:   readlinkinfo(seginfo[s], [PUBLREF, PRIVREF, UNITREF,
+                                             CONSTDEF,EXTPROC, EXTFUNC]);
+        SEPRTSEG:  readlinkinfo(seginfo[s], [GLOBREF, GLOBDEF, CONSTDEF,
+                                             SEPPROC, SEPFUNC]);
+        HOSTSEG:   readlinkinfo(seginfo[s], [PUBLDEF, CONSTDEF,
+                                             EXTPROC, EXTFUNC]);
+        SEGPROC:   readlinkinfo(seginfo[s], [EXTPROC, EXTFUNC])
+      end { cases } ;
+
+  { now do sep list elements }
+
+  if dumpseps then
+    seplist := NIL;
+  sp := seplist;
+  while sp <> NIL do
+    begin
+      readlinkinfo(sp, reflitypes+[GLOBDEF, CONSTDEF, SEPPROC, SEPFUNC]);
+      sp := sp^.next
+    end;
+
+  { build proc place entries for sep segs }
+
+  if seginfo[MASTERSEG]^.segkind = SEPRTSEG then
+    buildplaces(seginfo[MASTERSEG]);
+
+  sp := seplist;
+  while sp <> NIL do
+    begin
+      buildplaces(sp);
+      sp := sp^.next
+    end;
+  if errcount > 0 then
+    exit(linker)
+end { phase2 } ;

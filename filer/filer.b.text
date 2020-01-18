@@ -1,0 +1,587 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+{----------------------- SPECIALIZED FILER ROUTINES ---------------------------}
+
+  { Ascertains whether or not the proper disk is in the proper drive }
+  { If it is not will ask user to put the disk in the proper drive   }
+  { If the user does not do so this procedure will return to the     }
+  { FILER prompt line                                                }
+  PROCEDURE INSERTVOLUME(INTUNIT : INTEGER; VID1 : VID; CHECK : BOOLEAN);
+  VAR
+    OK : BOOLEAN;
+    OLDUNIT, NEWUNIT : VID;
+
+  BEGIN { INSERTVOLUME }
+    OLDUNIT := '#  ';
+    IF (INTUNIT DIV 10) = 1 THEN
+      OLDUNIT[2] := '1';
+    OLDUNIT [3] := CHR(ORD('0') + INTUNIT MOD 10);
+    EATSPACES(OLDUNIT);
+    OK := CHECK;
+    IF CHECK THEN   { Need to make sure the disk is in the drive }
+      IF VOLSEARCH(VID1,TRUE,GDIR) <> INTUNIT THEN  { Volume in proper drive }
+
+        { Kludge !!!!!! Force the OP-SYSTEM to look at the correct unit }
+        { If there are two vols with the same name on line it won't be  }
+        { able to find the one on the lower drive otherwise             }
+
+        BEGIN   { Volume was not in proper drive. Where is it ? }
+          NEWUNIT := OLDUNIT;
+          OK := VOLSEARCH(NEWUNIT,TRUE,GDIR) <> 0; { 0 means unit not found }
+          OK := OK AND (NEWUNIT = VID1)  { Is this the correct volume ? }
+        END;
+    IF NOT OK THEN
+
+      { Repeat the above after asking the user to put in the correct disk }
+
+      BEGIN
+        CLEARLINE;
+        WRITELN('Put ',VID1,': in unit ',OLDUNIT);
+        NSPACEWAIT(TRUE);
+        IF CHECK THEN
+          BEGIN
+            OK := (VOLSEARCH(OLDUNIT,TRUE,GDIR) <> 0);
+            IF (NOT OK) OR (OLDUNIT <> VID1) THEN
+              EXIT(CALLPROC)
+          END
+      END
+  END { INSERTVOLUME };
+
+  { Scans through DIRMAP for files to be deleted and updates the  }
+  { directory on the source unit correspondingly                  }
+  PROCEDURE ZAPENTRIES(DIRMAP : BITMAP; UPDATE : BOOLEAN);
+  VAR
+    LOC : INTEGER;
+  BEGIN
+    IF DIRMAP.ENTRIES > 0 THEN
+      BEGIN
+
+        { Make sure that the correct disk is in the drive }
+        INSERTVOLUME(SOURCEUNIT,SOURCEVID,TRUE);
+
+        IF GDIR <> NIL THEN
+          BEGIN
+            FOR LOC := GDIR^ [0].DNUMFILES DOWNTO 1 DO
+              IF DIRMAP.DIRENTRY [LOC] THEN
+                DELENTRY(LOC,GDIR);  { Deletes file at LOC in the directory }
+            IF UPDATE THEN
+              UPDATEDIR              { Writes the directory out to disk     }
+          END
+      END;
+  END;
+
+  { Purges the file requested by NAME from the directory. If the }
+  { file exists and MESS <> '' then will ask you to confirm      }
+  FUNCTION PURGEIT(NAME,MESS : SHORTSTRING):BOOLEAN;
+  VAR
+    GFIB : FILE;
+  BEGIN
+    RESET(GFIB,NAME);
+    PURGEIT := IORESULT = 0;
+    IF IORESULT = 0 THEN  { Result of 0 means that the file was found }
+      BEGIN
+        IF MESS <> '' THEN
+          BEGIN
+            CLEARLINE;
+            WRITE(MESS,' ',NAME,' ? ');
+            IF NOT NGETCHAR(TRUE) THEN
+              BEGIN
+                PURGEIT := FALSE;      { User does not wish to remove the file }
+                EXIT(PURGEIT)
+              END
+          END;
+        CLOSE(GFIB,PURGE);
+        CHECKRSLT(IORESULT)
+      END;
+  END;
+
+  { Lets user know what is being done to his file }
+  PROCEDURE PRINTMESS(VID1 : VID; TID1 : TID; DEST : SHORTSTRING);
+  BEGIN
+    CLEARLINE;
+    WRITE(VID1,':',TID1);
+    IF (LENGTH(DEST) + 31) > SYSCOM^.CRTINFO.WIDTH THEN
+      WRITEANDCLEAR
+    ELSE
+      IF NOT SYSCOM^.MISCINFO.SLOWTERM THEN
+        WRITE('':24-(LENGTH(VID1)+LENGTH(TID1)));
+    WRITELN(' --> ',DEST)
+  END;
+
+{----------------- COMMAND PARSERS & DIRECTORY SEARCH ROUTINES ----------------}
+
+  { Ascertains the exact state of GTITLE. If that state does not correspond }
+  { with the acceptable states for that string then an appropriate error    }
+  { messages will be returned to the user and return to the FILER prompt    }
+  { line. Otherwise, will set LASTSTATE to the condition found              }
+  PROCEDURE SCANINPUT(GTITLE : STRNG; CHECK : CHCKS;
+                         ERROR : INTEGER; WHERE : LOCATION; GETDIR : BOOLEAN);
+  VAR
+    NEWDIR : ^INTEGER;
+    GSEGS : INTEGER;
+
+    PROCEDURE MAKECALL(ERR : INTEGER; STATE : CHECKS);
+    VAR
+      PRINTERROR : BOOLEAN;
+
+    BEGIN
+      LASTSTATE := STATE;
+      IF (STATE IN CHECK) OR (ERROR = 0) THEN
+        EXIT(SCANINPUT);
+      IF GTITLE = '' THEN
+        EXIT(CALLPROC);
+      HOMECURSOR;
+      WRITEANDCLEAR;
+
+      { Writes out the explicit volume name }
+      IF GTITLE [1] = '*' THEN
+        BEGIN
+          DELETE(GTITLE,1,1);
+          IF GTITLE [1] = ':' THEN
+            DELETE(GTITLE,1,1);
+          WRITE(SYVID,':')
+        END
+      ELSE
+        IF GTITLE [1] = ':' THEN
+          WRITE(DKVID);
+
+      WRITE(GTITLE);
+      IF SYSCOM^.CRTINFO.WIDTH >= 80 THEN
+        WRITE(' - ')
+      ELSE
+        WRITEANDCLEAR; { Write string in error }
+      MESSAGES(ERR,FALSE);              { Write the state of the string }
+
+      { Was the user even close to the correct format }
+      CASE STATE OF
+        BADTITLE : PRINTERROR := TRUE;
+        NOVOL,BADUNIT,BADDIR : PRINTERROR := (ERROR=FILEEXP) AND (GTID='');
+        UNBLKDVOL : PRINTERROR := ERROR IN [BLKDEXP,FILEEXP,FILEBLKDEXP];
+        OKFILE,BADFILE : PRINTERROR := ERROR IN [BLKDEXP,UNBLKDEXP,VOLEXP];
+        OKDIR : PRINTERROR := ERROR IN [UNBLKDEXP,FILEEXP,FILEUNBLKDEXP]
+      END;
+      IF NOT SYSCOM^.MISCINFO.SLOWTERM THEN
+        BEGIN
+          IF PRINTERROR THEN
+            BEGIN
+              IF SYSCOM^.CRTINFO.WIDTH < 80 THEN
+                WRITEANDCLEAR
+              ELSE
+                WRITE(', ');
+              MESSAGES(ERROR,FALSE)
+            END;
+
+          { User may need to know which part of the string is in error }
+          IF WHERE = SOURCE THEN
+            WRITE(' <source>');
+          IF WHERE = DESTINATION THEN
+            WRITE(' <dest>');
+        END;
+      EXIT(CALLPROC)
+    END;
+
+  BEGIN { SCANINPUT }
+    GUNIT := 0;
+    IF SCANTITLE(GTITLE,GVID,GTID,GSEGS,GKIND) THEN { Break up input string }
+      BEGIN
+        IF GETDIR THEN
+          MARK(NEWDIR);    { Will cause the present directory to dissappear }
+        GVID2 := GVID;     { Save present GVID }
+        GUNIT := VOLSEARCH(GVID,TRUE,GDIR);  { Searchs for proper volume }
+        IF GDIR = NIL THEN   { Wasn't able to read a directory off the volume }
+          BEGIN
+            IF GUNIT = 0 THEN
+              MAKECALL(9,NOVOL);   { No such vol was on-line }
+            UNITCLEAR(GUNIT);
+            IF IORESULT <> 0 THEN
+              MAKECALL(2,BADUNIT); { Bad unit # given }
+            IF UNITABLE [GUNIT].UISBLKD THEN
+              MAKECALL(NODIR,BADDIR);  { Vol was blkd, but no dir was on it }
+            MAKECALL(UNBLKD,UNBLKDVOL) { Volume was not blocked }
+          END;
+        IF GTID = '' THEN
+          MAKECALL(BLKD,OKDIR);  { Vol was blkd & the dir is ok }
+        IF DIRSEARCH(GTID,TRUE,GDIR) <> 0 THEN
+          MAKECALL(FOUNDFILE,OKFILE);   { The file was found }
+        MAKECALL(10,BADFILE) { The file was not found }
+      END;
+    MAKECALL(ILLFILEVOL,BADTITLE) { Illegal name (too long, or missing bracket }
+  END { SCANINPUT };
+
+  { Directory search routine for finding the user requested files }
+  { On the first call to this routine all tables and neccessary   }
+  { bits in the directory will be updated to keep track of the    }
+  { nescessary files, without losing any. All files that are to   }
+  { be used in wildcard operations must be present on the initial }
+  { initial call to this routine                                  }
+  FUNCTION SEARCHDIR(MESSAGE : STRNG; VAR GINX : INTEGER;
+                        DEST, SCREENCLEAR, SWAPPING : BOOLEAN) : BOOLEAN;
+  VAR
+    X : INTEGER;
+    NEWSTRING : TID;
+
+      { At this point a requested file has been found. In case that    }
+      { question is true we must see if the user still wants to use it }
+      PROCEDURE FOUNDFILE;
+      BEGIN
+        WITH GDIR^ [GINX] DO
+          BEGIN
+            SOURCETITLE := DTID;
+            FROMWHERE := CONCAT(VOLNAME1,':',DTID);
+            CH := 'Y';
+            FOUND := FILEFOUND;     { Yes a usable file has been found }
+            IF (MESSAGE <> '') AND QUESTION THEN { Confirm operation }
+              BEGIN
+                CLEARLINE;
+                IF NOT SYSCOM^.MISCINFO.SLOWTERM THEN
+                  WRITE(MESSAGE,' ');
+                WRITE(DTID,' ? ');
+                CH := GETCHAR(FALSE);
+                IF NOT EOLN THEN
+                  WRITELN;
+                IF CH = SYSCOM^.CRTINFO.ALTMODE THEN { User wants to abort }
+
+                  { Don't return to prompt line because of the R(emove command }
+                  BEGIN
+                    FOUND := ABORTIT;
+                    EXIT(SEARCHDIR)
+                  END
+              END
+          END;
+        SEARCHDIR := CH = 'Y'
+      END;
+
+  { Checks to see if the requested portion of the two strings match }
+  FUNCTION TESTSTR(STR : TID; START : INTEGER) : BOOLEAN;
+  VAR
+    TEMP : TID;
+  BEGIN
+    TEMP [0] := STR [0];
+    MOVELEFT(GDIR^ [X].DTID[START],TEMP[1],LENGTH(STR));
+    TESTSTR := TEMP = STR
+  END;
+
+  BEGIN { SEARCHDIR }
+    SEARCHDIR := FALSE;
+    IF GINX = 0 THEN
+      BEGIN
+        DEST := DEST AND UNITABLE [DESTUNIT].UISBLKD;
+        IF SCREENCLEAR AND WILDCARD THEN
+          BEGIN
+            CLEARSCREEN;
+            WRITELN
+          END
+        ELSE
+          CLEARLINE;
+        FOUND := NOFILES;
+
+        { Will it be nescessary to use the STATUS bits in the directory }
+        { to keep proper track of the files                             }
+        MARKING := DEST AND (SOURCEVID = DESTVID);
+
+        { Search directory for eligible source files }
+        FOR X := 1 TO GDIR^ [0].DNUMFILES DO
+        WITH GDIR^ [X] DO
+          BEGIN
+            STATUS := FALSE;
+            IF (LENGTH(STRING1) + LENGTH(STRING2)) <= LENGTH(DTID) THEN
+              IF TESTSTR(STRING1,1) AND
+                TESTSTR(STRING2,LENGTH(DTID) - LENGTH(STRING2) + 1) THEN
+                  WITH DIRMAP DO
+                  BEGIN  { This file matches the nescessary strings }
+                    IF (STRING1=DTID) OR WILDCARD THEN
+                      BEGIN
+                        STATUS := MARKING;
+                        DIRENTRY [X] := TRUE;
+                        ENTRIES := ENTRIES + 1;
+                      END;
+                    FOUND := FILESNOGOOD
+                  END;
+          END;
+        IF MARKING THEN
+          UPDATEDIR     { Must maintain the STATUS bits in the directory }
+      END
+    ELSE
+      IF DEST THEN
+        GINX := GINX - 1;
+    IF DIRMAP.ENTRIES > 0 THEN
+    BEGIN
+      IF SWAPPING THEN
+        INSERTVOLUME(SOURCEUNIT,SOURCEVID,TRUE); { Get source volume on-line }
+      CH := 'N';
+      WHILE (GINX < GDIR^[0].DNUMFILES) AND (CH <> 'Y') DO
+        WITH GDIR^ [GINX+1] DO
+          BEGIN
+            GINX := GINX + 1; { Look at the next directory entry }
+            IF MARKING THEN
+              BEGIN
+                DIRMAP.DIRENTRY [GINX] := STATUS;
+                IF STATUS THEN
+                  BEGIN
+                    STATUS := FALSE;   { Turn off status bit in directory }
+                    UPDATEDIR
+                  END
+              END;
+            IF DIRMAP.DIRENTRY [GINX] THEN
+              BEGIN    { Source file for this entry is o.k. what about dest }
+                IF DEST THEN
+                  BEGIN
+                    NEWSTRING := COPY(DTID,LENGTH(STRING1) + 1,
+                            LENGTH(DTID) - LENGTH(STRING1) - LENGTH(STRING2));
+                    X := LENGTH(NEWSTRING) +
+                      SCAN(LENGTH(STRING3),= '[',STRING3[1]) + LENGTH(STRING4);
+                    IF (X <= TIDLENG) AND ((X > 0) OR NOT WILDCARD) THEN
+
+                      { Destination file will be o.k. (its small enough ) }
+                      BEGIN
+                        TOWHERE := CONCAT(VOLNAME2,':',STRING3,
+                                                   NEWSTRING,STRING4);
+                        IF (STRING1 = DTID) OR WILDCARD THEN
+                          FOUNDFILE
+                      END
+                    ELSE
+                      PRINTMESS(SOURCEVID,DTID,'not proccessed');
+                  END
+                ELSE
+                  FOUNDFILE;  { No destination file is needed }
+                DIRMAP.DIRENTRY [GINX] := FALSE; { Turn off bit for this entry }
+                DIRMAP.ENTRIES := DIRMAP.ENTRIES - 1; { One less entry to do }
+              END;
+          END;
+    END;
+    IF FOUND = NOFILES THEN
+      MESSAGES(ORD(INOFILE),FALSE);  { No requested files were found }
+    IF FOUND = FILESNOGOOD THEN
+      MESSAGES(BADDEST,FALSE); { The req. files found could not be used }
+  END { SEARCHDIR };
+
+  { Input string parser. Removes wildcard symbols. Sets WILDCARD and QUESTION }
+  { Expands dollar signs. Sets SOURCEVID, DESTVID, SOURCEUNIT, DESTUNIT,      }
+  { VOLNAME1, VOLNAME2, STRING1, STRING2, STRING3, STRING4                    }
+  PROCEDURE CHECKFILE(MSG1,MSG2 : SHORTSTRING; DEFAULT,ERROR1 : INTEGER;
+                     WILD,FILLE : BOOLEAN; CHECK1 : CHCKS);
+  VAR
+    SRCSTR : STRING;
+
+    { Will scan up to the next ',' or to the end of the line. Does all '$' }
+    { expansions. Parses string for wildcards, volname & filename. Makes   }
+    { sure that the source and dest files are of the appropriate class and }
+    { that needed volumes stay on line                                     }
+    PROCEDURE PROCESSDATA(MSG:SHORTSTRING; FIRSTCALL:BOOLEAN; VAR VOLNAME:VID;
+                       VAR FIRSTSTR,SECONDSTR:SHORTSTRING; VAR WHERETO:STRNG);
+    VAR
+      STR,OLD : STRING;
+      WHERE : LOCATION;
+      X,I,LOC : INTEGER;
+
+      { Makes sure that the structure before the last delimmiter is of the }
+      { appropriate size & contains no special symbols. If for any reason  }
+      { the string is not correct an error will be flagged and this        }
+      { procedure will return to the FILER prompt line                     }
+      PROCEDURE FINDDELIM(SIZE,MESSAGE : INTEGER; VAR STRIING : STRNG);
+      VAR
+        ERROR : BOOLEAN;
+
+        { Scans STRIING for the appropriate special symbol ['$','?','='] }
+        FUNCTION SCAN2(CH : CHAR) : BOOLEAN;
+        BEGIN
+          SCAN2 := SCAN(LOC,= CH,STR[1]) >= LOC;
+        END;
+
+      BEGIN { FINDDELIM }
+        ERROR := LOC > SIZE;          { Too long to be a legal entry }
+        IF (NOT ERROR) AND SCAN2('$') AND SCAN2('=') AND SCAN2('?') THEN
+          BEGIN
+            STRIING := COPY(STR,1,LOC);   { Returns correct part of the string }
+            DELETE(STR,1,LOC);
+            DELETE(STR,1,1);
+            EXIT(FINDDELIM);              { No errors encountered }
+          END;
+        CLEARLINE;
+        IF NOT SYSCOM^.MISCINFO.SLOWTERM THEN
+          WRITE(COPY(STR,1,LOC));
+        IF SYSCOM^.CRTINFO.WIDTH < 80 THEN   { Line will not fit in 40 chars. }
+          WRITEANDCLEAR;
+        IF ERROR THEN
+          WRITE('...too long <');
+        CASE MESSAGE OF
+          1 : WRITE(' file name ');
+          2 : WRITE(' scan string ');
+          3 : WRITE(' vol name ');
+        END;
+        IF ERROR THEN
+          BEGIN
+            IF MESSAGE = 3 THEN
+              WRITE(VIDLENG)
+            ELSE
+              WRITE(TIDLENG);
+            WRITE(' - char. max >');
+          END
+        ELSE
+          WRITE('- Illegal format');
+        EXIT(CALLPROC)
+      END { FINDDELIM };
+
+      { Scan STR for special symbols ['$','=','?',','] }
+      FUNCTION SCAN1(CH : CHAR) : INTEGER;
+      BEGIN
+        SCAN1 := SCAN(LENGTH(STR), = CH,STR[1]);
+      END;
+
+    BEGIN
+      { Need to get input string from user }
+      IF INSTRING = '' THEN
+        BEGIN
+          CLEARLINE;
+          WRITE(MSG);
+          IF FIRSTCALL AND FAST THEN
+            IF FILLE THEN
+              WRITE(' what file')
+            ELSE
+              WRITE(' what vol');
+          WRITE(' ? ');
+          READLN(INSTRING);
+          EATSPACES(INSTRING)
+        END;
+
+      { Copy input string into STR up to the first comma or end of line }
+      LOC := SCAN(LENGTH(INSTRING), = ',',INSTRING[1]);
+      IF LOC > 35 THEN
+        EXIT(CALLPROC);
+      STR := COPY(INSTRING,1,LOC);
+      DELETE(INSTRING,1,LOC);
+      DELETE(INSTRING,1,1);
+
+      { Parse volume name out of STR. Check to see if QUESTION is true }
+      QUESTION := QUESTION OR (SCAN1('?') < LENGTH(STR));
+      LOC := SCAN1(':');
+      IF (STR [1] = '#') OR (LOC < LENGTH(STR)) THEN
+        FINDDELIM(VIDLENG,3,VOLNAME)
+      ELSE
+        IF STR[1] = '*' THEN
+          BEGIN
+            DELETE(STR,1,1);
+            VOLNAME := '*'
+          END;
+      WHERETO := CONCAT(VOLNAME,':');
+
+      { Expand the '$' if one exists    }
+      I := SCAN1('$');
+      IF I < LENGTH(STR) THEN
+        BEGIN
+          IF LENGTH(STR)+LENGTH(SRCSTR)-1 > 35 THEN
+            EXIT(CALLPROC);    { Illegal expansion, too long }
+          OLD := STR;
+          STR[0] := CHR(LENGTH(SRCSTR)+LENGTH(STR)-1);
+          MOVELEFT(SRCSTR[1],STR[I+1],LENGTH(SRCSTR));
+          MOVELEFT(OLD[I+2],STR[I+1+LENGTH(SRCSTR)],LENGTH(OLD)-I-1);
+        END;
+
+      { Scan for wildcards }
+      SRCSTR := STR;
+      LOC := SCAN1('=');
+      IF LOC = LENGTH(STR) THEN
+        LOC := SCAN1('?');
+      IF LOC < LENGTH(STR) THEN
+
+        { Wilcard sysmbol is present. Parse remaining string accordingly }
+        IF WILD THEN
+          BEGIN
+            IF NOT (FIRSTCALL OR WILDCARD) THEN
+              MESSAGES(BADFORM,TRUE);
+            WILDCARD := TRUE;
+            FINDDELIM(TIDLENG,2,FIRSTSTR);
+            LOC := LENGTH(STR);
+            FINDDELIM(TIDLENG,2,SECONDSTR)
+          END
+        ELSE
+          MESSAGES(NOWILD,TRUE)   { Wilcard operation is not allowed }
+      ELSE
+
+        { No wilcards. Remaining string is a standard filename }
+        BEGIN
+          IF (NOT FIRSTCALL) AND WILDCARD AND (DEFAULT = 0) THEN
+
+            { User used a wildcard symbol for the source file but not the }
+            { destination file. Only cases that this is allowed is when   }
+            { the user is listing the directory (i.e., DEFAULT <> 0) or   }
+            { when the destination file is an unblkd-volume               }
+            BEGIN
+              SCANINPUT(CONCAT(VOLNAME2,':'),[],0,NEITHER,FALSE);
+              IF LASTSTATE <> UNBLKDVOL THEN
+                MESSAGES(BADFORM,TRUE);
+            END;
+          FINDDELIM(SHSTRLENG,1,FIRSTSTR);
+          WHERETO := CONCAT(WHERETO,FIRSTSTR)
+        END;
+      IF NOT FIRSTCALL THEN
+
+        { Set DESTUNIT & DESTVID to there proper values }
+        BEGIN
+          SCANINPUT(WHERETO,[],0,WHERE,TRUE);
+          DESTUNIT := GUNIT;
+          DESTVID := GVID;
+
+          { Make sure that the user hasn't removed the source disk }
+          INSERTVOLUME(SOURCEUNIT,SOURCEVID,TRUE);
+        END
+      ELSE
+        IF (INSTRING <> '') AND (DEFAULT <= 0) THEN
+          WHERE := DESTINATION
+        ELSE
+          WHERE := NEITHER;
+
+      { Restore the directory etc. for the source volume }
+      IF WILDCARD THEN
+        SCANINPUT(FROMWHERE,[OKDIR],BLKDEXP,SOURCE,TRUE)
+      ELSE
+        SCANINPUT(FROMWHERE,CHECK1,ERROR1,SOURCE,TRUE);
+    END;
+
+  BEGIN { CHECKFILE }
+    INITGLOBALS;
+    SRCSTR := '';
+    PROCESSDATA(MSG1,TRUE,VOLNAME1,STRING1,STRING2,FROMWHERE);
+    SOURCEUNIT := GUNIT;
+    SOURCEVID := GVID;
+    IF DEFAULT > 0 THEN
+      EXIT(CHECKFILE);
+    IF (INSTRING = '') AND (DEFAULT < 0) THEN
+      EXIT(CHECKFILE);
+    PROCESSDATA(MSG2,FALSE,VOLNAME2,STRING3,STRING4,TOWHERE);
+  END;

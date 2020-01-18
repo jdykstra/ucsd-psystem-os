@@ -1,0 +1,1298 @@
+#
+# UCSD p-System Operating System
+# Copyright (C) 2010 Peter Miller
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+#   * Redistributions of source code must retain the above copyright notice,
+#     this list of conditions and the following disclaimer.
+#   * Redistributions in binary form must reproduce the above copyright
+#     notice, this list of conditions and the following disclaimer in the
+#     documentation and/or other materials provided with the distribution.
+#   * Neither the name of the ucsd-psystem-os project nor the names of its
+#     contributors may be used to endorse or promote products derived from
+#     this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+# BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+#
+0 = {
+    "        ",
+    "        ",
+    "        ",
+    "   X    ",
+    "        ",
+    "        ",
+    "        ",
+    "        ",
+};
+1 = {
+    "    X   ",
+    "   X    ",
+    " XX XX  ",
+    "XXXXXXX ",
+    "XXXXX   ",
+    "XXXXX   ",
+    " XXXXX  ",
+    " XX XX  ",
+};
+2 = {
+    "    XX  ",
+    "   X  X ",
+    "   X  X ",
+    "    XX  ",
+    "        ",
+    "        ",
+    "        ",
+    "        ",
+};
+3 = {
+    "  XXXX  ",
+    " X    X ",
+    " X XX X ",
+    " X X  X ",
+    " X XX X ",
+    " X    X ",
+    "  XXXX  ",
+    "        ",
+};
+4 = {
+    "XXXXXXX ",
+    "X     X ",
+    "X     X ",
+    "X  X  X ",
+    "X     X ",
+    "X  X  X ",
+    "XXXXXXX ",
+    "        ",
+};
+5 = {
+    " XXXXXX ",
+    "  X   X ",
+    "   X    ",
+    "    X   ",
+    "   X    ",
+    "  X   X ",
+    " XXXXXX ",
+    "        ",
+};
+6 = {
+    "     X  ",
+    "    X X ",
+    "    X   ",
+    "   X    ",
+    "   X    ",
+    "  X     ",
+    "X X     ",
+    " X      ",
+};
+7 = {
+    "   X    ",
+    "  X X   ",
+    " X   X  ",
+    " X   X  ",
+    " X   X  ",
+    "X     X ",
+    "XXXXXXX ",
+    "   X    ",
+};
+8 = {
+    "    X   ",
+    "   X    ",
+    "  X     ",
+    " XXXXXX ",
+    "  X     ",
+    "   X    ",
+    "    X   ",
+    "        ",
+};
+9 = {
+    "   X    ",
+    "    X   ",
+    "     X  ",
+    " XXXXXX ",
+    "     X  ",
+    "    X   ",
+    "   X    ",
+    "        ",
+};
+10 = {
+    "   X    ",
+    "   X    ",
+    "   X    ",
+    "X  X  X ",
+    " X X X  ",
+    "  XXX   ",
+    "   X    ",
+    "        ",
+};
+11 = {
+    "   X    ",
+    "  XXX   ",
+    " X X X  ",
+    "X  X  X ",
+    "   X    ",
+    "   X    ",
+    "   X    ",
+    "        ",
+};
+12 = {
+    "   X    ",
+    "X  X  X ",
+    " X X X  ",
+    "  XXX   ",
+    "X  X  X ",
+    " X X X  ",
+    "  XXX   ",
+    "   X    ",
+};
+13 = {
+    "      X ",
+    "     XX ",
+    "    XXX ",
+    "   XXXX ",
+    "    XXX ",
+    "     XX ",
+    "      X ",
+    "        ",
+};
+14 = {
+    "      X ",
+    "      X ",
+    "     X  ",
+    "     X  ",
+    "XX  X   ",
+    "  X X   ",
+    "  XX    ",
+    "   X    ",
+};
+15 = {
+    "        ",
+    "        ",
+    "        ",
+    "  XXXXX ",
+    " X X X  ",
+    "   X X  ",
+    "   X X  ",
+    "        ",
+};
+16 = {
+    " XX XX  ",
+    "XXXXXXX ",
+    "XXXXXXX ",
+    "XXXXXXX ",
+    " XXXXX  ",
+    "  XXX   ",
+    "   X    ",
+    "        ",
+};
+17 = {
+    "   X    ",
+    "  XXX   ",
+    " XXXXX  ",
+    "XXXXXXX ",
+    " XXXXX  ",
+    "  XXX   ",
+    "   X    ",
+    "        ",
+};
+18 = {
+    "   X    ",
+    "  XXX   ",
+    " XXXXX  ",
+    "XXXXXXX ",
+    "XXXXXXX ",
+    " X X X  ",
+    "   X    ",
+    "        ",
+};
+19 = {
+    "   X    ",
+    "  XXX   ",
+    "  XXX   ",
+    " X X X  ",
+    "XXXXXXX ",
+    "XXXXXXX ",
+    " X X X  ",
+    "   X    ",
+};
+20 = {
+    " XXXXX  ",
+    "   X    ",
+    "   X    ",
+    " X   X  ",
+    " XX XX  ",
+    " X X X  ",
+    " X   X  ",
+    "        ",
+};
+21 = {
+    "        ",
+    " X   X  ",
+    "  X X   ",
+    "   X    ",
+    "  X X   ",
+    " X   X  ",
+    "        ",
+    "        ",
+};
+22 = {
+    "  X     ",
+    " XXX    ",
+    "  X     ",
+    "  X     ",
+    "        ",
+    "        ",
+    "        ",
+    "        ",
+};
+23 = {
+    "        ",
+    "   X    ",
+    "        ",
+    " XXXXX  ",
+    "        ",
+    "   X    ",
+    "        ",
+    "        ",
+};
+24 = {
+    "   XX   ",
+    "  X  X  ",
+    "   X    ",
+    "  X X   ",
+    "   X    ",
+    " X  X   ",
+    "  XX    ",
+    "        ",
+};
+25 = {
+    "    X   ",
+    "   XXX  ",
+    "  X     ",
+    "  X     ",
+    "   XXX  ",
+    "    X   ",
+    "        ",
+    "        ",
+};
+26 = {
+    "   X    ",
+    "  XXX   ",
+    "   X    ",
+    "  XXX   ",
+    " XXXXX  ",
+    "  XXX   ",
+    " XXXXX  ",
+    "XXXXXXX ",
+};
+27 = {
+    "   X    ",
+    " XXXXX  ",
+    "  XXX   ",
+    "   X    ",
+    "  XXX   ",
+    "  XXX   ",
+    " XXXXX  ",
+    "XXXXXXX ",
+};
+28 = {
+    "        ",
+    " X X X  ",
+    " XXXXX  ",
+    "  XXX   ",
+    "  XXX   ",
+    "  XXX   ",
+    " XXXXX  ",
+    "XXXXXXX ",
+};
+29 = {
+    "        ",
+    "    X   ",
+    "  XXXX  ",
+    " XXXXX  ",
+    "   XX   ",
+    "  XX    ",
+    " XXXX   ",
+    "XXXXXX  ",
+};
+30 = {
+    "        ",
+    "   X    ",
+    "   XX   ",
+    " X XXX  ",
+    "XX XXXX ",
+    " XXXXX  ",
+    "  XXX   ",
+    "XXXXXXX ",
+};
+31 = {
+    "        ",
+    "        ",
+    "   X    ",
+    "  XXX   ",
+    "  XXX   ",
+    "   X    ",
+    "  XXX   ",
+    " XXXXX  ",
+};
+'!' = {
+    "   X    ",
+    "   X    ",
+    "   X    ",
+    "   X    ",
+    "        ",
+    "        ",
+    "   X    ",
+    "        ",
+};
+'"' = {
+    " X  X   ",
+    " X  X   ",
+    " X  X   ",
+    "        ",
+    "        ",
+    "        ",
+    "        ",
+    "        ",
+};
+'#' = {
+    " X  X   ",
+    " X  X   ",
+    "XXXXXX  ",
+    " X  X   ",
+    "XXXXXX  ",
+    " X  X   ",
+    " X  X   ",
+    "        ",
+};
+'$' = {
+    "   X    ",
+    "  XXXX  ",
+    " X X    ",
+    "  XXX   ",
+    "   X X  ",
+    " XXXX   ",
+    "   X    ",
+    "        ",
+};
+'%' = {
+    "        ",
+    "XX   X  ",
+    "XX  X   ",
+    "   X    ",
+    "  X     ",
+    " X  XX  ",
+    "X   XX  ",
+    "        ",
+};
+'&' = {
+    " XX     ",
+    "X  X    ",
+    "X  X    ",
+    " XX     ",
+    "X  X X  ",
+    "X   X   ",
+    " XXX X  ",
+    "        ",
+};
+'\'' = {
+    "    X   ",
+    "   X    ",
+    "  X     ",
+    "        ",
+    "        ",
+    "        ",
+    "        ",
+    "        ",
+};
+'(' = {
+    "    X   ",
+    "   X    ",
+    "  X     ",
+    "  X     ",
+    "  X     ",
+    "   X    ",
+    "    X   ",
+    "        ",
+};
+')' = {
+    " X      ",
+    "  X     ",
+    "   X    ",
+    "   X    ",
+    "   X    ",
+    "  X     ",
+    " X      ",
+    "        ",
+};
+'*' = {
+    "   X    ",
+    " X X X  ",
+    "  XXX   ",
+    " XXXXX  ",
+    "  XXX   ",
+    " X X X  ",
+    "   X    ",
+    "        ",
+};
+'+' = {
+    "        ",
+    "   X    ",
+    "   X    ",
+    " XXXXX  ",
+    "   X    ",
+    "   X    ",
+    "        ",
+    "        ",
+};
+',' = {
+    "        ",
+    "        ",
+    "        ",
+    "        ",
+    "        ",
+    "  XX    ",
+    "  XX    ",
+    " XX     ",
+};
+'-' = {
+    "        ",
+    "        ",
+    "        ",
+    "XXXXXX  ",
+    "        ",
+    "        ",
+    "        ",
+    "        ",
+};
+'.' = {
+    "        ",
+    "        ",
+    "        ",
+    "        ",
+    "        ",
+    "  XX    ",
+    "  XX    ",
+    "        ",
+};
+'/' = {
+    "        ",
+    "     X  ",
+    "    X   ",
+    "   X    ",
+    "  X     ",
+    " X      ",
+    "X       ",
+    "        ",
+};
+'0' = {
+    " XXXX   ",
+    "X    X  ",
+    "X   XX  ",
+    "X XX X  ",
+    "XX   X  ",
+    "X    X  ",
+    " XXXX   ",
+    "        ",
+};
+'1' = {
+    "   X    ",
+    "  XX    ",
+    " X X    ",
+    "   X    ",
+    "   X    ",
+    "   X    ",
+    " XXXXX  ",
+    "        ",
+};
+'2' = {
+    " XXXX   ",
+    "X    X  ",
+    "     X  ",
+    "   XX   ",
+    " XX     ",
+    "X       ",
+    "XXXXXX  ",
+    "        ",
+};
+'3' = {
+    " XXXX   ",
+    "X    X  ",
+    "     X  ",
+    "  XXX   ",
+    "     X  ",
+    "X    X  ",
+    " XXXX   ",
+    "        ",
+};
+'4' = {
+    "    X   ",
+    "   XX   ",
+    "  X X   ",
+    " X  X   ",
+    "XXXXXX  ",
+    "    X   ",
+    "    X   ",
+    "        ",
+};
+'5' = {
+    "XXXXXX  ",
+    "X       ",
+    "XXXX    ",
+    "    X   ",
+    "     X  ",
+    "X   X   ",
+    " XXX    ",
+    "        ",
+};
+'6' = {
+    "  XXX   ",
+    " X      ",
+    "X       ",
+    "XXXXX   ",
+    "X    X  ",
+    "X    X  ",
+    " XXXX   ",
+    "        ",
+};
+'7' = {
+    "XXXXXX  ",
+    "X    X  ",
+    "    X   ",
+    "   X    ",
+    "  X     ",
+    "  X     ",
+    "  X     ",
+    "        ",
+};
+'8' = {
+    " XXXX   ",
+    "X    X  ",
+    "X    X  ",
+    " XXXX   ",
+    "X    X  ",
+    "X    X  ",
+    " XXXX   ",
+    "        ",
+};
+'9' = {
+    " XXXX   ",
+    "X    X  ",
+    "X    X  ",
+    " XXXXX  ",
+    "     X  ",
+    "    X   ",
+    " XXX    ",
+    "        ",
+};
+':' = {
+    "        ",
+    "        ",
+    "  XX    ",
+    "  XX    ",
+    "        ",
+    "  XX    ",
+    "  XX    ",
+    "        ",
+};
+';' = {
+    "        ",
+    "        ",
+    "  XX    ",
+    "  XX    ",
+    "        ",
+    "  XX    ",
+    "  XX    ",
+    " XX     ",
+};
+'<' = {
+    "    X   ",
+    "   X    ",
+    "  X     ",
+    " X      ",
+    "  X     ",
+    "   X    ",
+    "    X   ",
+    "        ",
+};
+'=' = {
+    "        ",
+    "        ",
+    "XXXXX   ",
+    "        ",
+    "XXXXX   ",
+    "        ",
+    "        ",
+    "        ",
+};
+'>' = {
+    " X      ",
+    "  X     ",
+    "   X    ",
+    "    X   ",
+    "   X    ",
+    "  X     ",
+    " X      ",
+    "        ",
+};
+'?' = {
+    " XXXX   ",
+    "X    X  ",
+    "     X  ",
+    "   XX   ",
+    "  X     ",
+    "        ",
+    "  X     ",
+    "        ",
+};
+'@' = {
+    "  XXX   ",
+    " X   X  ",
+    "X  X X  ",
+    "X X XX  ",
+    "X  XX   ",
+    " X      ",
+    "  XXXX  ",
+    "        ",
+};
+'A' = {
+    "  XX    ",
+    " X  X   ",
+    "X    X  ",
+    "XXXXXX  ",
+    "X    X  ",
+    "X    X  ",
+    "X    X  ",
+    "        ",
+};
+'B' = {
+    "XXXXX   ",
+    " X   X  ",
+    " X   X  ",
+    " XXXX   ",
+    " X   X  ",
+    " X   X  ",
+    "XXXXX   ",
+    "        ",
+};
+'C' = {
+    " XXXX   ",
+    "X    X  ",
+    "X       ",
+    "X       ",
+    "X       ",
+    "X    X  ",
+    " XXXX   ",
+    "        ",
+};
+'D' = {
+    "XXXXX   ",
+    " X   X  ",
+    " X   X  ",
+    " X   X  ",
+    " X   X  ",
+    " X   X  ",
+    "XXXXX   ",
+    "        ",
+};
+'E' = {
+    "XXXXXX  ",
+    "X       ",
+    "X       ",
+    "XXXX    ",
+    "X       ",
+    "X       ",
+    "XXXXXX  ",
+    "        ",
+};
+'F' = {
+    "XXXXXX  ",
+    "X       ",
+    "X       ",
+    "XXXX    ",
+    "X       ",
+    "X       ",
+    "X       ",
+    "        ",
+};
+'G' = {
+    " XXXX   ",
+    "X    X  ",
+    "X       ",
+    "X  XXX  ",
+    "X    X  ",
+    "X    X  ",
+    " XXXX   ",
+    "        ",
+};
+'H' = {
+    "X    X  ",
+    "X    X  ",
+    "X    X  ",
+    "XXXXXX  ",
+    "X    X  ",
+    "X    X  ",
+    "X    X  ",
+    "        ",
+};
+'I' = {
+    "  XXX   ",
+    "   X    ",
+    "   X    ",
+    "   X    ",
+    "   X    ",
+    "   X    ",
+    "  XXX   ",
+    "        ",
+};
+'J' = {
+    "   XXX  ",
+    "    X   ",
+    "    X   ",
+    "    X   ",
+    "    X   ",
+    "X   X   ",
+    " XXX    ",
+    "        ",
+};
+'K' = {
+    "X    X  ",
+    "X   X   ",
+    "X  X    ",
+    "XXX     ",
+    "X  X    ",
+    "X   X   ",
+    "X    X  ",
+    "        ",
+};
+'L' = {
+    "X       ",
+    "X       ",
+    "X       ",
+    "X       ",
+    "X       ",
+    "X       ",
+    "XXXXXX  ",
+    "        ",
+};
+'M' = {
+    "X    X  ",
+    "XX  XX  ",
+    "X XX X  ",
+    "X XX X  ",
+    "X    X  ",
+    "X    X  ",
+    "X    X  ",
+    "        ",
+};
+'N' = {
+    "X    X  ",
+    "XX   X  ",
+    "X X  X  ",
+    "X  X X  ",
+    "X   XX  ",
+    "X    X  ",
+    "X    X  ",
+    "        ",
+};
+'O' = {
+    " XXXX   ",
+    "X    X  ",
+    "X    X  ",
+    "X    X  ",
+    "X    X  ",
+    "X    X  ",
+    " XXXX   ",
+    "        ",
+};
+'P' = {
+    "XXXXX   ",
+    "X    X  ",
+    "X    X  ",
+    "XXXXX   ",
+    "X       ",
+    "X       ",
+    "X       ",
+    "        ",
+};
+'Q' = {
+    " XXXX   ",
+    "X    X  ",
+    "X    X  ",
+    "X    X  ",
+    "X  X X  ",
+    "X   X   ",
+    " XXX X  ",
+    "        ",
+};
+'R' = {
+    "XXXXX   ",
+    "X    X  ",
+    "X    X  ",
+    "XXXXX   ",
+    "X  X    ",
+    "X   X   ",
+    "X    X  ",
+    "        ",
+};
+'S' = {
+    " XXXX   ",
+    "X    X  ",
+    "X       ",
+    " XXXX   ",
+    "     X  ",
+    "X    X  ",
+    " XXXX   ",
+    "        ",
+};
+'T' = {
+    " XXXXX  ",
+    "   X    ",
+    "   X    ",
+    "   X    ",
+    "   X    ",
+    "   X    ",
+    "   X    ",
+    "        ",
+};
+'U' = {
+    "X    X  ",
+    "X    X  ",
+    "X    X  ",
+    "X    X  ",
+    "X    X  ",
+    "X    X  ",
+    " XXXX   ",
+    "        ",
+};
+'V' = {
+    "X    X  ",
+    "X    X  ",
+    "X    X  ",
+    " X  X   ",
+    " X  X   ",
+    "  XX    ",
+    "  XX    ",
+    "        ",
+};
+'W' = {
+    "X    X  ",
+    "X    X  ",
+    "X    X  ",
+    "X XX X  ",
+    "X XX X  ",
+    "XX  XX  ",
+    "X    X  ",
+    "        ",
+};
+'X' = {
+    "X    X  ",
+    "X    X  ",
+    " X  X   ",
+    "  XX    ",
+    " X  X   ",
+    "X    X  ",
+    "X    X  ",
+    "        ",
+};
+'Y' = {
+    " X   X  ",
+    " X   X  ",
+    " X   X  ",
+    "  XXX   ",
+    "   X    ",
+    "   X    ",
+    "   X    ",
+    "        ",
+};
+'Z' = {
+    "XXXXXX  ",
+    "     X  ",
+    "    X   ",
+    "  XX    ",
+    " X      ",
+    "X       ",
+    "XXXXXX  ",
+    "        ",
+};
+'[' = {
+    " XXXX   ",
+    " X      ",
+    " X      ",
+    " X      ",
+    " X      ",
+    " X      ",
+    " XXXX   ",
+    "        ",
+};
+'\\' = {
+    "        ",
+    "X       ",
+    " X      ",
+    "  X     ",
+    "   X    ",
+    "    X   ",
+    "     X  ",
+    "        ",
+};
+']' = {
+    " XXXX   ",
+    "    X   ",
+    "    X   ",
+    "    X   ",
+    "    X   ",
+    "    X   ",
+    " XXXX   ",
+    "        ",
+};
+'^' = {
+    "   X    ",
+    "  X X   ",
+    " X   X  ",
+    "        ",
+    "        ",
+    "        ",
+    "        ",
+    "        ",
+};
+'_' = {
+    "        ",
+    "        ",
+    "        ",
+    "        ",
+    "        ",
+    "        ",
+    "        ",
+    "XXXXXXX ",
+};
+'`' = {
+    "  X     ",
+    "   X    ",
+    "    X   ",
+    "        ",
+    "        ",
+    "        ",
+    "        ",
+    "        ",
+};
+'a' = {
+    "        ",
+    "        ",
+    " XXX    ",
+    "    X   ",
+    " XXXX   ",
+    "X   X   ",
+    " XXX X  ",
+    "        ",
+};
+'b' = {
+    "X       ",
+    "X       ",
+    "X XXX   ",
+    "XX   X  ",
+    "X    X  ",
+    "XX   X  ",
+    "X XXX   ",
+    "        ",
+};
+'c' = {
+    "        ",
+    "        ",
+    " XXXX   ",
+    "X       ",
+    "X       ",
+    "X       ",
+    " XXXX   ",
+    "        ",
+};
+'d' = {
+    "     X  ",
+    "     X  ",
+    " XXX X  ",
+    "X   XX  ",
+    "X    X  ",
+    "X   XX  ",
+    " XXX X  ",
+    "        ",
+};
+'e' = {
+    "        ",
+    "        ",
+    " XXXX   ",
+    "X    X  ",
+    "XXXXXX  ",
+    "X       ",
+    " XXXX   ",
+    "        ",
+};
+'f' = {
+    "   XX   ",
+    "  X  X  ",
+    "  X     ",
+    "XXXXX   ",
+    "  X     ",
+    "  X     ",
+    "  X     ",
+    "        ",
+};
+'g' = {
+    "        ",
+    "        ",
+    " XXX X  ",
+    "X   XX  ",
+    "X   XX  ",
+    " XXX X  ",
+    "     X  ",
+    " XXXX   ",
+};
+'h' = {
+    "X       ",
+    "X       ",
+    "X XXX   ",
+    "XX   X  ",
+    "X    X  ",
+    "X    X  ",
+    "X    X  ",
+    "        ",
+};
+'i' = {
+    "   X    ",
+    "        ",
+    "  XX    ",
+    "   X    ",
+    "   X    ",
+    "   X    ",
+    "  XXX   ",
+    "        ",
+};
+'j' = {
+    "    X   ",
+    "        ",
+    "   XX   ",
+    "    X   ",
+    "    X   ",
+    "    X   ",
+    "X   X   ",
+    " XXX    ",
+};
+'k' = {
+    "X       ",
+    "X       ",
+    "X   X   ",
+    "X  X    ",
+    "X X     ",
+    "XX X    ",
+    "X   X   ",
+    "        ",
+};
+'l' = {
+    "  XX    ",
+    "   X    ",
+    "   X    ",
+    "   X    ",
+    "   X    ",
+    "   X    ",
+    "  XXX   ",
+    "        ",
+};
+'m' = {
+    "        ",
+    "        ",
+    "XXX X   ",
+    " X X X  ",
+    " X X X  ",
+    " X X X  ",
+    " X X X  ",
+    "        ",
+};
+'n' = {
+    "        ",
+    "        ",
+    "XXXXX   ",
+    " X   X  ",
+    " X   X  ",
+    " X   X  ",
+    " X   X  ",
+    "        ",
+};
+'o' = {
+    "        ",
+    "        ",
+    "  XXX   ",
+    " X   X  ",
+    " X   X  ",
+    " X   X  ",
+    "  XXX   ",
+    "        ",
+};
+'p' = {
+    "        ",
+    "        ",
+    "X XXX   ",
+    "XX   X  ",
+    "XX   X  ",
+    "X XXX   ",
+    "X       ",
+    "X       ",
+};
+'q' = {
+    "        ",
+    "        ",
+    " XXX X  ",
+    "X   XX  ",
+    "X   XX  ",
+    " XXX X  ",
+    "     X  ",
+    "     X  ",
+};
+'r' = {
+    "        ",
+    "        ",
+    "X XXX   ",
+    "XX   X  ",
+    "X       ",
+    "X       ",
+    "X       ",
+    "        ",
+};
+'s' = {
+    "        ",
+    "        ",
+    " XXXXX  ",
+    "X       ",
+    " XXXX   ",
+    "     X  ",
+    "XXXXX   ",
+    "        ",
+};
+'t' = {
+    "  X     ",
+    "  X     ",
+    "XXXXX   ",
+    "  X     ",
+    "  X     ",
+    "  X  X  ",
+    "   XX   ",
+    "        ",
+};
+'u' = {
+    "        ",
+    "        ",
+    "X    X  ",
+    "X    X  ",
+    "X    X  ",
+    "X   XX  ",
+    " XXX X  ",
+    "        ",
+};
+'v' = {
+    "        ",
+    "        ",
+    "X    X  ",
+    "X    X  ",
+    "X    X  ",
+    " X  X   ",
+    "  XX    ",
+    "        ",
+};
+'w' = {
+    "        ",
+    "        ",
+    " X   X  ",
+    " X   X  ",
+    " X X X  ",
+    " X X X  ",
+    " XX XX  ",
+    "        ",
+};
+'x' = {
+    "        ",
+    "        ",
+    "X    X  ",
+    " X  X   ",
+    "  XX    ",
+    " X  X   ",
+    "X    X  ",
+    "        ",
+};
+'y' = {
+    "        ",
+    "        ",
+    "X    X  ",
+    "X    X  ",
+    "X   XX  ",
+    " XXX X  ",
+    "     X  ",
+    " XXXX   ",
+};
+'z' = {
+    "        ",
+    "        ",
+    "XXXXXX  ",
+    "    X   ",
+    "  XX    ",
+    " X      ",
+    "XXXXXX  ",
+    "        ",
+};
+'{' = {
+    "  XXX   ",
+    " X      ",
+    " X      ",
+    "XX      ",
+    " X      ",
+    " X      ",
+    "  XXX   ",
+    "        ",
+};
+'|' = {
+    "  X     ",
+    "  X     ",
+    "  X     ",
+    "  X     ",
+    "  X     ",
+    "  X     ",
+    "  X     ",
+    "  X     ",
+};
+'}' = {
+    "XXX     ",
+    "   X    ",
+    "   X    ",
+    "   XX   ",
+    "   X    ",
+    "   X    ",
+    "XXX     ",
+    "        ",
+};
+'~' = {
+    "  X X   ",
+    " X X    ",
+    "        ",
+    "        ",
+    "        ",
+    "        ",
+    "        ",
+    "        ",
+};
+127 = {
+    "XXXXXXX ",
+    "XXXXXXX ",
+    "XXXXXXX ",
+    "XXXXXXX ",
+    "XXXXXXX ",
+    "XXXXXXX ",
+    "XXXXXXX ",
+    "XXXXXXX ",
+};

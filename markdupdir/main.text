@@ -1,0 +1,132 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+PROGRAM DUPLICATEDIRECTORYMARKER;
+
+  (*) This utility marks DLASTBLK as 10 so that a duplicate (*)
+  (*) directory will be maintained by the operating system. (*)
+
+  CONST
+        DIRBLOX = 4; {size of a directory in blocks}
+        BLOCKBYTES = 511; {size of a block in bytes minus 1}
+
+        FIRSTIDCHAR = 7; {location of first character in volume id}
+        MAXIDLENGTH = 7;
+
+        DUPDIRLASTBLK = 10;
+
+  VAR
+       UNITID : STRING[1];
+       DRIVENUM : INTEGER;
+       BUFFER : PACKED ARRAY [ 1 .. DIRBLOX, 0 .. BLOCKBYTES ] OF CHAR;
+       IDLENGTH, N : INTEGER;
+
+FUNCTION  YES: BOOLEAN;
+  VAR  CH : CHAR;
+BEGIN
+  UNITREAD( 1, CH, 1, 0, 0 );
+  WRITELN;
+  YES := (CH = 'Y');
+END;
+
+BEGIN { of Duplicate Directory Marker }
+
+  PAGE(OUTPUT);
+  WRITELN;
+  WRITELN( 'Duplicate Directory Marker { July 13, 1978 } ' );
+  WRITELN;
+
+  REPEAT
+    WRITE( '  Enter drive # of user''s disk [4 or 5]: ' );
+    READLN( UNITID );
+    WRITELN;
+    IF LENGTH( UNITID ) > 0 THEN
+      DRIVENUM := ORD( UNITID[1] ) - ORD('0')
+    ELSE
+      EXIT( PROGRAM );
+  UNTIL DRIVENUM IN [4,5];
+
+  UNITREAD( DRIVENUM, BUFFER, SIZEOF(BUFFER), 2, 0 );
+  IDLENGTH := ORD( BUFFER[ 1, 6 ] );
+
+  IF (IDLENGTH > MAXIDLENGTH) OR (IDLENGTH <= 0) THEN
+  BEGIN
+    WRITE( 'Illegal volume name. Do you want to mark it anyway? ' );
+    IF NOT YES THEN
+      EXIT( PROGRAM );
+  END;
+
+    IF (ORD( BUFFER[ 1, 2 ] ) <> DUPDIRLASTBLK)
+       OR (ORD( BUFFER[ 1, 3 ] ) <> 0 )  THEN
+    BEGIN
+      WRITE( 'A duplicate directory is not being maintained on ' );
+      FOR N := FIRSTIDCHAR TO (FIRSTIDCHAR - 1 + IDLENGTH) DO
+        WRITE( BUFFER[ 1, N ] );
+      WRITELN( ': .');
+      IF ORD( BUFFER[ 1, 2 ] ) = 6 THEN
+      BEGIN
+        WRITELN('WARNING! It appears that blocks 6 - 9 are not free for use.' );
+        WRITE( ' Are you sure that they are free? ' );
+      END
+      ELSE
+        WRITE( '  Are you sure that blocks 6 - 9 are free for use? ' );
+      IF YES THEN
+      BEGIN
+        WRITE( '  Do you want the directories to be marked? ' );
+        IF YES THEN
+        BEGIN
+          BUFFER[ 1, 2 ] := CHR( DUPDIRLASTBLK );
+          BUFFER[ 1, 3 ] := CHR(0);
+          UNITWRITE( DRIVENUM, BUFFER, SIZEOF(BUFFER), 6, 0 );
+          UNITWRITE( DRIVENUM, BUFFER, SIZEOF(BUFFER), 2, 0 );
+          WRITE( '  Directories are now marked as duplicate. ' );
+        END;
+      END;
+    END
+    ELSE
+    BEGIN
+      WRITE( ' A duplicate directory is already being maintained on ' );
+      FOR N := FIRSTIDCHAR TO (FIRSTIDCHAR - 1 + IDLENGTH) DO
+        WRITE( BUFFER[ 1, N ] );
+      WRITELN( ': .');
+      WRITE( ' Mark not done. ' );
+    END;
+
+  WRITE( 'Type <ret> to exit. ' );
+  READLN;
+
+END.

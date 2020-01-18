@@ -1,0 +1,434 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+PROCEDURE PROCEJUR;
+VAR HEX:HEXTYPE;
+    LINENUM,LPROCNUM:INTEGER;
+
+PROCEDURE JUMPINFO;
+VAR  OTHERBYTE:INTEGER;
+BEGIN
+  BACKJUMP:=0; BYTEPOS:=BYTEPOS - 6; OFFSET:=OFFSET - 6;
+  REPEAT
+    BACKJUMP:=BACKJUMP + 1;
+    OTHERBYTE:=LASTBYTE;
+    BITE:=LASTBYTE;
+    IF SWAP THEN {jumps relative to start of segment}
+      JUMPS[BACKJUMP]:=BUFSTART + BYTEPOS - BITE*256 - OTHERBYTE
+    ELSE
+      BEGIN
+        JUMPS[BACKJUMP]:=BUFSTART + BYTEPOS - BITE - OTHERBYTE*256;
+        BITE:=OTHERBYTE;
+      END;
+  UNTIL (BITE>127) OR (BACKJUMP=99);
+  JUMPS[0]:=BACKJUMP - 1;
+  IF BYTEPOS - OFFSET<0 THEN
+      BYTEPOS:=BUFRESET(BUFSTART + BYTEPOS,-OFFSET,-1)
+    ELSE
+      BYTEPOS:=BYTEPOS - OFFSET;
+  PROCSTART:=BUFSTART + BYTEPOS; {jumps now relative to start of procedure}
+  FOR BACKJUMP:=1 TO JUMPS[0] DO
+    JUMPS[BACKJUMP]:=JUMPS[BACKJUMP] - PROCSTART;
+END;
+
+BEGIN (*PROCEJUR*)
+  IF PROCS[PROCNUM]=0 THEN
+    WRITELN('Procedure not in file')
+  ELSE
+    BEGIN
+      BYTEPOS:=SEGSIZE - BUFSTART - 2*(PROCNUM + 1) - PROCS[PROCNUM] - 2;
+      IF BYTEPOS<0 THEN
+        BYTEPOS:=BUFRESET(SEGSIZE - 2*(PROCNUM + 1),-PROCS[PROCNUM] - 2,-1)
+      ELSE IF BYTEPOS>2556 THEN
+        BYTEPOS:=BUFRESET(BUFSTART + BYTEPOS,0,1);
+      OFFSET:=GETWORD;                  { pointer to ENTER IC }
+      LPROCNUM:=GETBYTE;
+      LEXLEVEL:=GETBYTE;
+      BYTEPOS:=BYTEPOS - 4;
+      IF LEXLEVEL=255 THEN LEXLEVEL:=-1;
+      IF NOT (LEXCHECK OR LEXLOOK) THEN
+        IF LPROCNUM=0 THEN
+          WRITELN('Procedure ',PROCNUM:3,' is written in Assembly.')
+        ELSE
+        BEGIN
+          JUMPINFO;
+          DONEPROC:=FALSE;
+          IF DISPLAY THEN WRITELN(LISTFILE,
+                ' ':10,'BLOCK #',BYTEPOS DIV 512 + BUFSTBLK:3,
+                '     OFFSET IN BLOCK=',BYTEPOS MOD 512:3,CR,
+                'SEGMENT PROC     OFFSET#',' ':35,'HEX CODE');
+          IF NOT CONSOLE THEN
+            IF CONTROL THEN WRITE(CR,'[',PROCNUM:2,']')
+          ELSE WRITE('.');
+          LINENUM:=0;
+          REPEAT
+            HEX.WORD:=BUFSTART + BYTEPOS - PROCSTART;
+            IF DISPLAY THEN WRITE(LISTFILE,SEGNUM:7,PROCNUM:5,HEX.WORD:6,'(',
+                HEXCHAR[HEX.DUM1],HEXCHAR[HEX.HI],HEXCHAR[HEX.LO],'):   ');
+            IF CONTROL AND NOT CONSOLE THEN
+              BEGIN
+                WRITE('.');
+                LINENUM:=LINENUM + 1;
+                IF (LINENUM MOD 50=0) THEN WRITE(CR,'    ');
+              END;
+            HEXCOUNT:=0;
+            CODE:='                ';
+            BITE:=GETBYTE;
+            OPTOTAL:=OPTOTAL + 1;
+            CASE RECTYPES[BITE] OF
+                    SHORT:SHORTOP;
+                   CMPRSS:CMPRSSOP;
+                  CMPRSS2:CMPRSS2OP;
+                      ONE:ONEOP;
+                     CHRS:CHRSOP;
+                      BLK:BLKOP;
+                      OPT:OPTOP;
+                     LOPT:LOPTOP;
+                      TWO:TWOOP;
+                    WORDS:WORDSOP;
+                     WORD:WORDOP
+              END;
+          UNTIL DONEPROC;
+        END;
+    END;
+END;
+
+PROCEDURE ALLPROCS;
+VAR I,J,MAXDIST,INDEX:INTEGER;
+    SORTNUMS:ARRAY[0..MAXPROCNUM] OF INTEGER;
+    SORTPROCS:ARRAY[0..MAXPROCNUM] OF BYTE;
+BEGIN
+  IF DISPLAY THEN
+    BEGIN
+      SORTNUMS:=PROCS;
+      FOR I:=1 TO MAXPROCNUM DO SORTPROCS[I]:=I;
+      FOR I:=1 TO PROCS[0] DO
+        BEGIN
+          MAXDIST:=0;
+          INDEX:=0;
+          FOR J:=I TO PROCS[0] DO
+            IF SORTNUMS[J]>=MAXDIST THEN
+              BEGIN
+                MAXDIST:=SORTNUMS[J];
+                INDEX:=J;
+              END;
+          SORTNUMS[INDEX]:=SORTNUMS[I];
+          SORTNUMS[I]:=SORTPROCS[INDEX];
+          SORTPROCS[INDEX]:=SORTPROCS[I];
+        END;
+      FOR I:=1 TO PROCS[0] DO
+        BEGIN
+          PROCNUM:=SORTNUMS[I];
+          IF (NOT CONSOLE) AND (I MOD 50=0) THEN WRITE(CR,'    ');
+          PROCEJUR;
+        END;
+    END
+  ELSE FOR PROCNUM:=1 TO PROCS[0] DO
+    BEGIN
+      IF (NOT CONSOLE) AND (PROCNUM MOD 50=0) THEN WRITE(CR,'    ');
+      PROCEJUR;
+    END;
+END;
+
+PROCEDURE SEGMINT;
+BEGIN
+  IF SWAP THEN
+    BEGIN
+      SEGSTBLK:=SEGDIREC[SEGNUM*4 + 1];
+      SEGSIZE:=SEGDIREC[SEGNUM*4 + 3] + SEGDIREC[SEGNUM*4 + 2]*256;
+    END
+  ELSE
+    BEGIN
+      SEGSTBLK:=SEGDIREC[SEGNUM*4];
+      SEGSIZE:=SEGDIREC[SEGNUM*4 + 3]*256 + SEGDIREC[SEGNUM*4 + 2];
+    END;
+  BUFSTBLK:=SEGSTBLK;
+  IF SEGSIZE>2560 THEN
+      BYTEPOS:=BUFRESET(SEGSIZE,-1,1)
+    ELSE
+      BYTEPOS:=BUFRESET(SEGSIZE,-1,0);
+  PROCS[0]:=BUFFER[BYTEPOS];  (* number of procs in segment *)
+  BYTEPOS:=BYTEPOS - 2*PROCS[0] - 1;
+  FOR PROCNUM:=PROCS[0] DOWNTO 1 DO PROCS[PROCNUM]:=GETWORD;
+  IF NOT (CONTROL OR LEXCHECK) THEN ALLPROCS;
+END;
+
+PROCEDURE ACTACCESS; {FINALEX,OFFSET:INTEGER;}
+VAR  FINALPROC,FINALSEG:INTEGER;
+     INSIDE:BOOLEAN;
+BEGIN
+  IF (FINALEX=PROCLEX[DATAPROC]) AND (PROCNUM>=DATAPROC) THEN
+    IF SEGNUM=DATASEG THEN
+      BEGIN
+        INSIDE:=(PROCNUM=DATAPROC);
+        FINALPROC:=PROCNUM;
+        WHILE PROCLEX[FINALPROC]>PROCLEX[DATAPROC] DO FINALPROC:=FINALPROC - 1;
+        IF FINALPROC=DATAPROC THEN
+          {$R-}
+          DSSTART^[OFFSET]:=DSSTART^[OFFSET] + 1;
+          {$R+}
+      END
+    ELSE IF (DATAPROC=1) AND (SEGNUM>DATASEG) THEN
+      BEGIN
+        FINALSEG:=SEGNUM;
+        WHILE SEGLEX[FINALSEG]>SEGLEX[DATASEG] DO FINALSEG:=FINALSEG - 1;
+        IF FINALSEG=DATASEG THEN
+          {$R-}
+          DSSTART^[OFFSET]:=DSSTART^[OFFSET] + 1;
+          {$R+}
+      END;
+END;
+
+PROCEDURE PROCGUIDE;
+TYPE  SPACEPTR=^SPACE;
+      SPACE=ARRAY[0..19] OF INTEGER;
+VAR   I,J:INTEGER;
+      DSSPACE:SPACEPTR;
+
+PROCEDURE DATASEGINFO;
+VAR  TEMP:INTEGER;
+BEGIN
+  PROCEJUR;
+  BYTEPOS:=BYTEPOS - 2;
+  IF SWAP THEN
+    BEGIN
+      DTSGSZ:=LASTBYTE;
+      DTSGSZ:=DTSGSZ + LASTBYTE*256;
+      TEMP:=LASTBYTE;
+      DTSGSZ:=DTSGSZ + LASTBYTE*256 + TEMP;
+    END
+  ELSE
+    BEGIN
+      DTSGSZ:=LASTBYTE*256;
+      DTSGSZ:=DTSGSZ + LASTBYTE;
+      TEMP:=LASTBYTE*256;
+      DTSGSZ:=DTSGSZ + LASTBYTE + TEMP;
+    END;
+  DTSGSZ:=DTSGSZ DIV 2;
+END;
+
+PROCEDURE PROCLOOK;
+BEGIN
+  GOTOXY(0,3); WRITE(' ':50); GOTOXY(0,3);
+  LEXLOOK:=TRUE;
+  I:=(PROCS[0] DIV 5) + 1;
+  FOR J:=0 TO ((PROCS[0]-1) DIV I) DO WRITE('    #  LL  SIZE');
+  WRITELN;
+  FOR PROCNUM:=1 TO PROCS[0] DO
+    BEGIN
+      DATASEGINFO;
+      GOTOXY(15*((PROCNUM-1) DIV I),5+((PROCNUM-1) MOD I));
+      WRITE(PROCNUM:5,':',LEXLEVEL:3,DTSGSZ:6);
+    END;
+  FOR J:=1 TO (5 - (PROCS[0] MOD 5)) DO WRITELN;
+  PROMPT;
+  LEXLOOK:=FALSE;
+END;
+
+BEGIN {PROCGUIDE}
+  SEGMINT;
+  REPEAT
+    PAGE;
+    WRITE('Procedure guide:  #(of procedure),');
+    IF LEXCHECK THEN
+      WRITELN('L(isting),Q(uit)')
+    ELSE
+      WRITELN('A(ll),L(isting),Q(uit)');
+    WRITE('  to segment: ');
+    FOR I:=1 TO 8 DO WRITE(CHR(SEGDIREC[63 + SEGNUM*8 + I]));
+    PROCNUM:=0;
+    WRITE(CR,CR,'which procedure ');
+    IF LEXCHECK THEN
+      WRITE('data segment to watch?')
+    ELSE
+      WRITE('to dis-assemble?');
+    READ(CH);
+    IF (CH='L') OR (CH='l') THEN
+        PROCLOOK
+    ELSE IF ((CH='A') OR (CH='a')) AND (NOT LEXCHECK) THEN
+      BEGIN
+        PAGE;
+        WRITELN('dis-assembling all',PROCS[0]:3,' procedures',CR,CR);
+        IF NOT DISPLAY THEN WRITE(CR,CR,'(',SEGNUM:2,')');
+        ALLPROCS;
+        PROMPT;
+        CH:='Q';
+      END
+    ELSE IF (CH>='0') AND (CH<='9') THEN
+      BEGIN
+        PROCNUM:=ORD(CH)-ORD('0');
+        READ(CH);
+        IF (CH>='0') AND (CH<='9') THEN
+          PROCNUM:=PROCNUM*10 + ORD(CH) - ORD('0');
+        IF (PROCNUM<1) OR (PROCNUM>PROCS[0]) THEN
+          BEGIN
+            WRITELN(CR,'I didn''t say you had THAT procedure!');
+            PROMPT;
+          END
+        ELSE IF NOT LEXCHECK THEN
+          BEGIN
+            PAGE;
+            WRITELN('dis-assembling procedure',PROCNUM:3,CR);
+            PROCEJUR;
+            PROMPT;
+            CH:=' ';
+          END
+        ELSE
+          BEGIN
+            DATAPROC:=PROCNUM;
+            DATASEG:=SEGNUM;
+            DATASEGINFO;
+            DATASEGSIZE:=DTSGSZ;
+            NEW(DSSTART);
+            FOR I:=1 TO ((DATASEGSIZE+19) DIV 20) DO NEW(DSSPACE);
+            FILLCHAR(DSSTART^,DATASEGSIZE*2,0);
+            FOR PROCNUM:=1 TO PROCS[0] DO
+              BEGIN
+                PROCEJUR;
+                PROCLEX[PROCNUM]:=LEXLEVEL;
+              END;
+            CH:=CHR(7);
+          END;
+      END;
+  UNTIL (CH='Q') OR (CH='q') OR (CH=CHR(7));
+END;
+
+PROCEDURE SEGMTGUIDE;
+VAR I,J:INTEGER;
+BEGIN
+  REPEAT
+    PAGE;
+    WRITELN('Segment guide:  #(of segment),Q(uit)');
+    WRITELN(CR,CR,'you have these segments:');
+    FOR I:=0 TO 15 DO
+      BEGIN
+        WRITE(I:4,'      ');
+        FOR J:=1 TO 8 DO WRITE(CHR(SEGDIREC[63 + I*8 + J]));
+        WRITELN;
+      END;
+    WRITE(CR,'which segment to look at ');
+    IF LEXCHECK THEN
+      WRITE('to decide on DATA SEGMENT?')
+    ELSE
+      WRITE('for possible DIS-ASSEMBLY?');
+    READ(CH);
+    IF (CH<>'Q') AND (CH<>'q') THEN
+      BEGIN
+        SEGNUM:=0;
+        IF (CH>='0') AND (CH<='9') THEN SEGNUM:=ORD(CH)-ORD('0');
+        READ(CH);
+        IF (CH>='0') AND (CH<='9') THEN
+          SEGNUM:=SEGNUM*10 + ORD(CH) - ORD('0');
+        IF (SEGDIREC[4*SEGNUM] + SEGDIREC[4*SEGNUM + 1]=0) OR (SEGNUM>15) THEN
+          BEGIN
+            WRITELN(CR,'I didn''t say you had THAT segment!');
+            READ(KEYBOARD,CH);
+          END
+        ELSE
+          BEGIN
+            PROCGUIDE;
+            IF CH<>CHR(7) THEN CH:='A';
+          END;
+      END;
+  UNTIL (CH='Q') OR (CH='q') OR (CH=CHR(7));
+END;
+
+PROCEDURE LEXGUIDE;
+BEGIN
+  LEXCHECK:=TRUE;
+  DATASEG:=-1;
+  REPEAT
+    SEGMTGUIDE;
+    IF (CH='Q') OR (CH='q') THEN
+      BEGIN
+        PAGE;
+        GOTOXY(0,10);
+        WRITELN('have you changed your mind about data segment watching?');
+        READ(KEYBOARD,CH);
+        IF (CH='Y') OR (CH='y') THEN DATAWATCH:=FALSE;
+      END;
+  UNTIL (CH=CHR(7)) OR (NOT DATAWATCH);
+  IF DATAWATCH THEN
+    FOR SEGNUM:=0 TO 15 DO
+      IF SEGDIREC[4*SEGNUM] + SEGDIREC[4*SEGNUM + 1]<>0 THEN
+        BEGIN
+          SEGMINT; {Sets up appropiate segment}
+          PROCNUM:=1;
+          PROCEJUR; {Sets up procedure to determine segment's lexlevel}
+          SEGLEX[SEGNUM]:=LEXLEVEL;
+        END
+      ELSE SEGLEX[SEGNUM]:=100;
+  PAGE;
+  LEXCHECK:=FALSE;
+END;
+
+BEGIN (* SEGMENT DISASSEMBLE *)
+  PAGE;
+  GOTOXY(0,10);
+  WRITE('          Do you wish to keep track of references',CR,
+          '         to a particular procedure''s data segment?');
+  READ(KEYBOARD,CH);
+  DATAWATCH:=(CH='Y') OR (CH='y');
+  IF DATAWATCH THEN LEXGUIDE ELSE LEXCHECK:=FALSE;
+  PAGE;
+  GOTOXY(0,10);
+  WRITE('Do you wish control over dis-assembly?');
+  READ(KEYBOARD,CH);
+  CONTROL:=(CH='Y') OR (CH='y');
+  IF CONTROL THEN
+    BEGIN
+      PAGE;
+      GOTOXY(0,7);
+      WRITE(CHR(7));
+      WRITE('***  WARNING  - -  STATISTICS ARE GATHERED ON DIS-ASSEMBLED');
+      WRITELN(' PROCEDURES ONLY  ***');
+      IF DATAWATCH THEN WRITELN(CR,CR,'              ',
+                         '***   THIS INCLUDES DATA SEGMENT WATCHING   ***');
+      READ(KEYBOARD,CH);
+      SEGMTGUIDE;
+    END
+  ELSE
+    BEGIN
+      IF NOT CONSOLE THEN WRITE(CHR(12),CR);
+      FOR SEGNUM:=0 TO 15 DO
+        BEGIN
+          IF NOT CONSOLE THEN WRITE(CR,'(',SEGNUM:2,')');
+          IF SEGDIREC[4*SEGNUM] + SEGDIREC[4*SEGNUM + 1]<>0 THEN SEGMINT;
+        END;
+      PROMPT;
+    END;
+END;

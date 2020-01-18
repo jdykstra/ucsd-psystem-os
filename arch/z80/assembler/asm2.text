@@ -1,0 +1,602 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+(*
+ * Source: http://bitsavers.org/bits/UCSD_Pascal/ucsd_II.0/
+ *     U123.1_Z80_ASSEM_SOURCE.raw.gz
+ * Date: 1979-Mar-30
+ *)
+
+                        {start of ASM2}
+        {Copyright (c) 1978 Regents of the University of California}
+
+
+SEGMENT PROCEDURE SYMTBLDUMP;
+TYPE  SYMDUMPPTR=^SYMDUMPTYPE;
+      SYMDUMPTYPE=RECORD
+          SYMPTR:SYMTABLEPTR;
+          LLINK,RLINK:SYMDUMPPTR
+        END;
+
+VAR  HEAP:^INTEGER;
+     BUCKET,DUMPCOUNT,SCREENWIDTH,PAGEWIDTH:INTEGER;
+     TOPOFDUMP:SYMDUMPPTR;
+     FILL:STRING[10];
+     SAVETITLE,MSSG:STRING;
+
+PROCEDURE ALPHABETIZE(NAME:PACKNAME);
+VAR     SYMDUMP:SYMDUMPPTR;
+        INSERTED:BOOLEAN;
+BEGIN
+  INSERTED:=FALSE;  SYMDUMP:=TOPOFDUMP;
+  REPEAT
+    WITH SYMDUMP^ DO
+      BEGIN
+        IF NAME>SYMPTR^.NAME THEN
+          IF RLINK=NIL THEN
+            BEGIN
+              NEW(RLINK);  INSERTED:=TRUE;
+              RLINK^.RLINK:=NIL;
+              RLINK^.LLINK:=NIL;
+              RLINK^.SYMPTR:=SYM;
+            END
+          ELSE SYMDUMP:=RLINK
+        ELSE
+          IF LLINK=NIL THEN
+            BEGIN
+              NEW(LLINK);  INSERTED:=TRUE;
+              LLINK^.RLINK:=NIL;
+              LLINK^.LLINK:=NIL;
+              LLINK^.SYMPTR:=SYM;
+            END
+          ELSE SYMDUMP:=LLINK;
+      END;
+  UNTIL INSERTED;
+END;
+
+PROCEDURE DUMPTABLE(SYMDUMP:SYMDUMPPTR);
+BEGIN
+  IF SYMDUMP^.LLINK<>NIL THEN DUMPTABLE(SYMDUMP^.LLINK);
+  SYM:=SYMDUMP^.SYMPTR;
+  WRITE(LISTFILE,SYM^.NAME);
+  CASE SYM^.ATTRIBUTE OF
+                 ABS:MSSG:=' AB ';
+              LABELS:MSSG:=' LB ';
+               PROCS:MSSG:=' PR ';
+               FUNCS:MSSG:=' FC ';
+             PUBLICS:MSSG:=' PB ';
+            PRIVATES:MSSG:=' PV ';
+                REFS:MSSG:=' RF ';
+                DEFS:MSSG:=' DF ';
+  UNKNOWN,DEFUNKNOWN:MSSG:=' UD ';
+              MACROS:MSSG:=' MC '
+    END;
+  WRITE(LISTFILE,MSSG);
+  IF (SYM^.ATTRIBUTE IN [ABS,LABELS,DEFS]) THEN
+    PRINTNUM(SYM^.OFFSETORVALUE,FALSE)
+  ELSE
+    WRITE(LISTFILE,FILL);
+  DUMPCOUNT:=DUMPCOUNT + 1;
+  IF ((DUMPCOUNT MOD PAGEWIDTH=0) AND NOT CONSOLE)
+  OR ((DUMPCOUNT MOD SCREENWIDTH=0) AND CONSOLE) THEN
+    BEGIN
+      WRITELN(LISTFILE);
+      LISTNUM:=LISTNUM + 1;
+      IF (LISTNUM MOD PAGESIZE=0) THEN PRINTPAGE;
+    END
+  ELSE WRITE(LISTFILE,'|  ');
+  IF SYMDUMP^.RLINK<>NIL THEN DUMPTABLE(SYMDUMP^.RLINK);
+END;
+
+BEGIN{SYMTBLDUMP}
+  MARK(HEAP);
+  IF LEXTOKEN=TEND THEN
+    BEGIN
+      PRINTLINE;
+      TEXTLINE:=BLANKLINE;
+    END;
+  NEW(SYM);
+  SYM^.NAME:='        ';
+  NEW(TOPOFDUMP);
+  TOPOFDUMP^.SYMPTR:=SYM;
+  TOPOFDUMP^.LLINK:=NIL;
+  TOPOFDUMP^.RLINK:=NIL;
+  FOR BUCKET:=0 TO HASHTOP DO
+    BEGIN
+      SYM:=HASH[BUCKET];
+      WHILE SYM<>NIL DO
+        BEGIN
+          CASE SYM^.ATTRIBUTE OF
+            LABELS,ABS,MACROS,PUBLICS,PRIVATES,CONSTS,REFS,DEFS,
+            PROCS,FUNCS,UNKNOWN,DEFUNKNOWN:
+              ALPHABETIZE(SYM^.NAME);
+          END;
+          SYM:=SYM^.LINK;
+        END;
+    END;
+  SAVETITLE:=TITLELINE;
+  TITLELINE:='SYMBOLTABLE DUMP';
+  PRINTPAGE;
+  WRITELN(LISTFILE,
+      'AB - Absolute     LB - Label     UD - Undefined     MC - Macro');
+  WRITELN(LISTFILE,
+      'RF - Ref          DF - Def       PR - Proc          FC - Func');
+  WRITELN(LISTFILE,
+      'PB - Public       PV - Private   CS - Consts');
+  WRITELN(LISTFILE);
+  WRITELN(LISTFILE);
+  LISTNUM:=LISTNUM + 5;
+  DUMPCOUNT:=0;
+  IF LISTRADIX=8 THEN
+    BEGIN
+      FILL:='------';
+      SCREENWIDTH:=3;
+      PAGEWIDTH:=6;
+    END;
+  IF LISTRADIX=16 THEN
+    BEGIN
+      FILL:='----';
+      SCREENWIDTH:=4;
+      PAGEWIDTH:=7
+    END;
+  DUMPTABLE(TOPOFDUMP^.RLINK);
+  TITLELINE:=SAVETITLE;
+  WRITELN(LISTFILE);
+  LISTNUM:=LISTNUM + 1;
+  PRINTPAGE;
+  RELEASE(HEAP);
+END;
+
+
+
+SEGMENT PROCEDURE PROCEND;
+TYPE   LITYPES=(INVALID,LMODULE,LGLOBALREF,LPUBLIC,LPRIVATE,LCONSTANT,
+                 LGLOBALDEF,LPUBLICDEF,LCONSTDEF,LEXTPROC,LEXTFUNC,
+                 LSEPPROC,LSEPFUNC);
+       LINKREC=RECORD CASE INTEGER OF
+               0:(REFS:ARRAY[0..7] OF INTEGER);
+               1:(NAME:PACKNAME;
+                  CASE LITYPE:LITYPES OF
+                    LMODULE,LPUBLIC,LPRIVATE,LCONSTANT,LGLOBALREF:
+                               (FORMAT:(LWORD,LBYTE,LBIG);
+                                NREFS:INTEGER;
+                                NWORDS:INTEGER);
+                    LGLOBALDEF:(PROCNUM:INTEGER;
+                                CODEOFFSET:INTEGER);
+             LSEPPROC,LSEPFUNC:(FUNCNUM:INTEGER;
+                                NPARAMS:INTEGER));
+               2:(CLASS:INTEGER;
+                  CASE BOOLEAN OF
+                       TRUE:(JUMPS:JTABREC);
+                      FALSE:(FWDREF:BACKLABEL))
+          END;
+
+VAR  COUNT,PROCOFFSET,OUTBLKS:INTEGER;
+     SWAPLC:WORDSWAP;
+     SEGDICT:PACKED ARRAY[0..511] OF CHAR;
+     KRNAME:STRING;
+     LINKINFO:FILE;
+     LINK:FILE OF LINKREC;
+     VIEWDUMMY:ARRAY[0..0] OF INTEGER;
+
+PROCEDURE PUTLINK(VAR ALINK:LINKREC; LLIMIT:INTEGER);
+VAR     I:INTEGER;
+BEGIN
+  IF BYTESEX<>HIBYTEFIRST THEN
+    FOR I:=LLIMIT TO 7 DO ALINK.REFS[I]:=SWAPBYTE(ALINK.REFS[I]);
+  PUT(LINK);    {tricky stuff}
+  LINKEND:=LINKEND + 1;
+END;
+
+PROCEDURE PROCEDE;
+
+PROCEDURE BUFRESET(NEWPOS:INTEGER);
+VAR OUTBLKS:INTEGER;
+BEGIN
+  (*$I-*)
+  IF DEBUG THEN WRITELN('Bufreset');
+  IF NEWPOS<BUFBOTTOM THEN
+    BEGIN
+      OUTBLKS:=(BUFFERTOP DIV 512 - OUTBLKNO) + 1;
+      IF OUTBLKS>BUFBLKS THEN OUTBLKS:=BUFBLKS;
+      IF BLOCKWRITE(USERINFO.WORKCODE^,BUFFER^,OUTBLKS,OUTBLKNO)<OUTBLKS
+        THEN ERROR(54);
+      IF OUTBLKNO + OUTBLKS>OUTBLKTOP THEN
+        OUTBLKTOP:=OUTBLKNO + OUTBLKS;
+      OUTBLKNO:=NEWPOS DIV 512;
+      IF IORESULT=0 THEN
+       IF BLOCKREAD(USERINFO.WORKCODE^,BUFFER^,BUFBLKS,OUTBLKNO)=0 THEN;
+      BUFBOTTOM:=OUTBLKNO*512;
+      BUFFERPOS:=NEWPOS MOD 512;
+    END
+  ELSE IF NEWPOS>BUFBOTTOM + BUFLIMIT THEN
+    BEGIN
+      OUTBLKS:=(BUFFERTOP DIV 512 - OUTBLKNO) + 1;
+      IF OUTBLKS>BUFBLKS THEN OUTBLKS:=BUFBLKS;
+      IF BLOCKWRITE(USERINFO.WORKCODE^,BUFFER^,OUTBLKS,OUTBLKNO)<OUTBLKS
+        THEN ERROR(54);
+      IF OUTBLKNO + OUTBLKS>OUTBLKTOP THEN
+        OUTBLKTOP:=OUTBLKNO + OUTBLKS;
+      OUTBLKNO:=NEWPOS DIV 512;
+      IF OUTBLKNO>=OUTBLKTOP THEN
+        BEGIN
+          IF IORESULT=0 THEN
+            IF BLOCKWRITE(USERINFO.WORKCODE^,BUFFER^,OUTBLKNO-OUTBLKTOP,
+              OUTBLKTOP)<OUTBLKNO-OUTBLKTOP THEN ERROR(54);
+          OUTBLKTOP:=OUTBLKNO;
+        END
+      ELSE
+        IF IORESULT=0 THEN
+          IF BLOCKREAD(USERINFO.WORKCODE^,BUFFER^,BUFBLKS,OUTBLKNO)=0 THEN;
+      BUFBOTTOM:=OUTBLKNO*512;
+      BUFFERPOS:=NEWPOS MOD 512;
+    END
+  ELSE BUFFERPOS:=NEWPOS - BUFBOTTOM;
+  IOCHECK(TRUE);
+  (*$I+*)
+END;
+
+PROCEDURE PUTJUMPS;
+
+PROCEDURE PUTJUMP(CLASS:INTEGER; VAR JUMP:JTABREC);
+VAR I,COUNT,LINKCOUNT:INTEGER;
+BEGIN
+  COUNT:=0;
+  IF JUMPINFO THEN
+    BEGIN
+      IF LINKEND<>SCRATCHEND THEN
+        BEGIN
+          SEEK(LINK,LINKEND);
+          FOR LINKCOUNT:=LINKEND+1 TO SCRATCHEND DO
+            BEGIN
+              GET(LINK);
+              IF LINK^.CLASS=CLASS THEN
+                FOR I:=0 TO 6 DO
+                  IF LINK^.JUMPS[I]<>0  THEN
+                    BEGIN
+                      PUTWORD(BUFFERTOP - LINK^.JUMPS[I]);
+                      COUNT:=COUNT + 1;
+                    END;
+            END;
+        END;
+      FOR I:=0 TO 6 DO
+        IF JUMP[I]<>0  THEN
+          BEGIN
+            PUTWORD(BUFFERTOP - JUMP[I]);
+            COUNT:=COUNT + 1;
+          END;
+    END;
+  PUTWORD(COUNT);
+END;
+
+BEGIN {Putjumps}
+  PUTJUMP(4,JUMP4);   {Jumptable entries}
+  PUTJUMP(1,JUMP1);
+  PUTJUMP(2,JUMP2);
+  PUTJUMP(3,JUMP3);
+END;
+
+PROCEDURE LINKSET;
+VAR BUCKET:INTEGER;
+BEGIN
+  IF DEBUG THEN WRITELN('Linkset');
+  IF SCRATCHEND<>0 THEN SEEK(LINK,LINKEND); {ie. file not of length 0}
+  FOR BUCKET:=0 TO HASHTOP DO
+    BEGIN
+      SYM:=HASH[BUCKET];
+      WHILE SYM<>NIL DO
+        BEGIN
+          CASE SYM^.ATTRIBUTE OF
+        UNKNOWN,DEFUNKNOWN:
+            BEGIN
+              IF DISPLAY THEN
+                BEGIN
+                  WRITELN(LISTFILE);
+                  WRITE(LISTFILE,'>>>>>',SYM^.NAME);
+                  LISTNUM:=LISTNUM + 1;
+                END;
+              IF NOT (CONSOLE AND DISPLAY) THEN
+                BEGIN
+                  WRITELN;
+                  WRITE('>>>>>',SYM^.NAME);
+                END;
+              ERROR(1{Undefined label});
+            END;
+        PUBLICS,PRIVATES,CONSTS,REFS,DEFS,PROCS,FUNCS: {Linkfile info}
+            BEGIN
+              FILLCHAR(LINK^,SIZEOF(LINKREC),0);
+              CASE SYM^.ATTRIBUTE OF
+                PUBLICS:LINK^.LITYPE:=LPUBLIC;
+                PRIVATES:LINK^.LITYPE:=LPRIVATE;
+                CONSTS:LINK^.LITYPE:=LCONSTANT;
+                REFS:LINK^.LITYPE:=LGLOBALREF;
+                DEFS:LINK^.LITYPE:=LGLOBALDEF;
+                PROCS:LINK^.LITYPE:=LSEPPROC;
+                FUNCS:LINK^.LITYPE:=LSEPFUNC
+              END;
+              LINK^.NAME:=SYM^.NAME;
+              CASE SYM^.ATTRIBUTE OF
+                PUBLICS,PRIVATES,CONSTS,REFS:
+                  BEGIN
+                    LINK^.FORMAT:=LWORD;
+                    LINK^.NREFS:=SYM^.NREFS;
+                    LINK^.NWORDS:=SYM^.NWORDS;
+                    PUTLINK(LINK^,4); COUNT:=0;
+                    WHILE SYM^.LINKOFFSET<>NIL DO
+                      BEGIN
+                        LINK^.REFS[COUNT]:=SYM^.LINKOFFSET^.PCOFFSET;
+                        COUNT:=COUNT + 1;
+                        IF COUNT=8 THEN
+                          BEGIN
+                            PUTLINK(LINK^,0);
+                            FILLCHAR(LINK^,SIZEOF(LINKREC),0);
+                            COUNT:=0;
+                          END;
+                        SYM^.LINKOFFSET:=SYM^.LINKOFFSET^.LAST;
+                      END;
+                    IF COUNT<>0 THEN PUTLINK(LINK^,0);
+                    SYM^.NREFS:=0;  {Record will be re-used if global}
+                    SYM^.LINKOFFSET:=NIL;
+                  END;
+                DEFS:
+                  BEGIN
+                    LINK^.LITYPE:=LGLOBALDEF;
+                    LINK^.PROCNUM:=PROCNUM;
+                    LINK^.CODEOFFSET:=SYM^.OFFSETORVALUE;
+                    PUTLINK(LINK^,4);
+                  END;
+                PROCS,FUNCS:
+                  BEGIN
+                    IF SYM^.ATTRIBUTE=PROCS THEN LINK^.LITYPE:=LSEPPROC
+                      ELSE LINK^.LITYPE:=LSEPFUNC;
+                    LINK^.FUNCNUM:=SYM^.FUNCNUM;
+                    LINK^.NPARAMS:=SYM^.NPARAMS;
+                    PUTLINK(LINK^,4);
+                    LINK^.LITYPE:=LGLOBALDEF;
+                    LINK^.PROCNUM:=SYM^.FUNCNUM;
+                    LINK^.CODEOFFSET:=0; {proc's start at LC=0}
+                    PUTLINK(LINK^,4);
+                  END
+              END;
+              IF DEBUG THEN WRITELN('link entry:',SYM^.NAME);
+            END;
+          END;
+          SYM:=SYM^.LINK;
+        END;
+    END;
+END;
+
+PROCEDURE LABELFIX; {fix label forward references}
+VAR   SWAP:WORDSWAP;
+      FWDREF:BACKLABEL;
+      LINKCOUNT:INTEGER;
+      KLUDGEPTR:^INTEGER;
+BEGIN
+  RESET(LINK,LINKNAME);
+  MARK(KLUDGEPTR);
+  IF SCRATCHEND<>LINKEND THEN SEEK(LINK,LINKEND);
+  FOR LINKCOUNT:=LINKEND+1 TO SCRATCHEND DO
+    BEGIN
+      GET(LINK);
+      IF LINK^.CLASS=0 THEN
+        BEGIN
+          FWDREF:=LINK^.FWDREF;
+          BUFRESET(FWDREF.OFFSET);
+          PATCHCODE(FWDREF,FWDREF.OFFSET-BUFBOTTOM);
+        END;
+    END;
+END;
+
+BEGIN {Procede}
+  IF DEBUG THEN WRITELN('Procede');
+  IF MINSPACE>MEMAVAIL THEN MINSPACE:=MEMAVAIL;
+  IF LISTING THEN
+    WRITELN(LISTFILE,'Current minimum space is ',MINSPACE,' words');
+  IF NOT (LISTING AND CONSOLE) THEN
+    BEGIN
+      WRITELN;
+      WRITE('Current minimum space is ',MINSPACE,' words');
+      LFCONSOLE;
+    END;
+  LLCHECK;
+  CLOSE(SCRATCH,LOCK);
+  LABELFIX;
+  BUFRESET(MAXBUFTOP);
+  BUFFERTOP:=BUFBOTTOM + BUFFERPOS; {BUFRESET doesn't affect BUFFERTOP}
+  IF ODD(BUFFERPOS) THEN PUTBYTE(0);
+  RELOCATE:=NULLREL;
+  PUTJUMPS;                          {Jumptable entries}
+  PUTWORD(BUFFERTOP - PROCSTART);    {Enter IC}
+  PUTWORD(0);                        {Proc #, Lex level}
+  LINKSET;
+  PROCTABLE[PROCNUM]:=BUFFERTOP - PROCSTART;
+  SEGSIZE:=SEGSIZE + BUFFERTOP - PROCSTART;
+  HASH:=HASHRES;
+  RELEASE(HEAP);
+END;
+
+PROCEDURE FIRSTPROC; {Set up the buffer for output assembled code}
+VAR   BUFSETUP:^BUFFERTYPE;
+BEGIN
+  IF DEBUG THEN WRITELN('Procstart');
+  NEW(BUFSETUP); BUFFER:=BUFSETUP;
+  HASHRES:=HASH; {For symboltable cutback}
+  FOR COUNT:=2 TO BUFBLKS DO
+    NEW(BUFSETUP);
+  FILLCHAR(BUFFER^,BUFLIMIT,0);{Clear buffer to aid DEBUGGING}
+  IF DISPLAY THEN WRITELN(LISTFILE,
+            BUFBLKS,' blocks for procedure code  ',MEMAVAIL,' words left');
+  IF NOT (DISPLAY AND CONSOLE) THEN
+    BEGIN
+      WRITELN;
+      WRITE(BUFBLKS,' blocks for procedure code  ',MEMAVAIL,' words left');
+      LFCONSOLE;
+    END;
+  BUFBOTTOM:=512; BUFFERTOP:=512; MAXBUFTOP:=512;
+  OUTBLKNO:=1; OUTBLKTOP:=1;
+  BUFFERPOS:=0; SEGSIZE:=0;
+  FILLCHAR(PROCTABLE,SIZEOF(PROCTABLE),0);
+  (*$I-*)
+  IF BLOCKWRITE(USERINFO.WORKCODE^,BUFFER^,1)=0 THEN ERROR(54);
+  IOCHECK(TRUE);           {Segment dictionary}
+  (*$I+*)
+END;
+
+BEGIN {Segment Procend}
+  IF VIEWSTACK THEN UNITWRITE(3,VIEWDUMMY[-1600],35); {reset display of heap}
+  IF DEBUG THEN WRITELN('Procend');
+  IF PROCNUM>0 THEN PROCEDE
+    ELSE FIRSTPROC;
+  IF LEXTOKEN=TEND THEN
+    BEGIN
+      PROCOFFSET:=2;     {Procedure table}
+      FOR COUNT:=PROCNUM DOWNTO 1 DO
+        BEGIN
+          PUTWORD(PROCOFFSET);
+          PROCOFFSET:=PROCOFFSET + PROCTABLE[COUNT] + 2;
+        END;
+      PUTBYTE(1);               {Segment #}
+      PUTBYTE(PROCNUM);         {# of Procedures}
+      SEGSIZE:=PROCOFFSET;
+      COUNT:=(BUFFERPOS + 511) DIV 512;
+      (*$I-*)
+      IF BLOCKWRITE(USERINFO.WORKCODE^,BUFFER^,COUNT,OUTBLKNO)<COUNT
+        THEN ERROR(54);
+      OUTBLKNO:=OUTBLKNO + COUNT;
+      FILLCHAR(LINK^,16,0);  LINK^.NAME:='        ';
+      PUTLINK(LINK^,4);  CLOSE(LINK,LOCK); {end-of-file entry}
+      RESET(LINKINFO,LINKNAME);
+      COUNT:=((LINKEND*16) + 511) DIV 512;
+      IF IORESULT=0 THEN
+        IF BLOCKREAD(LINKINFO,BUFFER^,COUNT)=0 THEN;
+      FILLCHAR(BUFFER^[LINKEND*16],512,0); {for easier linkinfo debugging}
+      IF IORESULT=0 THEN
+        IF BLOCKWRITE(USERINFO.WORKCODE^,BUFFER^,COUNT,OUTBLKNO)<COUNT
+          THEN ERROR(54);
+      FILLCHAR(SEGDICT,SIZEOF(SEGDICT),0);
+      IF HIBYTEFIRST THEN SWAPLC.HWORD:=SWAPBYTE(SEGSIZE)
+                     ELSE SWAPLC.HWORD:=SEGSIZE;
+      SEGDICT[6]:=CHR(SWAPLC.LOWBYTE);
+      SEGDICT[7]:=CHR(SWAPLC.HIBYTE);
+      FILLCHAR(SEGDICT[64],128,' ');
+      KRNAME:=RELEASENAME;
+      MOVELEFT(KRNAME[1],SEGDICT[500],11);
+      FOR COUNT:=72 TO 79 DO
+        SEGDICT[COUNT]:=SEGNAME[COUNT-72];
+      IF HIBYTEFIRST THEN
+        BEGIN
+          SEGDICT[5]:=CHR(1);       {Pointer to starting block}
+          SEGDICT[195]:=CHR(4);   {Segment type SEPRTSEG}
+          SEGDICT[258]:=CHR(MTYPE + MAJORVERSION*32); {Version make}
+          SEGDICT[259]:=CHR(1);   {Segno}
+        END
+      ELSE
+        BEGIN
+          SEGDICT[4]:=CHR(1);
+          SEGDICT[194]:=CHR(4);
+          SEGDICT[259]:=CHR(MTYPE + MAJORVERSION*32);
+          SEGDICT[258]:=CHR(1);
+        END;
+      IF IORESULT=0 THEN IF BLOCKWRITE(USERINFO.WORKCODE^,SEGDICT,1,0)=0
+        THEN ERROR(54);
+      IF LISTING AND NOT CONSOLE THEN
+        BEGIN
+          WRITELN(LISTFILE);
+          WRITELN(LISTFILE,'Assembly complete:',LINENUM:10,' lines');
+          WRITELN(LISTFILE,NUMERRORS:6,'   Errors flagged on this Assembly');
+          PAGE(LISTFILE);
+          CLOSE(LISTFILE,LOCK);
+        END;
+      CLOSE(LINKINFO,PURGE);
+      IOCHECK(TRUE);
+      UNITCLEAR(3);
+      (*$I+*)
+      WRITELN;
+      WRITELN('Assembly complete:',LINENUM:10,' lines');
+      WRITELN(NUMERRORS:6,'   Errors flagged on this Assembly');
+    END
+  ELSE
+    BEGIN
+      MARK(HEAP);
+      PROCNUM:=PROCNUM + 1;
+      LC:=0; LASTLC:=0; LOWLC:=0;
+      FILLCHAR(JUMP1,SIZEOF(JUMP1),0);  JCOUNT1:=0;
+      FILLCHAR(JUMP2,SIZEOF(JUMP2),0);  JCOUNT2:=0;
+      FILLCHAR(JUMP3,SIZEOF(JUMP3),0);  JCOUNT3:=0;
+      FILLCHAR(JUMP4,SIZEOF(JUMP4),0);  JCOUNT4:=0;
+      SCRATCHEND:=LINKEND;
+      IF PROCNUM>1 THEN
+        BEGIN
+          CLOSE(LINK,LOCK);
+          RESET(SCRATCH,LINKNAME);
+          SEEK(SCRATCH,LINKEND);
+        END;
+      NEW(FULLLABEL); FULLLABEL^.NEXT:=NIL;
+      FREELABEL:=NIL;
+      PROCSTART:=BUFFERTOP;
+      IF LEXTOKEN=PROC THEN CURRENTATRIB:=PROCS
+        ELSE CURRENTATRIB:=FUNCS;
+      LEX;
+      IF LEXTOKEN<>TIDENTIFIER THEN ERROR(3{Must have procedure name})
+        ELSE
+          BEGIN
+            IF PROCNUM=1 THEN SEGNAME:=SYM^.NAME;
+            PROCNAME:=SYM^.NAME;
+            SYM^.FUNCNUM:=PROCNUM;
+            LEX;
+            IF LEXTOKEN=COMMA THEN
+              BEGIN
+                LEX;
+                IF LEXTOKEN<>CONSTANT THEN
+                   ERROR(4{Number of parameters expected})
+                ELSE SYM^.NPARAMS:=CONSTVAL;
+                LEX;
+              END ELSE SYM^.NPARAMS:=0;
+          END;
+      CODE:=BLANKCODE; CODECOUNT:=0;
+      IF DISPLAY THEN PRINTPAGE;
+      IF LEXTOKEN<>ENDLINE THEN
+        BEGIN
+          ERROR(5{extra garbage on line});
+          WHILE LEXTOKEN<>ENDLINE DO LEX;
+        END;
+      PRINTLINE;
+      TEXTLINE:=BLANKLINE;
+      TEXTINDEX:=-1;
+      CURRENTATRIB:=UNKNOWN;
+    END;
+END;

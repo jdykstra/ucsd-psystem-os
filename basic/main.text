@@ -1,0 +1,2953 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+(*
+ * UCSD p-System Operating System
+ * Copyright (C) 2010 Peter Miller
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of the ucsd-psystem-os project nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *)
+
+{$C II0D0 Copyright(c)1979 Regents of the University of California, San Diego}
+{$S+}
+(******************************************************************)
+(*                                                                *)
+(*      UCSD BASIC Compiler                                       *)
+(*      Author:  J. Greg Davidson                                 *)
+(*      Date:    11 April, 1979                                   *)
+(*      Time:    8:01 P.M.                                        *)
+(*      Version: D0 for UCSD Pascal system II.0                   *)
+(*      Institute for Information Systems                         *)
+(*      University of California, San Diego                       *)
+(*      La Jolla, California                                      *)
+(*      Director:  Kenneth L. Bowles                              *)
+(*                                                                *)
+(*  Copyright (c) 1979 Regents of the University of California.   *)
+(*  Permission to copy or distribute this software or documen-    *)
+(*  tation in hard or soft copy granted only by written license   *)
+(*  obtained from the Institute for Information Systems.          *)
+(*                                                                *)
+(******************************************************************)
+
+{
+* Declarations to allow access to the parameters passed to systems programs
+* containing the workfiles and the error reporting machinery.
+}
+
+{$U-}
+PROGRAM PASCALSYSTEM;
+TYPE
+  PHYLE = FILE;
+  INFOREC = RECORD
+              WORKSYM,WORKCODE: ^PHYLE;
+              ERRSYM,ERRBLK,ERRNUM: INTEGER;
+              SLOWTERM,STUPID: BOOLEAN;
+              ALTMODE:CHAR
+            END;
+VAR
+  SYSCOM:INTEGER; {not used}
+  GFILES:ARRAY[0..5] OF INTEGER; {not used}
+  USERINFO:INFOREC;
+
+SEGMENT PROCEDURE BASICCOMPILER(III,JJJ:INTEGER{not used});
+  CONST
+    WRDSPERREAL=2;
+    WRDSPERSTR=41;
+    DEFSTRLNG=80;
+    OUTBUFMINUS1=10239;{Must be outbufsize-1,outbufsize must be multiple of 512}
+  TYPE
+    SYMTYPE=(DEFV,FNV,REMV,STEPV,THENV,TOV, {keywords}
+                STRV,ORDV,LENV,GETV,
+                CATV,INSV,POSV,COPV,DELV,{op sys procs}
+                INTV,SINV,COSV,ATNV,EXPV,LOGV,LNV,{sp'S}
+                MODV,OLDV,NEWV,RNDV,
+                DATAV,DIMV,FORV,GOSUBV,GOTOV,IFV,INPUTV,LETV,
+                NEXTV,ONV,PRINTV,READV,RETURNV,
+                REALIDV,STRIDV,ENDV,{comkeys}
+                REALFNIDV,STRFNIDV,FNENDV,
+                COMMAV,MINUSV,PLUSV,SLASHV,
+                UPV,LPARENV,RPARENV,HASHV,SEMIV,STARV,
+                LESSV,EQUALSV,GTRV,LEQV,GEQV,NEQV, {comparators}
+                NUMBERV,STRINGV,EOLNV);
+    SYMTYPESET=SET OF SYMTYPE;
+
+    OPTYPE = ( {mnemonics for all p-machine operators used}
+               OPADR,OPCGP,OPCLP,OPCSP,OPCXP,OPDVR,OPFLT,OPFJP,OPIXA,OPIXS,
+               OPLAO,OPLCA,OPLDC,OPLDL,OPLDM,OPLLA,OPLOD,OPMOD,OPMPR,OPNGR,
+               OPRBP,OPRNP,OPSAS,OPSBR,OPSTM,OPSTO,OPUJP,OPXJP,OPLDB,opNOP);
+
+    TAUTOPROC = ({Mnemonics for all automatically linked in procedures}
+                  breadreal,bwritereal,bgosub,breturn,bgetchar,bopenfile,
+                  bautoinits,bautorandomizedinits,brandom);
+    AUTOREC   = RECORD
+                  PROCNUM,LOCATION:INTEGER
+                END;
+
+    LDTYPES=(LDLOCAL,LDGLOBAL,LDVARLOCAL);
+    BYTE=0..255;
+    IDRECPTR=^IDENTREC;
+    PVARREC=^VARREC;
+    ARRAYPTYPE=^ARRAYTYPE;
+    PARRAYREC=^RECARRAY;
+    ARGLISTPTYPE=^ARGLISTTYPE;
+    PFUNCREC=^RECFUNC;
+    IDENTREC=RECORD
+               PTRREAL,PTRSTRING:PVARREC;
+               PTRREALARRAY,PTRSTRARRAY:PARRAYREC;
+               PTRREALFUNC,PTRSTRFUNC:PFUNCREC
+             END;
+    VARREC=RECORD
+             OFFSET:INTEGER
+           END;
+    RECARRAY=RECORD
+               OFFSET:INTEGER;
+               PTRARRAY:ARRAYPTYPE
+             END;
+    ARRAYTYPE=RECORD
+                ARRAYSIZE,ELEMSIZE:INTEGER;
+                ELEM:ARRAYPTYPE
+              END;
+    RECFUNC=RECORD
+              PROCNUM:BYTE;
+              ARGLIST:ARGLISTPTYPE
+            END;
+    ARGLISTTYPE=RECORD
+                  IDNUM,OFFSET:INTEGER;
+                  ARGKIND:SYMTYPE;
+                  NEXTARG:ARGLISTPTYPE
+                END;
+
+    NAMETYPE=PACKED ARRAY[0..6] OF CHAR;
+    TREEPTR=^TREEREC;
+    TREEREC=RECORD
+            LLINK,RLINK:TREEPTR;
+            KEY:NAMETYPE;
+            NAME:SYMTYPE
+          END;
+
+    P2VALLIST = ^TWOVALLIST;
+    TWOVALLIST = RECORD
+      LINK:  P2VALLIST;
+      CASE INTEGER OF
+        {FIXUPLIST}     0:  (BYTENUM,VALUE:     INTEGER);
+                            {BYTENUM < 0 means whole word VALUE}
+        1: (LINENUM:  INTEGER;
+            CASE INTEGER OF
+              {FORWARDJMPLIST}  0:  (JUMPLOC:  INTEGER);
+                                    {JUMPLOC < 0 means whole word displacement}
+              {LINENUMLIST}     1:  (CODELOC:  INTEGER)
+            )
+       END;  {CASERECORD}
+
+    P1VALLIST=^ONEVALLIST;
+    ONEVALLIST=RECORD
+                 VAL:INTEGER;
+                 LINK:P1VALLIST
+               END;
+
+  VAR
+    {The 14 most frequently used variables}
+      { 1} c: Char; {Owned by getsym}
+      { 2} readchcount: Integer; {Owned by getsym}
+      { 3} sym, {The last symbol parsed, returns values for getsym}
+      { 4} symgotnext: {Owned by getsym} symtype;
+      { 5} gotnextsym,gotfn: Boolean; {Owned by getsym}
+      { 6} ic: Integer;
+      { 7} resersentinel: treeptr;
+      { 8} baseic: Integer;
+      { 9..10} NUMBER:REAL;
+      {11} LINENO:1..MAXINT;
+      {12} IDPLACE:0..MAXINT;
+      {13}
+      {14} stringsave: String;
+    {Globals owned by FUNCDEF}
+      NEXTPROCNUM:BYTE;
+    {Globals returning values for FUNCDEF}
+      FNKIND:SYMTYPE;
+      INFUNC:BOOLEAN;
+      STRFNVALOFFSET:INTEGER;
+    {Globals used to implement local temp stack}
+      NEXTTEMP,SAVENEXTTEMP,MAXNEXTTEMP:INTEGER;
+    {Globals owned by NEWVAR}
+      NEXTOFFSET:INTEGER;
+    FORWARDJMPLIST,FJLISTSENTINEL,LINENUMLIST,LNLISTSENTINEL,FIXUPLIST,
+      FREE2VALLIST:P2VALLIST;
+    FREE1VALLIST:P1VALLIST;
+    {Globals owned by NEWTEMP & FREETEMP}
+      REALTEMPLIST,STRTEMPLIST,OLDREALTEMPLIST,OLDSTRTEMPLIST:P1VALLIST;
+    FNIDNUM:INTEGER;
+    NUMJTABS:INTEGER;
+    JTABLISTPTR:P1VALLIST;
+    DICTRECP:P1VALLIST;
+    COMOP:PACKED ARRAY[LESSV..NEQV] OF BYTE;
+    TRIE:ARRAY['A'..'Z'] OF TREEPTR;
+    COMPARATOR,COMKEY,NUMEXPFIRSTS,STREXPFIRSTS,EXPFIRSTS,
+            IDS,FNIDS,STANNUMFUNCS,STANSTRFUNCS: SET OF SYMTYPE;
+    SYMTAB:ARRAY[0..285] OF IDRECPTR;
+    OUTBUF:PACKED ARRAY[0..OUTBUFMINUS1] OF BYTE;
+    STANPROC:ARRAY[STRV..RNDV] OF INTEGER;
+
+    {Autoproc variables}
+    AUTOPROC: ARRAY[breadreal..brandom] OF AUTOREC;
+    FIBLOCATION:ARRAY[1..16] OF INTEGER;
+
+    OPVAL: PACKED ARRAY[OPTYPE] OF BYTE;
+    {Ioglobals}
+      READCHPAGE:PACKED ARRAY[0..1023] OF CHAR;
+      NUMBLOCKS,LINECOUNT,OUTBLKCNT:INTEGER;
+
+  {Adjust segment numbers so COMPINIT will be number 10}
+     SEGMENT PROCEDURE NUMBER2; begin end;
+     SEGMENT PROCEDURE NUMBER3; begin end;
+     SEGMENT PROCEDURE NUMBER4; begin end;
+     SEGMENT PROCEDURE NUMBER5; begin end;
+     SEGMENT PROCEDURE NUMBER6; begin end;
+     SEGMENT PROCEDURE NUMBER7; begin end;
+     SEGMENT PROCEDURE NUMBER8; begin end;
+     SEGMENT PROCEDURE NUMBER9; begin end;
+
+PROCEDURE ASSERT(B:BOOLEAN;S:STRING);
+  FORWARD;
+
+SEGMENT PROCEDURE COMPINIT;
+VAR
+  PROC:TAUTOPROC;
+  I,NUMBLOCKS:INTEGER;
+
+PROCEDURE INITTRIE;
+  VAR c:CHAR;
+
+PROCEDURE T(K:NAMETYPE;TOK:SYMTYPE);
+  VAR P,PTR:TREEPTR;
+BEGIN
+  IF TRIE[K[0]]=RESERSENTINEL THEN
+    BEGIN
+      NEW(TRIE[K[0]]);
+      PTR:=TRIE[K[0]];
+    END
+  ELSE
+    BEGIN
+      P:=TRIE[K[0]];
+      WHILE P<>RESERSENTINEL DO
+        BEGIN
+          PTR:=P;
+          IF K<P^.KEY THEN
+            P:=P^.LLINK
+          ELSE
+            P:=P^.RLINK;
+        END;
+      NEW(P);
+      IF K<PTR^.KEY THEN
+        PTR^.LLINK:=P
+      ELSE
+        PTR^.RLINK:=P;
+      PTR:=P;
+    END;
+  WITH PTR^ DO
+    BEGIN
+      LLINK:=RESERSENTINEL;
+      RLINK:=RESERSENTINEL;
+      KEY:=K;
+      NAME:=TOK;
+    END;
+END; {T}
+
+BEGIN {INITTRIE}
+  NEW(RESERSENTINEL);
+  FOR c:='A' TO 'Z' DO
+    TRIE[c]:=RESERSENTINEL;
+  {Note:If a keyword is a substring (from the 1st character)
+      of another, then the first must be higher in the tree}
+  T('ATN    ',ATNV);
+  T('BY     ',STEPV);
+  T('CAT$   ',CATV);
+  T('COS    ',COSV);
+  T('COP$   ',COPV);
+  T('DEF    ',DEFV);
+  T('DEL$   ',DELV);
+  T('DIM    ',DIMV);
+  T('DATA   ',DATAV);
+  T('END    ',ENDV);
+  T('EXP    ',EXPV);
+  T('FOR    ',FORV);
+  T('FN     ',FNV);
+  T('GOSUB  ',GOSUBV);
+  T('GOTO   ',GOTOV);
+  T('GET$   ',GETV);
+  T('INPUT  ',INPUTV);
+  T('IF     ',IFV);
+  T('INS$   ',INSV);
+  T('INT    ',INTV);
+  T('LET    ',LETV);
+  T('LEN    ',LENV);
+  T('LOG    ',LOGV);
+  T('LN     ',LNV);
+  T('MOD    ',MODV);
+  T('NEXT   ',NEXTV);
+  T('NEW    ',NEWV);
+  T('ON     ',ONV);
+  T('ORD    ',ORDV);
+  T('OLD    ',OLDV);
+  T('PRINT  ',PRINTV);
+  T('POS    ',POSV);
+  T('RETURN ',RETURNV);
+  T('READ   ',READV);
+  T('REM    ',REMV);
+  T('RND    ',RNDV);
+  T('STEP   ',STEPV);
+  T('SIN    ',SINV);
+  T('STR$   ',STRV);
+  T('THEN   ',THENV);
+  T('TO     ',TOV);
+END;
+
+PROCEDURE INITOPVAL;
+BEGIN
+  OPVAL[OPADR] := 131;{ADD REAL}
+  OPVAL[OPCGP] := 207;{CALL GLOBAL PROC}
+  OPVAL[OPCLP] := 206;{CALL LOCAL PROC}
+  OPVAL[OPCSP] := 158;{CALL STAND PROC}
+  OPVAL[OPCXP] := 205;{CALL EXTERN PROC}
+  OPVAL[OPDVR] := 135;{DIV REAL}
+  OPVAL[OPFLT] := 138;{FLOAT}
+  OPVAL[OPFJP] := 161;{FALSE JUMP}
+  OPVAL[OPIXA] := 164;{INDEX ARRAY}
+  OPVAL[OPIXS] := 155;{INDEX STR}
+  OPVAL[OPLAO] := 165;{LD ADDR GLOBAL}
+  OPVAL[OPLCA] := 166;{LD STR CONST ADDR}
+  OPVAL[OPLDC] := 179;{LD CONST ADDR}
+  OPVAL[OPLDL] := 202;{LD LOCAL}
+  OPVAL[OPLDM] := 188;{LD MULTIPLE}
+  OPVAL[OPLLA] := 198;{LD ADDR LOCAL}
+  OPVAL[OPLOD] := 182;{LD GLOBAL}
+  OPVAL[OPMOD] := 142;{REMAINDER OF DIVISION (OR MODULO) OF 2 INTEGERS}
+  OPVAL[OPMPR] := 144;{MULT REAL}
+  OPVAL[OPNGR] := 146;{NEGATE REAL}
+  OPVAL[OPRBP] := 193;{RETURN FROM BASE PROCEDURE}
+  OPVAL[OPRNP] := 173;{RETURN FROM NORMAL PROCEDURE}
+  OPVAL[OPSAS] := 170;{STR ASSN}
+  OPVAL[OPSBR] := 150;{SUB REAL}
+  OPVAL[OPSTM] := 189;{ST MULTIPLE}
+  OPVAL[OPSTO] := 154;{ST GLOBAL}
+  OPVAL[OPUJP] := 185;{UNCONDITIONAL JUMP}
+  OPVAL[OPXJP] := 172;{INDEXED JUMP}
+  OPVAL[OPLDB] := 190;{LOAD BYTE}
+  opval[opNOP] := 215;{Does nothing}
+END;
+
+PROCEDURE INITCOMOP;
+BEGIN
+  COMOP[LESSV  ] := 176;
+  COMOP[EQUALSV] := 183;
+  COMOP[GTRV   ] := 180;
+  COMOP[LEQV   ] := 177;
+  COMOP[GEQV   ] := 181;
+  COMOP[NEQV   ] := 175;
+END;
+
+PROCEDURE INITSTANPROC;
+BEGIN
+  STANPROC[ORDV] := 1{The index of the 1st char};
+  STANPROC[LENV] := 0{The index of the length byte};
+  STANPROC[CATV] := 23 {OSPCAT};
+  STANPROC[INSV] := 24 {OSPINS};
+  STANPROC[POSV] := 27 {OSPPOS};
+  STANPROC[COPV] := 25 {OSPCOP};
+  STANPROC[DELV] := 26 {OSPDEL};
+  STANPROC[INTV] := 24 {SPROUND};
+  STANPROC[SINV] := 25 {SPSIN};
+  STANPROC[COSV] := 26 {SPCOS};
+  STANPROC[ATNV] := 28 {SPARCTAN};
+  STANPROC[EXPV] := 30 {SPEXP};
+  STANPROC[LOGV] := 27 {SPLOG};
+  STANPROC[LNV ] := 29 {SPLN};
+  STANPROC[MODV] := 142{OPMOD};
+  STANPROC[OLDV] := ORD(TRUE);
+  STANPROC[NEWV] := ORD(FALSE);
+END;
+
+BEGIN {COMPINIT}
+  INITTRIE;
+  INITOPVAL;
+  INITCOMOP;
+  INITSTANPROC;
+  ASSERT((OUTBUFMINUS1 + 1) MOD 512 = 0,'OUTBUFSIZE MOD 512 <> 0');
+  {Skip over editor info page}
+    NUMBLOCKS := BLOCKREAD(USERINFO.WORKSYM^,READCHPAGE,2);
+    IF NUMBLOCKS <> 2 THEN
+      BEGIN
+        WRITELN('WORKFILE EMPTY');
+        EXIT(BASICCOMPILER);
+      END;
+    NUMBLOCKS := BLOCKREAD(USERINFO.WORKSYM^,READCHPAGE,2);
+    IF NUMBLOCKS <> 2 THEN
+      BEGIN
+        WRITELN('WORKFILE EMPTY');
+        EXIT(BASICCOMPILER);
+      END;
+  READCHCOUNT := 0;
+  LINECOUNT := 0;
+  {Make initializations for GETSYM}
+    GOTNEXTSYM:=FALSE;
+    GOTFN := FALSE;
+  {Make initializations for FUNCDEF}
+    INFUNC := FALSE;
+  {Make initializations for AUTOPROC}
+    FOR I := 1 TO 16 DO
+      FIBLOCATION[I] := 0;
+    FOR PROC := breadreal TO brandom DO
+      AUTOPROC[PROC].PROCNUM := 0;
+  {Make initializations for SYMTAB}
+    FOR I := 0 TO 285 DO
+      SYMTAB[I] := NIL;
+  {Set up sets}
+    COMPARATOR:=[LESSV,EQUALSV,GTRV,LEQV,GEQV,NEQV];
+    IDS:=[REALIDV,STRIDV];
+    FNIDS := [REALFNIDV,STRFNIDV];
+    COMKEY:=
+        [READV,IFV,PRINTV,GOTOV,FORV,DIMV,GOSUBV,RETURNV,ONV,INPUTV,LETV,DATAV]
+        + IDS;
+    STANNUMFUNCS:=
+        [ORDV,LENV,POSV,INTV,SINV,COSV,ATNV,EXPV,LOGV,LNV,MODV,OLDV,NEWV,RNDV];
+    STANSTRFUNCS:=[STRV,CATV,INSV,COPV,DELV,GETV];
+    NUMEXPFIRSTS:=
+        [PLUSV,MINUSV,REALIDV,REALFNIDV,NUMBERV,LPARENV]
+        + STANNUMFUNCS;
+    STREXPFIRSTS:=[STRIDV,STRFNIDV,STRINGV]+STANSTRFUNCS;
+    EXPFIRSTS := NUMEXPFIRSTS+STREXPFIRSTS;
+  {Make initializations for LINEREC list}
+    NEXTOFFSET:=3;
+    NEW(FJLISTSENTINEL);
+    FORWARDJMPLIST:=FJLISTSENTINEL;
+    NEW(LNLISTSENTINEL);
+    LINENUMLIST:=LNLISTSENTINEL;
+    FREE2VALLIST:=NIL;
+    FIXUPLIST := NIL;
+  {Make initializations for ONEVALLIST inits}
+    REALTEMPLIST    := NIL;
+    STRTEMPLIST     := NIL;
+    OLDREALTEMPLIST := NIL;
+    OLDSTRTEMPLIST  := NIL;
+    FREE1VALLIST     := NIL;
+    DICTRECP        := NIL;
+    JTABLISTPTR     := NIL;
+    NUMJTABS:=0;
+  {Initialize segment table (1st block of code file)}
+    FOR I := 0 TO 63 DO
+      OUTBUF[I] := 0;
+    FOR I := 64 TO 191 DO
+      OUTBUF[I] := ORD(' ');
+    FOR I := 192 TO 511 DO
+      OUTBUF[I] := 0;
+    IC := 512;
+  {Make miscellaneous inits}
+    NEXTPROCNUM:=2;
+    BASEIC:=0;
+    c := CHR(13){CR};
+    WRITE('UCSD BASIC Compiler [D0]');
+END; {COMPINIT}
+
+PROCEDURE GENBYTE(VALUE:BYTE);
+  FORWARD;
+
+PROCEDURE GENWORD(VALUE:INTEGER);
+  FORWARD;
+
+PROCEDURE GENOP(VALUE:OPTYPE);
+  FORWARD;
+
+PROCEDURE NEW1VAL(VAR ONEVAL:P1VALLIST);
+  FORWARD;
+
+PROCEDURE FREEONEVAL(VAR ONEVAL:P1VALLIST);
+  FORWARD;
+
+PROCEDURE NEW2VAL(VAR LINEREC:P2VALLIST);
+  FORWARD;
+
+PROCEDURE FREETWOVAL(VAR LINEREC:P2VALLIST);
+  FORWARD;
+
+PROCEDURE NEWVAR(VAR OFFSET:INTEGER;SIZEINWORDS:INTEGER);
+  FORWARD;
+
+PROCEDURE GENLOADADDR(OFFSET:INTEGER;LDKIND:LDTYPES);
+  FORWARD;
+(*
+PROCEDURE GENEXTPROCCALL(EXTPROCNUM:BYTE);
+  FORWARD;
+*)
+PROCEDURE GENJTAB;
+  FORWARD;
+
+PROCEDURE PUTBYTEFIX(PUTPLACE:INTEGER;THEVALUE:BYTE);
+  FORWARD;
+
+PROCEDURE GENBIG(IVAL:INTEGER);
+  FORWARD;
+
+PROCEDURE FILLINDICT(PROCNUM,VAL:INTEGER);
+  FORWARD;
+
+SEGMENT PROCEDURE COMPCLOSE;
+VAR
+  ENTERIC,DONTCARE:INTEGER;
+
+PROCEDURE GENSEGINFO;
+  VAR DONTCARE:INTEGER;
+BEGIN
+  {LAY DOWN THE PROCEDURE DICTIONARY}
+    WHILE DICTRECP<>NIL DO
+      BEGIN
+        IF DICTRECP^.VAL = -1 THEN
+          GENWORD(0) {to be filled in by linker}
+        ELSE
+          GENWORD(IC-DICTRECP^.VAL);
+        DICTRECP := DICTRECP^.LINK;
+      END;
+  GENBYTE(1{SEGMENT #});
+  GENBYTE(NEXTPROCNUM-1);{THE # OF PROCS}
+  PUTBYTEFIX(4,1{SEGMENT #});
+  PUTBYTEFIX(6,IC MOD 256{HIGH BYTE OF SEGMENT 1 ADDR});
+  PUTBYTEFIX(7,(IC - 512) DIV 256{LEFT BYTE});
+  {Fill in rest of block with 0's}
+  WHILE (IC MOD 512) <> 0 DO
+    GENBYTE(0);
+END;
+
+PROCEDURE GENLINKINFO;
+Const
+  is_proc = 9;
+  is_func = 10;
+Type
+  ident = Packed Array[0..7] Of Char;
+VAR
+  I:INTEGER;
+
+  Function usedexternals: Boolean;
+  {usedexternals is true iff any of the autoprocs were used
+           (indicated by a non-zero procnum)
+  }
+  Var
+    t: tautoproc;
+  Begin
+    usedexternals := False; {Initial assumption}
+    For t := breadreal To brandom Do
+      If autoproc[t].procnum <> 0 Then
+        usedexternals := True;
+  End;
+
+  Procedure putlink(name: ident; scal: tautoproc; obj_type,paramwrds: Integer);
+  Var
+    i: Integer;
+  Begin
+    If autoproc[scal].procnum <> 0 Then
+      Begin
+        For i := 0 To 7 Do
+          genbyte(Ord(name[i]));
+        genword(obj_type);
+        genword(autoproc[scal].procnum);
+        genword(paramwrds);
+        genword(0);
+      End;
+  End;
+
+BEGIN {genlinkinfo}
+  IF usedexternals THEN
+    BEGIN {Indicate that linking from Basicio will be needed}
+      PUTBYTEFIX(194,1);
+      putlink('BWRITERE',bwritereal,is_proc,5);
+      putlink('BREADREA',breadreal,is_proc,2);
+      putlink('BGOSUB  ',bgosub,is_proc,2);
+      putlink('BRETURN ',breturn,is_proc,2);
+      putlink('BGETCHAR',bgetchar,is_proc,1);
+      putlink('BOPENFIL',bopenfile,is_func,6);
+      putlink('BRANDOM ',brandom,is_func,1);
+      putlink('BAUTOINI',bautoinits,is_proc,3);
+      putlink('BAUTORAN',bautorandomizedinits,is_proc,3);
+      {Finish off linker info block(s)}
+        FOR I := 0 TO 7 DO
+          GENBYTE(ORD(' '));
+        genword(0);
+        genword(NEXTOFFSET); {where UNIT variables can safely go}
+        {Finish out last block full of 0's}
+        WHILE (IC MOD 512) <> 0 DO
+          GENBYTE(0);
+    END;
+END;
+
+PROCEDURE DISKFIXUP;
+CONST
+  BYTESPERBLOCK = 512;
+VAR
+  WORD:PACKED ARRAY [0..1] OF BYTE;
+  CURRENTPAGE:INTEGER;
+  CODEBLOCK:PACKED ARRAY[0..511] OF BYTE;
+BEGIN
+  IF FIXUPLIST <> NIL THEN
+    BEGIN
+      CURRENTPAGE := FIXUPLIST^.BYTENUM DIV BYTESPERBLOCK;
+      DONTCARE := BLOCKREAD(USERINFO.WORKCODE^,CODEBLOCK,1,CURRENTPAGE);
+      REPEAT
+        WITH FIXUPLIST^ DO
+          BEGIN
+            IF BYTENUM DIV BYTESPERBLOCK <> CURRENTPAGE THEN
+              BEGIN
+                DONTCARE :=
+                  BLOCKWRITE(USERINFO.WORKCODE^,CODEBLOCK,1,CURRENTPAGE);
+                CURRENTPAGE := BYTENUM DIV BYTESPERBLOCK;
+                DONTCARE :=
+                  BLOCKREAD(USERINFO.WORKCODE^,CODEBLOCK,1,CURRENTPAGE);
+              END;
+            IF BYTENUM >= 0 THEN
+              CODEBLOCK[BYTENUM MOD BYTESPERBLOCK] := VALUE
+            ELSE
+              BEGIN
+                MOVELEFT(VALUE,WORD,2);
+                CODEBLOCK[-BYTENUM MOD BYTESPERBLOCK    ] := WORD[0];
+                CODEBLOCK[-BYTENUM MOD BYTESPERBLOCK + 1] := WORD[1];
+              END;
+          END;
+        FREETWOVAL(FIXUPLIST);
+      UNTIL FIXUPLIST = NIL;
+    END;
+END;
+
+BEGIN {COMPCLOSE}
+  GENSEGINFO;
+  GENLINKINFO;
+  DONTCARE := BLOCKWRITE(USERINFO.WORKCODE^,OUTBUF,(IC-BASEIC+511)DIV 512);
+  DISKFIXUP;
+END; {COMPCLOSE}
+
+SEGMENT PROCEDURE PROG;
+VAR
+  ENTERIC,EXITIC:INTEGER;
+  DICTPTR:P1VALLIST;
+
+FUNCTION AUTONUM(PROC:TAUTOPROC):BYTE;
+BEGIN
+  IF AUTOPROC[PROC].PROCNUM = 0 THEN
+    BEGIN
+      AUTOPROC[PROC].PROCNUM := NEXTPROCNUM;
+      NEXTPROCNUM := SUCC(NEXTPROCNUM);
+      NEW1VAL(DICTRECP);
+      DICTRECP^.VAL := -1; {to be filled in later}
+    END;
+  AUTONUM := AUTOPROC[PROC].PROCNUM;
+END;
+
+PROCEDURE SHOWCONTEXT;
+VAR
+  LINECNT,BUFPTR:INTEGER;
+BEGIN
+  BUFPTR := READCHCOUNT - 1;
+  LINECNT := 0;
+  WHILE (BUFPTR>0) AND (LINECNT<=23) DO
+    BEGIN
+      IF READCHPAGE[BUFPTR] = CHR(13){CR} THEN
+        LINECNT:=LINECNT+1;
+      BUFPTR:=BUFPTR-1;
+    END;
+  FOR BUFPTR:=BUFPTR TO READCHCOUNT-1 DO
+    WRITE(READCHPAGE[BUFPTR]);
+END;
+
+PROCEDURE PRESSSPACEBAR;
+  VAR c:CHAR;
+BEGIN
+  WRITELN('PRESS SPACEBAR TO CONTINUE OR ESC TO ESCAPE');
+  REPEAT
+    READ(c);
+  UNTIL (c=' ') OR (c=CHR(27){ESC});
+  IF c=CHR(27){ESC} THEN
+{ ---> } EXIT ( BASICCOMPILER ) ;
+END;
+
+PROCEDURE ERROR(MESSAGE:STRING);
+BEGIN
+  SHOWCONTEXT;
+  WRITE(' <--');
+  WRITE(MESSAGE);
+  WRITELN;
+  PRESSSPACEBAR;
+END;
+
+PROCEDURE NEWREALTEMP(VAR OFFSET:INTEGER;VAR LDKIND:LDTYPES);
+  VAR P:P1VALLIST;
+BEGIN
+  IF INFUNC THEN
+    BEGIN
+      LDKIND := LDLOCAL;
+      OFFSET := NEXTTEMP;
+      NEXTTEMP := NEXTTEMP+WRDSPERREAL;
+      IF NEXTTEMP>MAXNEXTTEMP THEN
+        MAXNEXTTEMP := NEXTTEMP;
+    END
+  ELSE
+    BEGIN
+      LDKIND := LDGLOBAL;
+      IF OLDREALTEMPLIST=NIL THEN
+        BEGIN
+          NEWVAR(OFFSET,WRDSPERREAL);
+          NEW1VAL(P);
+          P^.VAL := OFFSET;
+        END
+      ELSE
+        BEGIN
+          P := OLDREALTEMPLIST;
+          OLDREALTEMPLIST := OLDREALTEMPLIST^.LINK;
+          OFFSET := P^.VAL;
+        END;
+      P^.LINK := REALTEMPLIST;
+      REALTEMPLIST := P;
+    END;
+END;
+
+PROCEDURE FREE2REALTEMPS;
+VAR
+  I:INTEGER;
+  P:P1VALLIST;
+BEGIN
+  IF INFUNC THEN
+    NEXTTEMP := NEXTTEMP - 4
+  ELSE
+    BEGIN
+      FOR I := 1 TO 2 DO
+        BEGIN
+          P := REALTEMPLIST;
+          REALTEMPLIST := REALTEMPLIST^.LINK;
+          P^.LINK := OLDREALTEMPLIST;
+          OLDREALTEMPLIST := P;
+        END;
+    END;
+END;
+
+PROCEDURE NEWSTRTEMP(VAR OFFSET:INTEGER;SIZE:INTEGER;VAR LDKIND:LDTYPES);
+  VAR P:P1VALLIST;
+BEGIN
+  IF INFUNC THEN
+    BEGIN
+      LDKIND := LDLOCAL;
+      OFFSET := NEXTTEMP;
+      NEXTTEMP := NEXTTEMP + WRDSPERSTR;
+      IF NEXTTEMP>MAXNEXTTEMP THEN
+        MAXNEXTTEMP :=  NEXTTEMP;
+    END
+  ELSE
+    BEGIN
+      LDKIND := LDGLOBAL;
+      IF OLDSTRTEMPLIST=NIL THEN
+        BEGIN
+          NEWVAR(OFFSET,WRDSPERSTR);
+          NEW1VAL(P);
+          P^.VAL := OFFSET;
+        END
+      ELSE
+        BEGIN
+          P := OLDSTRTEMPLIST;
+          OLDSTRTEMPLIST := OLDSTRTEMPLIST^.LINK;
+          OFFSET := P^.VAL;
+        END;
+      P^.LINK := STRTEMPLIST;
+      STRTEMPLIST := P;
+    END;
+  {IF YOU WONDER WHAT THE PARAMETER SIZE IS FOR, REALIZE THAT THIS PROCEDURE
+    WILL NEED TO BE REWRITTEN WHEN STRINGS ARE ALLOWED TO BE OF ARBITRARY
+    STATIC LENGTH, AND THEN SIZE WILL BE NEEDED}
+END;
+
+PROCEDURE FREEALLSTRTEMPS;
+  VAR P:P1VALLIST;
+BEGIN
+  IF INFUNC THEN
+    NEXTTEMP := SAVENEXTTEMP
+  ELSE
+    BEGIN
+      WHILE STRTEMPLIST<>NIL DO
+        BEGIN
+          P := STRTEMPLIST;
+          STRTEMPLIST := STRTEMPLIST^.LINK;
+          P^.LINK := OLDSTRTEMPLIST;
+          OLDSTRTEMPLIST := P;
+        END;
+    END;
+END;
+
+PROCEDURE PUTBIGFIX(PUTPLACE:INTEGER;IVAL:INTEGER);
+  VAR WORD:PACKED ARRAY[0..1] OF BYTE;
+BEGIN
+  MOVELEFT(IVAL,WORD,2);
+  PUTBYTEFIX(PUTPLACE,WORD[1]+128{TO SET HIGH ORDER BIT});
+  PUTBYTEFIX(PUTPLACE+1,WORD[0]);
+END;
+
+PROCEDURE GENREALCOMPARE(COMPSYM:SYMTYPE);
+BEGIN
+  GENBYTE(COMOP[COMPSYM]);
+  GENBYTE(2);
+END;
+
+PROCEDURE GENSTRCOMPARE(COMPSYM:SYMTYPE);
+BEGIN
+  GENBYTE(COMOP[COMPSYM]);
+  GENBYTE(4);
+END;
+
+PROCEDURE PUTBIGJMPDISP(PUTPLACE,JUMPADDR:INTEGER);
+  VAR WORD:PACKED ARRAY[0..1] OF BYTE;
+BEGIN
+  JUMPADDR:=PUTPLACE-JUMPADDR;
+  MOVELEFT(JUMPADDR,WORD,2);
+  PUTBYTEFIX(PUTPLACE,WORD[0]);
+  PUTBYTEFIX(PUTPLACE+1,WORD[1]);
+END;
+
+PROCEDURE PUTJMPDISP(PUTPLACE,JUMPADDR:INTEGER);
+CONST
+  MAXJTAB = 64;
+VAR
+  DISP:INTEGER;
+BEGIN
+  DISP:=JUMPADDR-PUTPLACE-1;
+  IF (DISP>=0) AND (DISP<=127) THEN
+    PUTBYTEFIX(PUTPLACE,DISP)
+  ELSE
+    BEGIN
+      IF NUMJTABS=MAXJTAB THEN;
+      NEW1VAL(JTABLISTPTR);
+      JTABLISTPTR^.VAL:=JUMPADDR;
+      NUMJTABS:=NUMJTABS+1;
+      PUTBYTEFIX(PUTPLACE,248-NUMJTABS-NUMJTABS);
+    END;
+END;
+
+PROCEDURE GENJMPADDR(LINENUM,AFTERJMPLOC:INTEGER;ISBIGJMP:BOOLEAN);
+  VAR LINEREC,TRAIL,NEWP:P2VALLIST;
+BEGIN
+  IF LINENUM<=LINENUMLIST^.LINENUM THEN
+    BEGIN
+      LNLISTSENTINEL^.LINENUM:=LINENUM;{GUARANTEES TERMINATION}
+      LINEREC:=LINENUMLIST;
+      WHILE LINEREC^.LINENUM<>LINENUM DO
+        LINEREC:=LINEREC^.LINK;
+      IF LINEREC=LNLISTSENTINEL THEN
+        ERROR('DIDN''T FIND LINE NUMBER');
+      IF ISBIGJMP THEN
+        PUTBIGJMPDISP(AFTERJMPLOC,LINEREC^.CODELOC)
+      ELSE
+        PUTJMPDISP(AFTERJMPLOC,LINEREC^.CODELOC);
+    END
+  ELSE
+    BEGIN
+      FJLISTSENTINEL^.LINENUM:=MAXINT;{GUARANTEES TERMINATION}
+      LINEREC:=FORWARDJMPLIST;
+      WHILE LINENUM>LINEREC^.LINENUM DO
+        BEGIN
+          TRAIL:=LINEREC;
+          LINEREC:=LINEREC^.LINK;
+        END;
+      NEW2VAL(NEWP);
+      NEWP^.LINENUM:=LINENUM;
+      NEWP^.JUMPLOC:=AFTERJMPLOC;
+      IF ISBIGJMP THEN
+        NEWP^.JUMPLOC:=-NEWP^.CODELOC;
+      NEWP^.LINK:=LINEREC;
+      IF LINEREC=FORWARDJMPLIST THEN
+        FORWARDJMPLIST:=NEWP
+      ELSE
+        TRAIL^.LINK:=NEWP;
+    END;
+END;
+
+PROCEDURE GENDISP(LINENUM:INTEGER;ISBIGJMP:BOOLEAN);
+BEGIN
+  GENJMPADDR(LINENUM,IC,ISBIGJMP);
+  IC:=IC+1;
+  IF ISBIGJMP THEN
+    IC:=IC+1;
+END;
+
+PROCEDURE GENLINENUM(LINENUM,CODELOC:INTEGER);
+  VAR LINEREC:P2VALLIST;
+BEGIN
+  LNLISTSENTINEL^.LINENUM:=-1{LESS THAN ANY ALLOWABLE VALUE};
+  IF LINENUM<=LINENUMLIST^.LINENUM THEN ERROR('LINE #''S NOT IN ORDER');
+  NEW2VAL(LINEREC);
+  LINEREC^.LINENUM:=LINENUM;
+  LINEREC^.CODELOC:=CODELOC;
+  LINEREC^.LINK:=LINENUMLIST;
+  LINENUMLIST:=LINEREC;
+  FJLISTSENTINEL^.LINENUM:=-1; {AN IMPOSSIBLE VALUE}
+  WHILE LINENUM=FORWARDJMPLIST^.LINENUM DO
+    BEGIN
+      IF FORWARDJMPLIST^.JUMPLOC<0 THEN
+        PUTBIGJMPDISP(-FORWARDJMPLIST^.JUMPLOC,CODELOC)
+      ELSE
+        PUTJMPDISP(FORWARDJMPLIST^.JUMPLOC,CODELOC);
+      FREETWOVAL(FORWARDJMPLIST);
+    END;
+END;
+
+PROCEDURE GENCONREAL(CON:REAL);
+  VAR DOUBLEWORD:PACKED ARRAY[0..3] OF BYTE;
+BEGIN
+  GENOP(OPLDC);
+  GENBYTE(WRDSPERREAL);
+  IF ODD(IC) THEN
+    GENBYTE(0);
+  MOVELEFT(CON,DOUBLEWORD,WRDSPERREAL * 2 {Bytes per real});
+  GENBYTE(DOUBLEWORD[2]);
+  GENBYTE(DOUBLEWORD[3]);
+  GENBYTE(DOUBLEWORD[0]);
+  GENBYTE(DOUBLEWORD[1]);
+END;
+
+PROCEDURE GENREALLOAD(OFFSET:INTEGER);
+BEGIN
+  GENOP(OPLAO);
+  GENBIG(OFFSET);
+  GENOP(OPLDM);
+  GENBYTE(WRDSPERREAL);
+END;
+
+PROCEDURE GENREALSTORE(OFFSET:INTEGER);
+BEGIN
+  GENOP(OPLAO);
+  GENBIG(OFFSET);
+  GENOP(OPLDM);
+  GENBYTE(WRDSPERREAL);
+END;
+
+PROCEDURE GENCONSTR(STR:STRING);
+  VAR STRPOS:INTEGER;
+BEGIN
+  If Not Odd(ic) Then
+    genop(opNOP);
+  GENOP(OPLCA);
+  GENBYTE(LENGTH(STR));
+  FOR STRPOS:=1 TO LENGTH(STR) DO
+    GENBYTE(ORD(STR[STRPOS]));
+END;
+
+PROCEDURE GENLOADFILEADDR(FILEADDR:INTEGER;UNIVERSAL:BOOLEAN);
+BEGIN
+  IF UNIVERSAL THEN
+    BEGIN
+      GENOP(OPLOD);
+      IF INFUNC THEN
+        GENBYTE(2)
+      ELSE
+        GENBYTE(1);
+    END
+  ELSE
+    GENOP(OPLAO);
+  GENBIG(FILEADDR);
+END;
+
+PROCEDURE GENPROCCALL(PROCNUM:BYTE);
+BEGIN
+  IF INFUNC THEN
+    GENOP(OPCGP)
+  ELSE
+    GENOP(OPCLP);
+  GENBYTE(PROCNUM);
+END;
+
+PROCEDURE GENSTANPROC(PROCNUM:BYTE);
+BEGIN
+  GENOP(OPCSP);
+  GENBYTE(PROCNUM);
+END;
+
+PROCEDURE GENEXTPROCCALL(EXTPROCNUM:BYTE);
+BEGIN
+  GENOP(OPCXP);
+  GENBYTE(0);
+  GENBYTE(EXTPROCNUM);
+END;
+
+PROCEDURE CLEARNEW(IDVAL:INTEGER);
+BEGIN
+  NEW(SYMTAB[IDVAL]);
+  WITH SYMTAB[IDVAL]^ DO
+    BEGIN
+      PTRREAL:=NIL;
+      PTRSTRING:=NIL;
+      PTRREALARRAY:=NIL;
+      PTRSTRARRAY:=NIL;
+      PTRREALFUNC:=NIL;
+      PTRSTRFUNC:=NIL;
+    END;
+END;
+
+FUNCTION NOTPARAM(VAR IDOFFSET:INTEGER;IDNUM:INTEGER;VARKIND:SYMTYPE):BOOLEAN;
+  VAR ARGPTR:ARGLISTPTYPE;
+BEGIN
+  IF FNKIND=STRFNIDV THEN
+    ARGPTR := SYMTAB[FNIDNUM]^.PTRSTRFUNC^.ARGLIST
+  ELSE
+    ARGPTR := SYMTAB[FNIDNUM]^.PTRREALFUNC^.ARGLIST;
+  NOTPARAM := TRUE;{INITIAL ASSUMPTION}
+  WHILE ARGPTR<>NIL DO
+    BEGIN
+      IF (IDNUM=ARGPTR^.IDNUM)AND(ARGPTR^.ARGKIND=VARKIND) THEN
+        BEGIN
+          NOTPARAM := FALSE;
+          IDOFFSET := ARGPTR^.OFFSET;
+          ARGPTR := NIL;
+        END
+      ELSE
+        ARGPTR := ARGPTR^.NEXTARG;
+    END;
+END;
+
+PROCEDURE GOTREAL(VAR IDOFFSET:INTEGER;IDNUM:INTEGER;VAR LDKIND:LDTYPES);
+
+PROCEDURE GOTGLOBAL;
+BEGIN
+  IF SYMTAB[IDNUM]^.PTRREAL=NIL THEN
+    BEGIN
+      NEW(SYMTAB[IDNUM]^.PTRREAL);
+      NEWVAR(SYMTAB[IDNUM]^.PTRREAL^.OFFSET,WRDSPERREAL);
+    END;
+  IDOFFSET := SYMTAB[IDNUM]^.PTRREAL^.OFFSET;
+END;
+
+BEGIN{GOTREAL}
+  IF SYMTAB[IDNUM]=NIL THEN
+    CLEARNEW(IDNUM);
+  LDKIND := LDGLOBAL;{INITIAL ASSUMPTION}
+  IF INFUNC THEN
+    IF (IDNUM=FNIDNUM) AND (FNKIND=REALFNIDV) THEN
+      BEGIN
+        LDKIND := LDLOCAL;
+        IDOFFSET:=1;
+      END
+    ELSE IF NOTPARAM(IDOFFSET,IDNUM,REALIDV) THEN
+      GOTGLOBAL
+    ELSE
+      LDKIND := LDLOCAL
+  ELSE
+    GOTGLOBAL;
+END;
+
+PROCEDURE GOTSTRING(VAR IDOFFSET:INTEGER;IDNUM:INTEGER;VAR LDKIND:LDTYPES);
+
+PROCEDURE GOTGLOBAL;
+BEGIN
+  IF SYMTAB[IDNUM]^.PTRSTRING=NIL THEN
+    BEGIN
+      NEW(SYMTAB[IDNUM]^.PTRSTRING);
+      NEWVAR(SYMTAB[IDNUM]^.PTRSTRING^.OFFSET,WRDSPERSTR);
+    END;
+  IDOFFSET := SYMTAB[IDNUM]^.PTRSTRING^.OFFSET;
+END;
+
+BEGIN
+  IF SYMTAB[IDNUM]=NIL THEN
+    CLEARNEW(IDNUM);
+  LDKIND := LDGLOBAL;{INITIAL ASSUMPTION}
+  IF INFUNC THEN
+    IF (IDNUM=FNIDNUM) AND (FNKIND=STRFNIDV) THEN
+      BEGIN
+        LDKIND := LDVARLOCAL;
+        IDOFFSET:=STRFNVALOFFSET;
+      END
+    ELSE IF NOTPARAM(IDOFFSET,IDNUM,STRIDV) THEN
+      GOTGLOBAL
+    ELSE
+      LDKIND := LDLOCAL
+  ELSE
+    GOTGLOBAL;
+END;
+
+PROCEDURE EXPECTED(MESSAGE:STRING);
+BEGIN
+  SHOWCONTEXT;
+  WRITE(' <--EXPECTED ');
+  WRITE(MESSAGE);
+  WRITELN;
+  PRESSSPACEBAR;
+END;
+
+PROCEDURE READCH;
+BEGIN
+  c := READCHPAGE[READCHCOUNT];
+  IF c = CHR(0){NUL} THEN
+    BEGIN
+      NUMBLOCKS := BLOCKREAD(USERINFO.WORKSYM^,READCHPAGE,2);
+      IF NUMBLOCKS <> 2 THEN
+        BEGIN
+          WRITELN('UNEXPECTED END OF INPUT');
+
+{ ---> } EXIT ( BASICCOMPILER ) ;
+
+        END;
+      READCHCOUNT := 0;
+      c := READCHPAGE[READCHCOUNT];
+    END;
+  READCHCOUNT := READCHCOUNT + 1;
+END;
+
+PROCEDURE GETCH;
+BEGIN
+  REPEAT
+    READCH;
+  UNTIL c<>' ';
+END;
+
+
+{$G+}
+PROCEDURE GETSYM;
+  LABEL 0;
+  VAR c1,STRDELIM:CHAR;
+    RESERPTR,RESERTRAIL,RP,RPAHEAD:TREEPTR;
+    RESERPOS,EXPPART,NUMDIGITS,DONTCARE,COUNT,DELIMCOUNT:INTEGER;
+    NEGEXP,ONRP:BOOLEAN;
+
+PROCEDURE GETCHSYMIS(SYMIS:SYMTYPE);
+BEGIN
+  SYM:=SYMIS;
+  REPEAT
+    READCH;
+  UNTIL c<>' ';
+END;
+
+Function alog10(num:Integer): Real;
+{The value of alog10(num) is the antilog base 10 of num, i.e., alog(num)
+is 10 to the num power, where -37 <= num <= 37}
+Begin {alog10}
+  If (num > 37) Then
+    error('EXP TOO BIG')
+  Else If (num < -37) Then
+    error('EXP TOO SMALL')
+  Else
+    If num >= 0 Then
+      alog10 := Pwroften(num)
+    Else
+      alog10 := 1/Pwroften(-num);
+END;
+
+PROCEDURE READINT(VAR INT:INTEGER);
+BEGIN
+  INT:=0;
+  WHILE (c>='0') AND (c<='9') DO
+    BEGIN
+      INT:=INT*10;
+      INT:=INT+(ORD(c)-ORD('0'));
+      GETCH;
+    END;
+END;
+
+Procedure readnum(Var num: Real; Var numdigits: Integer; startnum: Real);
+{readnum reads the integer number currently in the input stream, assuming
+that the value of the digits already read are in startnum.  The number of
+digits readnum reads are returned in numdigits, and the value of the number
+is returned in num as a real (to avoid overflow).}
+Begin
+  num := startnum;
+  numdigits := 0;
+  While c In ['0'..'9'] DO
+    Begin
+      numdigits := numdigits + 1;
+      num := num * 10 + Ord(c) - Ord('0');
+      getch;
+    End;
+End;
+
+PROCEDURE GETSTRING;
+BEGIN
+  STRDELIM:=c1;
+  STRINGSAVE:='';
+  REPEAT
+    WHILE c<>STRDELIM DO
+      BEGIN
+        STRINGSAVE:=CONCAT(STRINGSAVE,'*');
+        stringsave[Length(stringsave)] := c;
+        READCH;
+      END;
+    DELIMCOUNT:=0;
+    REPEAT
+      DELIMCOUNT:=DELIMCOUNT+1;
+      READCH;
+    UNTIL c<>STRDELIM;
+    FOR COUNT:=1 TO DELIMCOUNT DIV 2 DO
+      BEGIN
+        STRINGSAVE:=CONCAT(STRINGSAVE,'*');
+        stringsave[Length(stringsave)] := strdelim;
+      END;
+  UNTIL ODD(DELIMCOUNT);
+  SYM:=STRINGV;
+  IF c=' ' THEN
+    GETCH;
+END;
+
+PROCEDURE GETEXPONENT;
+BEGIN
+  GETCH;
+  NEGEXP:=c='-';
+  IF (c='-') OR (c='+') THEN GETCH;
+  IF (c<'0') OR (c>='9') THEN EXPECTED('EXPONENT');
+  READINT(EXPPART);
+  IF NEGEXP THEN EXPPART:= -EXPPART;
+  NUMBER:=NUMBER*ALOG10(EXPPART);
+END;
+
+BEGIN{GETSYM}
+0:
+  IF GOTNEXTSYM THEN
+      BEGIN
+        SYM:=SYMGOTNEXT;
+        GOTNEXTSYM:=FALSE;
+      END
+    ELSE
+      BEGIN
+        c1:=c;
+        IF (c<>'''')AND(c<>'"') THEN
+          GETCH
+        ELSE
+          READCH;
+        IF c1=CHR(13){CR} THEN
+          BEGIN
+            IF (LINECOUNT MOD 50)=0 THEN
+              BEGIN
+                WRITELN;
+                WRITE('<',LINECOUNT:5,'>');
+              END;
+            WRITE('.');
+            LINECOUNT := LINECOUNT+1;
+            IF c=CHR(16){DLE} THEN
+              BEGIN
+                READCH;
+                READCH;
+              END;
+            IF (c>='0')AND(c<='9') THEN
+              BEGIN
+                READINT(LINENO);
+                SYM:=EOLNV;
+              END
+            ELSE
+              GOTO 0
+          END
+        ELSE IF (c1<'"')OR(c1>'^')THEN
+          BEGIN
+            WRITELN;
+            WRITELN('ORD(c)= ',ORD(c1));
+            ERROR('CHARACTER DOES NOT BEGIN A SYMBOL')
+          END
+        ELSE
+          CASE c1 OF
+            '<':IF c='=' THEN GETCHSYMIS(LEQV)
+                ELSE IF c='>' THEN GETCHSYMIS(NEQV)
+                ELSE SYM:=LESSV;
+            '>':IF c='=' THEN GETCHSYMIS(GEQV)
+                ELSE IF c='<' THEN GETCHSYMIS(NEQV)
+                ELSE SYM:=GTRV;
+            '=':IF c='<' THEN GETCHSYMIS(LEQV)
+                ELSE IF c='>' THEN GETCHSYMIS(GEQV)
+                ELSE SYM:=EQUALSV;
+            '*':IF c='*' THEN GETCHSYMIS(UPV)
+                ELSE SYM:=STARV;
+            '^':SYM:=UPV;
+            '-':SYM:=MINUSV;
+            '+':SYM:=PLUSV;
+            '/':SYM:=SLASHV;
+            '(':SYM:=LPARENV;
+            ')':SYM:=RPARENV;
+            '#':SYM:=HASHV;
+            ';':SYM:=SEMIV;
+            ',':SYM:=COMMAV;
+            '@':BEGIN
+                  WHILE c<>CHR(13){CR} DO READCH;
+                  GOTO 0;
+                END;
+            '''','"':GETSTRING;
+            '0','1','2','3','4','5','6','7','8','9':
+              BEGIN
+                READNUM(NUMBER,DONTCARE,ORD(c1)-ORD('0'));
+                IF c='.' THEN
+                  BEGIN
+                    GETCH;
+                    READNUM(NUMBER,NUMDIGITS,NUMBER);
+                    NUMBER:=NUMBER/ALOG10(NUMDIGITS);
+                  END;
+                IF c='E' THEN
+                  GETEXPONENT;
+                SYM:=NUMBERV;
+              END;
+            '.':BEGIN
+                  IF (c<'0')OR(c>'9') THEN
+                    EXPECTED('FRACTION');
+                  READNUM(NUMBER,NUMDIGITS,0.0);
+                  NUMBER := NUMBER/ALOG10(NUMDIGITS);
+                  IF c='E' THEN
+                    GETEXPONENT;
+                  SYM := NUMBERV;
+                END;
+            'A','B','C','D','E','F','G','H','I','J','K','L','M',
+            'N','O','P','Q','R','S','T','U','V','W','X','Y','Z':
+              IF (c<'A') OR (c>'Z') THEN
+                BEGIN
+                  IF (c>='0')AND(c<='9') THEN
+                    BEGIN
+                      IDPLACE:=(ORD(c1)-ORD('A'))*10+(ORD(c)-ORD('0'))+26;
+                      GETCH;
+                    END
+                  ELSE IDPLACE:=ORD(c1)-ORD('A');
+                  IF c='$' THEN
+                    BEGIN
+                      SYM:=STRIDV;
+                      GETCH;
+                    END
+                  ELSE
+                    SYM := REALIDV;
+                END
+              ELSE IF (c1='F') AND (c='N') THEN
+                BEGIN
+                  GOTFN := TRUE;
+                  GETCH;
+                  GOTO 0;
+                END
+              ELSE
+                BEGIN
+                  RP:=TRIE[c1];
+                  RPAHEAD:=TRIE[c];
+                  RESERPTR:=RPAHEAD;
+                  ONRP:=FALSE;
+                  RESERPOS:=0;
+                  REPEAT
+                    IF ONRP THEN
+                      BEGIN
+                        IF RPAHEAD<>RESERSENTINEL THEN
+                          BEGIN
+                            ONRP:=FALSE;
+                            RP:=RESERPTR;
+                            RESERPTR:=RPAHEAD;
+                          END
+                        ELSE
+                          BEGIN
+                            IF RESERPTR=RESERSENTINEL THEN
+                              BEGIN
+                                EXPECTED('RESERVED WORD');
+                                GOTO 0;
+                              END;
+                            RESERPOS:=RESERPOS+1;
+                          END;
+                        GETCH;
+                      END
+                    ELSE
+                      BEGIN
+                        IF RP<>RESERSENTINEL THEN
+                          BEGIN
+                            ONRP:=TRUE;
+                            RPAHEAD:=RESERPTR;
+                            RESERPTR:=RP;
+                          END
+                        ELSE
+                          BEGIN
+                            IF RESERPTR=RESERSENTINEL THEN
+                              BEGIN
+                                EXPECTED('RESERVED WORD');
+                                GOTO 0;
+                              END;
+                            GETCH;
+                          END;
+                        RESERPOS := RESERPOS+1;
+                      END;
+                    RESERSENTINEL^.KEY[RESERPOS]:=c;
+                    RESERTRAIL:=RESERPTR;
+                    WHILE c<>RESERPTR^.KEY[RESERPOS] DO
+                      IF c<RESERPTR^.KEY[RESERPOS] THEN
+                        RESERPTR:=RESERPTR^.LLINK
+                      ELSE
+                        RESERPTR:=RESERPTR^.RLINK;
+                UNTIL(RESERTRAIL^.KEY[RESERPOS]=' ')AND(RESERPTR=RESERSENTINEL);
+                 IF RESERTRAIL^.NAME=REMV THEN
+                   BEGIN
+                     WHILE c<>CHR(13){CR} DO READCH;
+                     IF ONRP THEN
+                       BEGIN
+                         GETSYM;
+                         IF SYM<>EOLNV THEN
+                           EXPECTED('END OF LINE');
+                         GENLINENUM(LINENO,IC);
+                         GOTO 0;
+                       END
+                     ELSE
+                       EXPECTED('RESERVED WORD');
+                   END;
+                  IF ONRP THEN
+                    SYM:=RESERTRAIL^.NAME
+                  ELSE
+                    BEGIN
+                      GOTNEXTSYM:=TRUE;
+                      SYMGOTNEXT:=RESERTRAIL^.NAME;
+                      SYM:=REALIDV;
+                      IDPLACE:=ORD(c1)-ORD('A');
+                    END;
+                END;
+     '$','%','&',':','?','[','\',']':BEGIN
+                                   WRITELN;
+                                   WRITELN('c = ',c1);
+                                   ERROR('CHARACTER DOES NOT BEGIN A SYMBOL');
+                                     END
+          END;{CASE}
+    END;
+  IF GOTFN THEN
+    BEGIN
+      IF NOT (SYM IN [REALIDV,STRIDV,ENDV]) THEN
+        EXPECTED('REAL,STR,INT FUNC OR FNEND');
+      CASE SYM OF
+        REALIDV:SYM := REALFNIDV;
+        STRIDV:SYM  := STRFNIDV;
+        ENDV:SYM    := FNENDV
+      END;{CASE}
+      GOTFN := FALSE;
+    END;
+END;{GETSYM}
+{$G-}
+
+PROCEDURE COMMAND;
+  FORWARD;
+PROCEDURE NUMEXP;
+  FORWARD;
+PROCEDURE STREXP;
+  FORWARD;
+
+FUNCTION UNDEFARRAY
+                  (VAR ARRAYPTR:ARRAYPTYPE;DEPTH,BASEELEMSIZE:INTEGER):INTEGER;
+  VAR ELEMSIZE,PUTPLACE:INTEGER;
+BEGIN
+  IF SYM=COMMAV THEN
+    BEGIN
+      GETSYM;
+      NUMEXP;
+      GENSTANPROC(STANPROC[INTV] {SPROUND});
+      GENOP(OPIXA);
+      PUTPLACE := IC;
+      IC:=IC+2;
+      NEW(ARRAYPTR);
+      ELEMSIZE:=UNDEFARRAY(ARRAYPTR^.ELEM,DEPTH+1,BASEELEMSIZE);
+      ARRAYPTR^.ELEMSIZE:=ELEMSIZE;
+      IF DEPTH>2 THEN
+        ARRAYPTR^.ARRAYSIZE:=1
+      ELSE
+        ARRAYPTR^.ARRAYSIZE:=10;
+      PUTBIGFIX(PUTPLACE,ELEMSIZE);
+      UNDEFARRAY:=ELEMSIZE*(ARRAYPTR^.ARRAYSIZE+1);
+    END
+  ELSE
+    BEGIN
+      ARRAYPTR:=NIL;
+      UNDEFARRAY:=BASEELEMSIZE;
+    END;
+END;
+
+PROCEDURE DEFARRAY(ARRAYPTR:ARRAYPTYPE);
+BEGIN
+  WHILE (SYM=COMMAV) AND (ARRAYPTR<>NIL) DO
+    BEGIN
+      GETSYM;
+      NUMEXP;
+      GENSTANPROC(STANPROC[INTV] {SPROUND});
+      GENOP(OPIXA);
+      GENBIG(ARRAYPTR^.ELEMSIZE);
+      ARRAYPTR:=ARRAYPTR^.ELEM;
+    END;
+  IF (SYM=COMMAV) OR (ARRAYPTR<>NIL) THEN ERROR('WRONG # DIMS');
+END;
+
+PROCEDURE GETARRAY (VAR OFFSET:INTEGER;
+                   ARRAYPTR:ARRAYPTYPE;UNDEFINED:BOOLEAN;BASEELEMSIZE:INTEGER);
+  VAR ADDRPLACE,PUTPLACE,ELEMSIZE:INTEGER;
+BEGIN
+  GETSYM;{THE ( }
+  GENOP(OPLAO);
+  ADDRPLACE:=IC;
+  IC:=IC+2;
+  NUMEXP;
+  GENSTANPROC(STANPROC[INTV] {SPROUND});
+  GENOP(OPIXA);
+  PUTPLACE:=IC;
+  IC:=IC+2;
+  IF UNDEFINED THEN
+    BEGIN
+      ELEMSIZE:=UNDEFARRAY(ARRAYPTR^.ELEM,1,BASEELEMSIZE);
+      ARRAYPTR^.ELEMSIZE:=ELEMSIZE;
+      ARRAYPTR^.ARRAYSIZE:=10;
+      NEWVAR(OFFSET,ELEMSIZE*(ARRAYPTR^.ARRAYSIZE+1));
+    END
+  ELSE
+    BEGIN
+      DEFARRAY(ARRAYPTR^.ELEM);
+      ELEMSIZE:=ARRAYPTR^.ELEMSIZE;
+    END;
+  PUTBIGFIX(PUTPLACE,ELEMSIZE);
+  PUTBIGFIX(ADDRPLACE,OFFSET);
+  IF SYM<>RPARENV THEN EXPECTED(')');
+  GETSYM;
+END;
+
+PROCEDURE REALARRAY;
+  VAR UNDEFINED:BOOLEAN;
+    IDVAL:INTEGER;
+BEGIN
+  IDVAL:=IDPLACE;
+  IF SYMTAB[IDVAL]=NIL THEN CLEARNEW(IDVAL);
+  UNDEFINED:=SYMTAB[IDVAL]^.PTRREALARRAY=NIL;
+  IF UNDEFINED THEN
+    BEGIN
+      NEW(SYMTAB[IDVAL]^.PTRREALARRAY);
+      NEW(SYMTAB[IDVAL]^.PTRREALARRAY^.PTRARRAY);
+    END;
+  GETARRAY(SYMTAB[IDVAL]^.PTRREALARRAY^.OFFSET,
+    SYMTAB[IDVAL]^.PTRREALARRAY^.PTRARRAY,UNDEFINED,WRDSPERREAL);
+END;
+
+PROCEDURE STRARRAY;
+  VAR UNDEFINED:BOOLEAN;
+    IDVAL:INTEGER;
+BEGIN
+  IDVAL:=IDPLACE;
+  IF SYMTAB[IDVAL]=NIL THEN CLEARNEW(IDVAL);
+  UNDEFINED:=SYMTAB[IDVAL]^.PTRSTRARRAY=NIL;
+  IF UNDEFINED THEN
+    BEGIN
+      NEW(SYMTAB[IDVAL]^.PTRSTRARRAY);
+      NEW(SYMTAB[IDVAL]^.PTRSTRARRAY^.PTRARRAY);
+    END;
+  GETARRAY(SYMTAB[IDVAL]^.PTRSTRARRAY^.OFFSET,
+    SYMTAB[IDVAL]^.PTRSTRARRAY^.PTRARRAY,
+    UNDEFINED,WRDSPERSTR);
+END;
+
+PROCEDURE GOTFUNCTION;
+  VAR
+    IDVAL,TEMPOFFSET:INTEGER;
+    FNKIND:SYMTYPE;
+    LDKIND:LDTYPES;
+
+PROCEDURE GETARGS(ARGPTR:ARGLISTPTYPE);
+BEGIN
+  IF ARGPTR=NIL THEN
+    BEGIN
+      IF SYM=LPARENV THEN EXPECTED('NO ARGUMENTS');
+    END
+  ELSE
+    BEGIN
+      IF SYM<>LPARENV THEN EXPECTED('ARGUMENTS');
+      REPEAT
+        GETSYM;
+        IF ARGPTR^.ARGKIND<>STRIDV THEN
+          NUMEXP
+        ELSE
+          STREXP;
+        ARGPTR := ARGPTR^.NEXTARG;
+      UNTIL (ARGPTR=NIL) OR (SYM<>COMMAV);
+      IF (ARGPTR<>NIL) THEN EXPECTED('MORE ARGUMENTS')
+      ELSE IF SYM=COMMAV THEN EXPECTED('LESS ARGUMENTS');
+      IF SYM<>RPARENV THEN EXPECTED(')');
+      GETSYM;
+    END;
+END;
+
+BEGIN{GOTFUNCTION}
+  IDVAL := IDPLACE;
+  FNKIND := SYM;
+  GETSYM;
+  IF SYMTAB[IDVAL]=NIL THEN ERROR('UNDEF FN');
+  IF FNKIND=STRFNIDV THEN
+    BEGIN
+      IF SYMTAB[IDVAL]^.PTRSTRFUNC=NIL THEN ERROR('UNDEF FN');
+      NEWSTRTEMP(TEMPOFFSET,WRDSPERSTR,LDKIND);
+      GENLOADADDR(TEMPOFFSET,LDKIND);
+      GETARGS(SYMTAB[IDVAL]^.PTRSTRFUNC^.ARGLIST);
+      GENPROCCALL(SYMTAB[IDVAL]^.PTRSTRFUNC^.PROCNUM);
+      GENLOADADDR(TEMPOFFSET,LDKIND);
+    END
+  ELSE
+    BEGIN
+      IF SYMTAB[IDVAL]^.PTRREALFUNC=NIL THEN ERROR('UNDEF FN');
+      GETARGS(SYMTAB[IDVAL]^.PTRREALFUNC^.ARGLIST);
+      GENBYTE(0{SHORT LOAD CONST 0});
+      GENBYTE(0{SHORT LOAD CONST 0});{LEAVE ROOM FOR RET VAL ON STACK}
+      GENPROCCALL(SYMTAB[IDVAL]^.PTRREALFUNC^.PROCNUM);
+    END;
+END;
+
+PROCEDURE GOTSTANFUNC;
+Const
+  seed_offset = 3;
+TYPE
+  TYPES = (REALT,STRINGT,INTEGERT);
+VAR
+  FUNC:SYMTYPE;
+  LDKIND:LDTYPES;
+  ARGPTR:ARGLISTPTYPE;
+
+PROCEDURE OSPCONCAT;
+VAR
+  TEMPOFFSET:INTEGER;
+BEGIN
+  NEWSTRTEMP(TEMPOFFSET,WRDSPERSTR,LDKIND);
+  GENLOADADDR(TEMPOFFSET,LDKIND);
+  GENBYTE(0{LD CONST 0});
+  GENOP(OPSTO);
+  GENLOADADDR(TEMPOFFSET,LDKIND);
+  IF SYM<>LPARENV THEN EXPECTED('(');
+  REPEAT
+    GETSYM;
+    STREXP;
+    GENBYTE(DEFSTRLNG);
+    GENEXTPROCCALL(STANPROC[FUNC]);
+    GENLOADADDR(TEMPOFFSET,LDKIND);
+  UNTIL SYM<>COMMAV;
+END;
+
+PROCEDURE GETARG(KIND:TYPES);
+BEGIN
+  IF KIND=STRINGT THEN
+    STREXP
+  ELSE
+    BEGIN
+      NUMEXP;
+      IF KIND=INTEGERT THEN
+        GENSTANPROC(STANPROC[INTV] {SPROUND})
+    END;
+END;
+
+PROCEDURE ARG1(KIND:TYPES);
+BEGIN
+  IF SYM<>LPARENV THEN EXPECTED('(');
+  GETSYM;
+  GETARG(KIND);
+END;
+
+PROCEDURE ARG(KIND:TYPES);
+BEGIN
+  IF SYM<>COMMAV THEN EXPECTED(',');
+  GETSYM;
+  GETARG(KIND);
+END;
+
+PROCEDURE OSPDELETE;
+  VAR TEMPOFFSET:INTEGER;
+BEGIN
+  NEWSTRTEMP(TEMPOFFSET,WRDSPERSTR,LDKIND);
+  GENLOADADDR(TEMPOFFSET,LDKIND);
+  ARG1(STRINGT);
+  GENOP(OPSAS);
+  GENBYTE(DEFSTRLNG);
+  GENLOADADDR(TEMPOFFSET,LDKIND);
+  ARG(INTEGERT);
+  ARG(INTEGERT);
+  GENEXTPROCCALL(STANPROC[FUNC]);
+END;
+
+PROCEDURE OSPINSORCOP;
+  VAR TEMPOFFSET:INTEGER;
+BEGIN
+  ARG1(STRINGT);
+  NEWSTRTEMP(TEMPOFFSET,WRDSPERSTR,LDKIND);
+  GENLOADADDR(TEMPOFFSET,LDKIND);
+  GENLOADADDR(TEMPOFFSET,LDKIND);
+  ARG(STRINGT);
+  GENOP(OPSAS);
+  GENBYTE(DEFSTRLNG);
+  GENLOADADDR(TEMPOFFSET,LDKIND);
+  ARG(INTEGERT);
+  ARG(INTEGERT);
+  GENEXTPROCCALL(STANPROC[FUNC]);
+END;
+
+PROCEDURE BASPROCSTR;
+  VAR TEMPOFFSET:INTEGER;
+BEGIN
+  NEWSTRTEMP(TEMPOFFSET,WRDSPERSTR,LDKIND);
+  GENLOADADDR(TEMPOFFSET,LDKIND);
+  ARG1(INTEGERT);
+  GENOP(OPSAS);
+  GENBYTE(DEFSTRLNG);
+  GENLOADADDR(TEMPOFFSET,LDKIND);
+END;
+
+PROCEDURE BASPROCGET;
+{This procedure sets up a call to procedure Bget in Basicio.}
+  VAR TEMPOFFSET:INTEGER;
+BEGIN
+  NEWSTRTEMP(TEMPOFFSET,WRDSPERSTR,LDKIND);
+  GENLOADADDR(TEMPOFFSET,LDKIND);
+  GENOP(OPCGP);
+  GENBYTE(AUTONUM(bgetchar));
+  GENLOADADDR(TEMPOFFSET,LDKIND);
+END;
+
+PROCEDURE OLDANDNEW;
+{This procedure sets up a call to procedure Bopenfile in Basicio.}
+Const
+  donefile_offset = 4;
+VAR
+  FIBPTR,WINDPTR:INTEGER;
+BEGIN
+  IF INFUNC THEN ERROR('OLD AND NEW NOT ALLOWED IN FN');
+  IF SYM<>LPARENV THEN EXPECTED('(');
+  GETSYM;
+  IF SYM<>NUMBERV THEN EXPECTED('INT CONST');
+  IF NUMBER<>TRUNC(NUMBER) THEN EXPECTED('INT CONST');
+  IF (NUMBER<1) OR (NUMBER>16) THEN ERROR('INT MUST BE IN 1..16');
+  IF FIBLOCATION[TRUNC(NUMBER)]<>0 THEN ERROR('FILE #''S MAY NOT BE CHANGED');
+  genloadaddr(donefile_offset,ldglobal);
+  NEWVAR(FIBPTR,300);
+  FIBLOCATION[TRUNC(NUMBER)]:=FIBPTR;
+  GENLOADADDR(FIBPTR,LDGLOBAL);
+  NEWVAR(WINDPTR,1);
+  GENLOADADDR(WINDPTR,LDGLOBAL);
+  GENBYTE(TRUNC(NUMBER));
+  GETSYM;
+  ARG(STRINGT);
+  GENBYTE(STANPROC[FUNC]);
+  GENBYTE(0);
+  GENBYTE(0);{ROOM FOR RET VAL ON STACK}
+  GENOP(OPCGP);
+  GENBYTE(AUTONUM(bopenfile));
+END;
+
+BEGIN{GOTSTANFUNC}
+  FUNC := SYM;
+  GETSYM;
+  CASE FUNC OF
+    CATV:OSPCONCAT;
+    DELV:OSPDELETE;
+    INSV,COPV:OSPINSORCOP;
+    SINV,COSV,ATNV,EXPV,LOGV,LNV:BEGIN
+                                   ARG1(REALT);
+                                   GENSTANPROC(STANPROC[FUNC]);
+                                 END;
+    OLDV,NEWV:OLDANDNEW;
+    MODV:BEGIN
+           ARG1(INTEGERT);
+           ARG(INTEGERT);
+           GENOP(OPMOD);
+         END;
+    INTV:BEGIN
+           ARG1(REALT);
+           GENSTANPROC(STANPROC[FUNC]);
+           GENOP(OPFLT);
+         END;
+    RNDV:BEGIN
+           genloadaddr(seed_offset,ldglobal);
+           GENBYTE(0);
+           GENBYTE(0);{ROOM ON STACK FOR RETURN VALUE}
+           GENOP(OPCGP);
+           GENBYTE(AUTONUM(brandom));
+         END;
+    POSV:BEGIN
+           ARG1(STRINGT);
+           ARG(STRINGT);
+           GENBYTE(0);
+           GENBYTE(0);{ROOM FOR RETURNED FUNCTION VALUE}
+           GENEXTPROCCALL(STANPROC[FUNC]);
+           GENOP(OPFLT);
+         END;
+    STRV:BASPROCSTR;
+    GETV:BASPROCGET;
+    LENV:BEGIN
+           ARG1(STRINGT);
+           GENOP(OPLDB);
+           GENOP(OPFLT);
+         END;
+    ORDV:BEGIN
+           ARG1(STRINGT);
+           GENBYTE(STANPROC[FUNC]{THE INDEX});
+           GENOP(OPIXS);
+           GENOP(OPLDB);
+           GENOP(OPFLT);
+         END
+
+  END;{CASE}
+  IF NOT (FUNC IN [GETV,RNDV]) THEN
+    BEGIN
+      IF SYM<>RPARENV THEN EXPECTED(')');
+      GETSYM;
+    END;
+END;
+
+PROCEDURE NUMEXP;
+VAR
+  OPSYM:SYMTYPE;
+  MUSTNEGATE:BOOLEAN;
+
+PROCEDURE PRIMARY;
+VAR
+  DONTCARE,OFFSET:INTEGER;
+  LDKIND:LDTYPES;
+BEGIN
+  IF SYM=REALIDV THEN
+    BEGIN
+      GETSYM;
+      IF SYM=LPARENV THEN
+        REALARRAY
+      ELSE
+        BEGIN
+          GOTREAL(OFFSET,IDPLACE,LDKIND);
+          GENLOADADDR(OFFSET,LDKIND);
+        END;
+      GENOP(OPLDM);
+      GENBYTE(WRDSPERREAL);
+    END
+  ELSE IF SYM=NUMBERV THEN
+    BEGIN
+      GENCONREAL(NUMBER);
+      GETSYM;
+    END
+  ELSE IF SYM=LPARENV THEN
+      BEGIN
+        GETSYM;
+        NUMEXP;
+        IF SYM<>RPARENV THEN EXPECTED(')');
+        GETSYM;
+      END
+    ELSE IF SYM=REALFNIDV THEN
+      GOTFUNCTION
+    ELSE IF SYM IN STANNUMFUNC THEN
+      GOTSTANFUNC
+    ELSE
+      EXPECTED('FACTOR');
+END;
+
+PROCEDURE FACTOR;
+BEGIN
+  PRIMARY;
+  WHILE SYM=UPV DO
+    BEGIN
+      GETSYM;
+      GENSTANPROC(STANPROC[LNV] {SPLN});
+      PRIMARY;
+      GENOP(OPMPR);
+      GENSTANPROC(STANPROC[EXPV] {SPEXP});
+    END;
+END;
+
+PROCEDURE TERM;
+  VAR SYM1:SYMTYPE;
+BEGIN
+  FACTOR;
+  WHILE SYM IN [STARV,SLASHV] DO
+    BEGIN
+      SYM1:=SYM;
+      GETSYM;
+      FACTOR;
+      IF SYM1=STARV THEN
+        GENOP(OPMPR)
+      ELSE
+        GENOP(OPDVR);
+    END;
+END;
+
+BEGIN{NUMEXP}
+  MUSTNEGATE := FALSE;
+  IF SYM=PLUSV THEN
+    GETSYM
+  ELSE IF SYM=MINUSV THEN
+    BEGIN
+      MUSTNEGATE := TRUE;
+      GETSYM;
+    END;
+  TERM;
+  WHILE SYM IN [PLUSV,MINUSV] DO
+    BEGIN
+      OPSYM := SYM;
+      GETSYM;
+      TERM;
+      IF OPSYM=PLUSV THEN
+        GENOP(OPADR)
+      ELSE
+        GENOP(OPSBR);
+    END;
+  IF MUSTNEGATE THEN
+    GENOP(OPNGR);
+END;
+
+PROCEDURE STREXP;
+VAR
+  LDKIND:LDTYPES;
+  OFFSET:INTEGER;
+BEGIN
+  IF SYM IN STANSTRFUNCS THEN
+    GOTSTANFUNC
+  ELSE IF SYM=STRIDV THEN
+    BEGIN
+      GETSYM;
+      IF SYM=LPARENV THEN
+        STRARRAY
+      ELSE
+        BEGIN
+          GOTSTRING(OFFSET,IDPLACE,LDKIND);
+          GENLOADADDR(OFFSET,LDKIND);
+        END;
+    END
+  ELSE IF SYM=STRFNIDV THEN
+      GOTFUNCTION
+  ELSE IF SYM=STRINGV THEN
+    BEGIN
+      GENCONSTR(STRINGSAVE);
+      GETSYM;
+    END;
+END;
+
+PROCEDURE FUNCDEF;
+VAR
+  SAVEFJLIST,SAVELNLIST:P2VALLIST;
+  SAVEJTABLIST:P1VALLIST;
+  NUMSTRPARAMS,FNSTART,PARAMSIZE,SAVENUMJTABS:INTEGER;
+  PTRARGLIST:ARGLISTPTYPE;
+
+PROCEDURE SETUPFNREC;
+BEGIN
+  IF SYMTAB[FNIDNUM]=NIL THEN CLEARNEW(FNIDNUM);
+  IF FNKIND=STRFNIDV THEN
+    BEGIN
+      IF SYMTAB[FNIDNUM]^.PTRSTRFUNC<>NIL THEN ERROR('FN ALREADY DEFINED');
+      NEW(SYMTAB[FNIDNUM]^.PTRSTRFUNC);
+      SYMTAB[FNIDNUM]^.PTRSTRFUNC^.PROCNUM := NEXTPROCNUM;
+    END
+  ELSE
+    BEGIN
+      IF SYMTAB[FNIDNUM]^.PTRREALFUNC<>NIL THEN ERROR('FN ALREADY DEFINED');
+      NEW(SYMTAB[FNIDNUM]^.PTRREALFUNC);
+      SYMTAB[FNIDNUM]^.PTRREALFUNC^.PROCNUM := NEXTPROCNUM;
+    END;
+END;
+
+PROCEDURE GETNEXTPROCNUM;
+CONST
+  MAXPROCNUM = 254;
+BEGIN
+  IF NEXTPROCNUM>MAXPROCNUM THEN
+    ERROR('EXCEEDED MAX NUMBER OF FUNCTIONS')
+  ELSE
+    NEXTPROCNUM := NEXTPROCNUM+1;
+END;
+
+PROCEDURE ARGUMENTS;
+  VAR ARGLISTTAIL:ARGLISTPTYPE;
+BEGIN
+  IF FNKIND=REALFNIDV THEN
+    PARAMSIZE := WRDSPERREAL
+  ELSE
+    PARAMSIZE := 0;
+  PTRARGLIST := NIL;
+  NUMSTRPARAMS := 0;
+  IF SYM=LPARENV THEN
+    BEGIN
+      REPEAT
+        GETSYM;
+        IF NOT (SYM IN IDS) THEN EXPECTED('ARGUMENT');
+        IF PTRARGLIST=NIL THEN
+          BEGIN
+            NEW(ARGLISTTAIL);
+            PTRARGLIST := ARGLISTTAIL;
+          END
+        ELSE
+          BEGIN
+            NEW(ARGLISTTAIL^.NEXTARG);
+            ARGLISTTAIL := ARGLISTTAIL^.NEXTARG;
+          END;
+        WITH ARGLISTTAIL^ DO
+          BEGIN
+            IDNUM := IDPLACE;
+            ARGKIND := SYM;
+          END;
+        IF SYM=STRIDV THEN
+          BEGIN
+            NUMSTRPARAMS := NUMSTRPARAMS+1;
+            PARAMSIZE := PARAMSIZE + 1;{FOR STR VAR ADDR}
+          END
+        ELSE
+          PARAMSIZE := PARAMSIZE + WRDSPERREAL;
+        GETSYM;
+      UNTIL SYM<>COMMAV;
+      IF SYM<>RPARENV THEN EXPECTED(')');
+      GETSYM;
+      ARGLISTTAIL^.NEXTARG := NIL;
+    END;
+  IF FNKIND=STRFNIDV THEN
+    BEGIN
+      PARAMSIZE := PARAMSIZE + 1;{HIDDEN FN VAL PARAM}
+      STRFNVALOFFSET := PARAMSIZE;
+    END;
+END;
+
+PROCEDURE FILLINOFFSETS;
+VAR
+  ARGPTR:ARGLISTPTYPE;
+  STRLOC,LASTOFFSET:INTEGER;
+BEGIN
+  STRLOC := PARAMSIZE + (NUMSTRPARAMS-1)*WRDSPERSTR+1;
+  ARGPTR := PTRARGLIST;
+  IF FNKIND=STRFNIDV THEN
+    LASTOFFSET := PARAMSIZE{TO ALLOW FOR HIDDEN FN VAL PARAM}
+  ELSE
+    LASTOFFSET := PARAMSIZE + 1;
+  WHILE ARGPTR<>NIL DO
+    BEGIN
+      WITH ARGPTR^ DO
+        IF ARGKIND=STRIDV THEN
+          BEGIN
+            LASTOFFSET := LASTOFFSET-1;{ROOM FOR STR ADDR}
+            {LAY DOWN CODE TO LOAD STR INTO DATA SEG}
+              GENOP(OPLLA);
+              GENBYTE(STRLOC);
+              GENOP(OPLDL);
+              GENBYTE(LASTOFFSET);
+              GENOP(OPSAS);
+              GENBYTE(DEFSTRLNG);
+            OFFSET := STRLOC;
+            STRLOC := STRLOC - WRDSPERSTR;
+          END
+        ELSE
+          BEGIN
+            LASTOFFSET := LASTOFFSET - WRDSPERREAL;
+            OFFSET := LASTOFFSET;
+          END;
+      ARGPTR := ARGPTR^.NEXTARG;
+    END;
+  IF FNKIND=STRFNIDV THEN
+    SYMTAB[FNIDNUM]^.PTRSTRFUNC^.ARGLIST := PTRARGLIST
+  ELSE
+    SYMTAB[FNIDNUM]^.PTRREALFUNC^.ARGLIST := PTRARGLIST;
+END;
+
+PROCEDURE BODY;
+BEGIN
+  INFUNC := TRUE;
+  NEXTTEMP := PARAMSIZE + NUMSTRPARAMS*WRDSPERSTR + 1;
+  MAXNEXTTEMP := NEXTTEMP;
+  IF SYM=EQUALSV THEN
+    BEGIN
+      GETSYM;
+      GENOP(OPLLA);
+      GENBYTE(1);
+      IF FNKIND=STRFNIDV THEN
+        STREXP
+      ELSE
+        NUMEXP;
+      IF FNKIND=REALFNIDV THEN
+        BEGIN
+          GENOP(OPSTM);
+          GENBYTE(WRDSPERREAL);
+        END
+      ELSE
+        BEGIN
+          GENOP(OPSAS);
+          GENBYTE(DEFSTRLNG);
+        END;
+    END
+  ELSE
+    BEGIN
+      REPEAT
+        IF SYM<>EOLNV THEN EXPECTED('END OF LINE OR =');
+        GENLINENUM(LINENO,IC);
+        GETSYM;
+        IF SYM<>FNENDV THEN COMMAND;
+      UNTIL SYM=FNENDV;
+      GETSYM;
+    END;
+  INFUNC := FALSE;
+END;
+
+PROCEDURE SAVELISTS;
+BEGIN
+  SAVEFJLIST := FORWARDJMPLIST;
+  FORWARDJMPLIST := FJLISTSENTINEL;
+  SAVELNLIST := LINENUMLIST;
+  LINENUMLIST := LNLISTSENTINEL;
+  SAVEJTABLIST := JTABLISTPTR;
+  JTABLISTPTR := NIL;
+  SAVENUMJTABS := NUMJTABS;
+  NUMJTABS := 0;
+END;
+
+PROCEDURE RESTORELISTS;
+BEGIN{RESTORELISTS}
+  FORWARDJMPLIST := SAVEFJLIST;
+  WHILE LINENUMLIST<>LNLISTSENTINEL DO
+    FREETWOVAL(LINENUMLIST);
+  LINENUMLIST := SAVELNLIST;
+  JTABLISTPTR := SAVEJTABLIST;
+  NUMJTABS := SAVENUMJTABS;
+END;
+
+PROCEDURE FINISHFUNC;
+  VAR FNENDIC:INTEGER;
+BEGIN
+  FNENDIC := IC;
+  GENOP(OPRNP);
+  IF FNKIND=REALFNIDV THEN
+    GENBYTE(WRDSPERREAL)
+  ELSE
+    GENBYTE(0);
+  IF ODD(IC) THEN GENBYTE(0);
+  GENJTAB;
+  GENWORD(2*(MAXNEXTTEMP-1-PARAMSIZE));{THE DATASIZE}
+  GENWORD(PARAMSIZE+PARAMSIZE);
+  GENWORD(IC-FNENDIC);{THE EXIT IC}
+  GENWORD(IC-FNSTART);{THE ENTER IC}
+  NEW1VAL(DICTRECP);
+  DICTRECP^.VAL := IC;
+  GENBYTE(NEXTPROCNUM-1);
+  GENBYTE(1);{THE LEX LEVEL}
+END;
+
+BEGIN{FUNCDEF}
+  GETSYM;{THE DEF}
+  IF NOT (SYM IN FNIDS) THEN EXPECTED('FN IDS');
+  FNIDNUM := IDPLACE;
+  FNKIND := SYM;
+  GETSYM;
+  SETUPFNREC;
+  GETNEXTPROCNUM;
+  ARGUMENTS;
+  SAVELISTS;
+  GENOP(OPUJP);
+  IC := IC + 1;
+  FNSTART := IC;
+  FILLINOFFSETS;
+  BODY;
+  IF FORWARDJMPLIST<>FJLISTSENTINEL THEN ERROR('UNRESOLVED FORWARD JMP(S)');
+  FINISHFUNC;
+  RESTORELISTS;
+  PUTJMPDISP(FNSTART-1,IC);
+END;
+
+PROCEDURE COMMAND;
+CONST
+  OUTPUTFILEADDR = 3;
+  NCHKIOERROR = 0;
+VAR
+  ID1,OFFSET,DONTCARE:INTEGER;
+
+PROCEDURE NUMERICEXP;
+BEGIN
+  SAVENEXTEXP := NEXTTEMP;
+  NUMEXP;
+  FREEALLSTRTEMPS;
+END;
+
+PROCEDURE ERROR(MESSAGE:STRING);
+BEGIN
+  SHOWCONTEXT;
+  WRITE(' <--');
+  WRITELN(MESSAGE);
+  WHILE SYM<>EOLNV DO
+    GETSYM;
+  PRESSSPACEBAR;
+  EXIT(COMMAND);
+END;
+
+PROCEDURE EXPECTED(MESSAGE:STRING);
+BEGIN
+  SHOWCONTEXT;
+  WRITE(' <--EXPECTED ');
+  WRITELN(MESSAGE);
+  WHILE SYM<>EOLNV DO
+    GETSYM;
+  PRESSSPACEBAR;
+  EXIT(COMMAND);
+END;
+
+PROCEDURE FORSTATEMENT;
+  VAR LOOPVAR,LIMIT,STEP,ENDOFLOOP,TESTSTART,DONTCARE,INDEX:INTEGER;
+    LDKIND,LDTEMPKIND:LDTYPES;
+BEGIN
+  GETSYM;
+  IF SYM<>REALIDV THEN EXPECTED('VARIABLE');
+  LOOPVAR:=IDPLACE;
+  GETSYM;
+  IF SYM<>EQUALSV THEN EXPECTED('=');
+  GETSYM;
+  {Store initial value in loop control variable INDEX}
+    GOTREAL(INDEX,LOOPVAR,LDKIND);
+    GENLOADADDR(INDEX,LDKIND);
+    NUMERICEXP;
+    GENOP(OPSTM);
+    GENBYTE(WRDSPERREAL);
+  IF SYM<>TOV THEN EXPECTED('TO');
+  GETSYM;
+  {Store LIMIT in same}
+    NEWREALTEMP(LIMIT,LDTEMPKIND);
+    GENLOADADDR(LIMIT,LDTEMPKIND);
+    NUMERICEXP;
+    GENOP(OPSTM);
+    GENBYTE(WRDSPERREAL);
+  {Store increment in STEP}
+    NEWREALTEMP(STEP,LDTEMPKIND);
+    GENLOADADDR(STEP,LDTEMPKIND);
+    IF SYM=STEPV {User supplies increment} THEN
+      BEGIN
+        GETSYM;
+        NUMERICEXP;
+      END
+    ELSE {Default increment is 1.0}
+      GENCONREAL(1);
+    GENOP(OPSTM);
+    GENBYTE(WRDSPERREAL);
+  IF SYM <>EOLNV THEN EXPECTED('END OF LINE');
+  GENLINENUM(LINENO,IC);
+  GETSYM;
+  TESTSTART:=IC; {Current address is that of TESTSTART}
+  {If INDEX > LIMIT Then Goto ENDOFLOOP}
+    GENLOADADDR(INDEX,LDKIND);
+    GENOP(OPLDM);
+    GENBYTE(WRDSPERREAL);
+    GENLOADADDR(LIMIT,LDTEMPKIND);
+    GENOP(OPLDM);
+    GENBYTE(WRDSPERREAL);
+    GENREALCOMPARE(GTRV);
+    GENOP(OPFJP);
+    ENDOFLOOP:=IC;
+    IC:=IC+1; {Leave space for address of ENDOFLOOP}
+  {Get the statements within the FOR loop}
+    WHILE SYM<>NEXTV DO
+      BEGIN
+        COMMAND;
+        IF SYM<>EOLNV THEN EXPECTED('END OF LINE');
+        GENLINENUM(LINENO,IC);
+        GETSYM;
+      END;
+  GETSYM;
+  {INDEX := INDEX - STEP}
+    GENLOADADDR(INDEX,LDKIND);
+    GENLOADADDR(INDEX,LDKIND);
+    GENOP(OPLDM);
+    GENBYTE(WRDSPERREAL);
+    GENLOADADDR(STEP,LDTEMPKIND);
+    GENOP(OPLDM);
+    GENBYTE(WRDSPERREAL);
+    GENOP(OPADR);
+    GENOP(OPSTM);
+    GENBYTE(WRDSPERREAL);
+  {Goto TESTSTART}
+    GENOP(OPUJP);
+    PUTJMPDISP(IC,TESTSTART);
+    IC:=IC+1;{Leave room for address of TESTSTART}
+  PUTJMPDISP(ENDOFLOOP,IC);{Current address is that of ENDOFLOOP}
+  IF SYM<>REALIDV THEN EXPECTED('VARIABLE NAME');
+  IF LOOPVAR<>IDPLACE THEN ERROR('IMPROPER FOR-NEXT NESTING');
+  GETSYM;
+  FREE2REALTEMPS;
+END;
+
+PROCEDURE IFSTATEMENT;
+  VAR SAVESYM:SYMTYPE;
+    EXPTYPE:BOOLEAN;
+    INTNUM:INTEGER;
+BEGIN
+  GETSYM;
+  SAVENEXTTEMP := NEXTTEMP;
+  IF SYM IN NUMEXPFIRSTS THEN
+    BEGIN
+      NUMEXP;
+      EXPTYPE := TRUE;
+    END
+  ELSE
+    BEGIN
+      STREXP;
+      EXPTYPE := FALSE;
+    END;
+  IF NOT(SYM IN COMPARATOR) THEN EXPECTED('COMPARATOR');
+  SAVESYM:=SYM;
+  GETSYM;
+  IF EXPTYPE THEN
+    BEGIN
+      NUMEXP;
+      GENREALCOMPARE(SAVESYM);
+    END
+  ELSE
+    BEGIN
+      STREXP;
+      GENSTRCOMPARE(SAVESYM);
+    END;
+  FREEALLSTRTEMPS;
+  IF NOT (SYM IN[THENV,GOTOV])THEN EXPECTED('THEN OR GOTO');
+  GETSYM;
+  IF SYM<>NUMBERV THEN EXPECTED('LINE NUMBER');
+  INTNUM:=ROUND(NUMBER);
+  GENOP(OPFJP);
+  GENDISP(INTNUM,FALSE);
+  GETSYM;
+END;
+
+PROCEDURE ONSTATEMENT;
+  VAR TABLESIZE,PLACETABLESIZE:INTEGER;
+    WORD:PACKED ARRAY[0..1] OF BYTE;
+BEGIN
+  GETSYM;
+  NUMERICEXP;
+  GENSTANPROC(STANPROC[INTV] {SPROUND});
+  IF SYM<>GOTOV THEN EXPECTED('GOTO');
+  GETSYM;
+  GENOP(OPXJP);
+  IF ODD(IC) THEN GENBYTE(0);
+  GENWORD(1);
+  PLACETABLESIZE:=IC;
+  IC:=IC+2;
+  GENBYTE(0);GENBYTE(134);{OUT-OF-BOUNDS ERROR MESSAGE ADDR TO GO HERE}
+  IF SYM<>NUMBERV THEN EXPECTED('LINE NUMBER');
+  GENDISP(ROUND(NUMBER),TRUE);
+  GETSYM;
+  TABLESIZE:=1;
+  WHILE SYM=COMMAV DO
+    BEGIN
+      GETSYM;
+      IF SYM<>NUMBERV THEN EXPECTED('LINE NUMBER');
+      GENDISP(ROUND(NUMBER),TRUE);
+      GETSYM;
+      TABLESIZE:=TABLESIZE+1;
+    END;
+  MOVELEFT(TABLESIZE,WORD,2);
+  PUTBYTEFIX(PLACETABLESIZE,WORD[0]);
+  PUTBYTEFIX(PLACETABLESIZE+1,WORD[1]);
+END;
+
+PROCEDURE DIMSTATEMENT;
+  VAR ISSTRNOTREAL:BOOLEAN;
+    SIZE:INTEGER;
+
+FUNCTION INITSIZES(PTRARRAY:ARRAYPTYPE):INTEGER;
+BEGIN
+  IF SYM<>NUMBERV THEN EXPECTED('DIMENSION');
+  PTRARRAY^.ARRAYSIZE:=ROUND(NUMBER);
+  GETSYM;
+  IF SYM=COMMAV THEN
+    BEGIN
+      GETSYM;
+      NEW(PTRARRAY^.ELEM);
+      PTRARRAY^.ELEMSIZE:=INITSIZES(PTRARRAY^.ELEM);
+      INITSIZES:=(PTRARRAY^.ARRAYSIZE+1)*PTRARRAY^.ELEMSIZE;
+    END
+  ELSE
+    BEGIN
+      IF ISSTRNOTREAL THEN
+        PTRARRAY^.ELEMSIZE:=WRDSPERSTR
+      ELSE
+        PTRARRAY^.ELEMSIZE:=WRDSPERREAL;
+      INITSIZES:=PTRARRAY^.ELEMSIZE*(PTRARRAY^.ARRAYSIZE+1);
+      PTRARRAY^.ELEM:=NIL;
+    END;
+END;
+
+BEGIN{DIMSTATEMENT}
+  REPEAT
+    GETSYM;{1ST TIME DIMV,OTHERS COMMAV}
+    IF NOT (SYM IN IDS) THEN EXPECTED('ARRAY VARIABLE');
+    IF SYMTAB[IDPLACE]=NIL THEN CLEARNEW(IDPLACE);
+    ISSTRNOTREAL:=SYM=STRIDV;
+    GETSYM;
+    IF ISSTRNOTREAL THEN
+      BEGIN
+        IF SYMTAB[IDPLACE]^.PTRSTRARRAY<>NIL THEN ERROR('ARRAY ALREADY EXISTS');
+        NEW(SYMTAB[IDPLACE]^.PTRSTRARRAY);
+        IF SYM<>LPARENV THEN EXPECTED('(');
+        GETSYM;
+        NEW(SYMTAB[IDPLACE]^.PTRSTRARRAY^.PTRARRAY);
+        SIZE:=INITSIZES(SYMTAB[IDPLACE]^.PTRSTRARRAY^.PTRARRAY);
+        NEWVAR(SYMTAB[IDPLACE]^.PTRSTRARRAY^.OFFSET,SIZE);
+      END
+    ELSE
+      BEGIN
+        IF SYMTAB[IDPLACE]^.PTRREALARRAY<>NIL THEN ERROR('ARRAY PREEXISTS');
+        NEW(SYMTAB[IDPLACE]^.PTRREALARRAY);
+        IF SYM<>LPARENV THEN EXPECTED('(');
+        GETSYM;
+        NEW(SYMTAB[IDPLACE]^.PTRREALARRAY^.PTRARRAY);
+        SIZE:=INITSIZES(SYMTAB[IDPLACE]^.PTRREALARRAY^.PTRARRAY);
+        NEWVAR(SYMTAB[IDPLACE]^.PTRREALARRAY^.OFFSET,SIZE);
+      END;
+    IF SYM<>RPARENV THEN EXPECTED(')');
+    GETSYM;
+  UNTIL SYM<>COMMAV;
+END;
+
+PROCEDURE READSTATEMENT;
+BEGIN
+  WRITELN('READ STMT NOT IMPLEMENTED');
+  GETSYM;
+  IF SYM=HASHV THEN
+    BEGIN
+      GETSYM;
+      IF SYM<>NUMBERV THEN EXPECTED('FILE NUMBER');
+      GETSYM;
+    END;
+  IF SYM IN IDS THEN
+    BEGIN
+      GETSYM;
+      WHILE SYM=COMMAV DO
+        BEGIN
+          GETSYM;
+          IF NOT (SYM IN IDS) THEN EXPECTED('VARIABLE NAME');
+          GETSYM;
+        END;
+    END;
+END;
+
+PROCEDURE INPUTSTATEMENT;
+CONST
+  INPUTFILEADDR = 2;
+VAR
+  OFFSET,ID1,FILEADDR,DONTCARE:INTEGER;
+  UNIVERSAL:BOOLEAN;
+  LDKIND:LDTYPES;
+
+PROCEDURE DOANINPUT;
+CONST
+  NWRITECH = 17;
+  NREADSTRING = 18;
+  NREADLN = 21;
+BEGIN
+    IF NOT (SYM IN IDS) THEN EXPECTED('VARIABLE NAME');
+    ID1:=IDPLACE;
+    IF UNIVERSAL THEN
+      BEGIN
+        {OUTPUT PROMPT '?'}
+        GENLOADFILEADDR(OUTPUTFILEADDR,TRUE);
+        GENBYTE(ORD('?'));
+        GENBYTE(0);
+        GENEXTPROCCALL(NWRITECH);
+        GENSTANPROC(NCHKIOERROR);
+      END;
+    GENLOADFILEADDR(FILEADDR,UNIVERSAL);
+    SAVENEXTTEMP := NEXTTEMP;
+    IF SYM=STRIDV THEN
+      BEGIN
+        GETSYM;
+        IF SYM=LPARENV THEN
+          STRARRAY
+        ELSE
+          BEGIN
+            GOTSTRING(OFFSET,ID1,LDKIND);
+            GENLOADADDR(OFFSET,LDKIND);
+          END;
+        GENBYTE(DEFSTRLNG);
+        GENEXTPROCCALL(NREADSTRING);
+        GENLOADFILEADDR(FILEADDR,UNIVERSAL);
+        GENEXTPROCCALL(NREADLN);
+      END
+    ELSE
+      BEGIN
+        GETSYM;
+        IF SYM=LPARENV THEN
+          REALARRAY
+        ELSE
+          BEGIN
+            GOTREAL(OFFSET,ID1,LDKIND);
+            GENLOADADDR(OFFSET,LDKIND);
+            GENOP(OPCGP);
+            GENBYTE(AUTONUM(breadreal));
+          END;
+      END;
+  FREEALLSTRTEMPS;
+  GENSTANPROC(NCHKIOERROR);
+END;
+
+BEGIN{INPUTSTATEMENT}
+  GETSYM;
+  UNIVERSAL := TRUE;
+  FILEADDR := INPUTFILEADDR;{INITIAL ASSUMPTIONS}
+  IF SYM=HASHV THEN
+    BEGIN
+      GETSYM;
+      IF SYM<>NUMBERV THEN EXPECTED('INT CONST');
+      IF TRUNC(NUMBER)<>NUMBER THEN ERROR('FRACTION NOT ALLOWED');
+      IF FIBLOCATION[TRUNC(NUMBER)]=0 THEN ERROR('UNDEF FILE');
+      UNIVERSAL := FALSE;
+      FILEADDR := FIBLOCATION[TRUNC(NUMBER)];
+      GETSYM;
+    END;
+  DOANINPUT;
+  WHILE SYM=COMMAV DO
+    BEGIN
+      GETSYM;
+      DOANINPUT;
+    END;
+END;
+
+PROCEDURE PRINTSTATEMENT;
+CONST
+  NWRITELINE = 22;
+VAR
+  FILEADDR:INTEGER;
+  DOAWRITELINE,UNIVERSAL,GOTADELIM:BOOLEAN;
+
+PROCEDURE DOANOUTPUT;
+CONST
+  NWRITESTRING = 19;
+BEGIN
+  GENLOADFILEADDR(FILEADDR,UNIVERSAL);
+  SAVENEXTTEMP := NEXTTEMP;
+  IF SYM IN NUMEXPFIRSTS THEN
+    BEGIN
+      NUMEXP;
+      GENBYTE(0);
+      GENBYTE(0);
+      GENOP(OPCGP);
+      GENBYTE(AUTONUM(bwritereal));
+    END
+  ELSE
+    BEGIN
+      STREXP;
+      GENBYTE(0);
+      GENEXTPROCCALL(NWRITESTRING);
+      FREEALLSTREXP;
+    END;
+  FREEALLSTREXP;
+  GENSTANPROC(NCHKIOERROR);
+END;
+
+BEGIN{PRINTSTATEMENT}
+  GETSYM;
+  UNIVERSAL := TRUE;
+  FILEADDR := OUTPUTFILEADDR;{INITIAL ASSUMPTIONS}
+  IF SYM=HASHV THEN
+    BEGIN
+      GETSYM;
+      IF SYM<>NUMBERV THEN EXPECTED('INT CONST');
+      IF TRUNC(NUMBER)<>NUMBER THEN ERROR('FRACTION NOT ALLOWED');
+      IF FIBLOCATION[TRUNC(NUMBER)]=0 THEN ERROR('UNDEF FILE');
+      UNIVERSAL := FALSE;
+      FILEADDR := FIBLOCATION[TRUNC(NUMBER)];
+      GETSYM;
+    END;
+  DOAWRITELINE:=TRUE;
+  GOTADELIM := TRUE;
+  WHILE (SYM IN EXPFIRSTS) AND GOTADELIM DO
+    BEGIN
+      DOAWRITELINE:=TRUE;
+      DOANOUTPUT;
+      GOTADELIM := SYM IN [COMMAV,SEMIV];
+      IF GOTADELIM THEN
+        BEGIN
+          DOAWRITELINE := SYM<>SEMIV;
+          GETSYM;
+        END;
+    END;
+  IF DOAWRITELINE THEN
+    BEGIN
+      GENLOADFILEADDR(FILEADDR,UNIVERSAL);
+      GENEXTPROCCALL(NWRITELINE);
+      GENSTANPROC(NCHKIOERROR);
+    END;
+END;{PRINTSTATEMENT}
+
+PROCEDURE DATASTATEMENT;
+BEGIN
+  WRITELN('DATA STATEMENT NOT IMPLEMENTED');
+  GETCH;
+  GETSYM;
+  IF SYM IN NUMEXPFIRSTS THEN
+    NUMEXP
+  ELSE
+    STREXP;
+  WHILE SYM=COMMAV DO
+    BEGIN
+      GETSYM;
+      IF SYM IN NUMEXPFIRSTS THEN
+        NUMEXP
+      ELSE
+        STREXP;
+    END;
+END;
+
+PROCEDURE GOTOSTATEMENT;
+  VAR INTNUM:INTEGER;
+BEGIN
+  GETSYM;
+  IF SYM<>NUMBERV THEN EXPECTED('LINE NUMBER');
+  INTNUM:=ROUND(NUMBER);
+  GENOP(OPUJP);
+  GENDISP(INTNUM,FALSE);
+  GETSYM;
+END;
+
+PROCEDURE GOSUBSTATEMENT;
+{Sets up a call to procedure Bgosub in Basicio.}
+Const
+  stackptr_offset = 5;
+  substack_offset = 6;
+VAR
+  INTNUM:INTEGER;
+BEGIN
+  GETSYM;
+  IF SYM<>NUMBERV THEN EXPECTED('LINE NUMBER');
+  INTNUM:=ROUND(NUMBER);
+  genloadaddr(stackptr_offset,ldglobal);
+  genloadaddr(substack_offset,ldglobal);
+  GENOP(OPCGP);
+  GENBYTE(AUTONUM(bgosub));
+  GENOP(OPUJP);
+  GENDISP(INTNUM,FALSE);
+  GETSYM;
+END;
+
+PROCEDURE RETURNSTATEMENT;
+{Sets up a call to procedure Breturn in Basicio.}
+Const
+  stackptr_offset = 5;
+  substack_offset = 6;
+BEGIN
+  genloadaddr(stackptr_offset,ldglobal);
+  genloadaddr(substack_offset,ldglobal);
+  GENOP(OPCGP);
+  GENBYTE(AUTONUM(breturn));
+  GETSYM;
+END;
+
+PROCEDURE ASSIGNSTATEMENT;
+  VAR ID1,OFFSET:INTEGER;
+    LDKIND:LDTYPES;
+BEGIN
+  IF SYM=LETV THEN GETSYM;
+  IF NOT (SYM IN IDS) THEN EXPECTED('VARIABLE');
+  ID1:=IDPLACE;
+  SAVENEXTTEMP := NEXTTEMP;
+  IF SYM=STRIDV THEN
+    BEGIN
+      GETSYM;
+      IF SYM=LPARENV THEN
+        STRARRAY
+      ELSE
+        BEGIN
+          GOTSTRING(OFFSET,ID1,LDKIND);
+          GENLOADADDR(OFFSET,LDKIND);
+        END;
+      IF SYM<>EQUALSV THEN EXPECTED('=');
+      GETSYM;
+      STREXP;
+      GENOP(OPSAS);
+      GENBYTE(DEFSTRLNG);
+    END
+  ELSE
+    BEGIN
+      GETSYM;
+      IF SYM=LPARENV THEN
+        REALARRAY
+      ELSE
+        BEGIN
+          GOTREAL(OFFSET,ID1,LDKIND);
+          GENLOADADDR(OFFSET,LDKIND);
+        END;
+      IF SYM<>EQUALSV THEN EXPECTED('=');
+      GETSYM;
+      NUMEXP;
+      GENOP(OPSTM);
+      GENBYTE(WRDSPERREAL);
+    END;
+  FREEALLSTRTEMPS;
+END;{ASSIGNSTATEMENT}
+
+BEGIN {COMMAND}
+    IF NOT (SYM IN COMKEY) THEN EXPECTED('COMMAND KEYWORD');
+    CASE SYM OF
+      LETV,REALIDV,STRIDV:ASSIGNSTATEMENT;
+      READV:READSTATEMENT;
+      FORV:FORSTATEMENT;
+      IFV:IFSTATEMENT;
+      ONV:ONSTATEMENT;
+      DIMV:DIMSTATEMENT;
+      PRINTV:PRINTSTATEMENT;
+      DATAV:DATASTATEMENT;
+      GOTOV:GOTOSTATEMENT;
+      GOSUBV:GOSUBSTATEMENT;
+      RETURNV:RETURNSTATEMENT;
+      INPUTV:INPUTSTATEMENT
+    END; {CASE}
+END;
+
+PROCEDURE LOCKFILES;
+CONST
+  NFCLOSE = 6;
+  VAR I:INTEGER;
+BEGIN
+  FOR I := 1 TO 16 DO
+    IF FIBLOCATION[I]<>0 THEN
+      BEGIN
+        GENLOADADDR(FIBLOCATION[I],LDGLOBAL);
+        GENBYTE(1{CLOSETYPE});
+        GENEXTPROCCALL(NFCLOSE);
+      END;
+END;
+
+PROCEDURE GENAUTOINITS;
+VAR
+  offset :INTEGER;
+BEGIN
+  {Allocate space for RANDOM's SEED}
+    NEWVAR(offset,1);
+    assert(offset = 3,'genautoinits: seed''s offset <> 3');
+  {Allocate OPENFILE's DONEFILE}
+    NEWVAR(offset,1);
+    assert(offset = 4,'genautoinits: donefile''s offset <> 4');
+  {Allocate GOSUB's stack and stack pointer}
+    NEWVAR(offset,1);
+    assert(offset = 5,'genautoinits: stackptr''s offset <> 5');
+    newvar(offset,31);
+    assert(offset = 6,'genautoinits: substack''s offset <> 6');
+END;
+
+BEGIN {PROG}
+  NEW1VAL(DICTRECP);
+  DICTRECP^.VAL := -1; {Fill in base procedure address later}
+  GETSYM; {1ST SYM OF FILE}
+  GENAUTOINITS;
+  ENTERIC:=IC;
+  {Emit the hidden initialization code for BASIC fancy intrinsics}
+    genloadaddr(5{stackptr_offset},ldglobal);
+    genloadaddr(4{donefile_offset},ldglobal);
+    genloadaddr(3{seed_offset},ldglobal);
+    genop(opCGP);
+    genbyte(autonum(bautorandomizedinits));
+  IF SYM<>EOLNV THEN EXPECTED('LINE NUMBER');
+  GENLINENUM(LINENO,IC);
+  GETSYM;
+  WHILE SYM<>ENDV DO
+    BEGIN
+      IF SYM=DEFV THEN
+        FUNCDEF
+      ELSE
+        COMMAND;
+      IF SYM<>EOLNV THEN EXPECTED('END OF LINE');
+      GENLINENUM(LINENO,IC);
+      GETSYM;
+    END;
+  IF FORWARDJMPLIST<>FJLISTSENTINEL THEN ERROR('UNRESOLVED FORWARD JMPS');
+  LOCKFILES;
+  EXITIC := IC;
+  GENOP(OPRBP);
+  GENBYTE(0);
+  IF ODD(IC) THEN GENBYTE(0);
+  GENJTAB;
+  GENWORD(2*(NEXTOFFSET-3));{THE GLOBAL DATASIZE}
+  GENWORD(4);{THE GLOBAL PARAMETER SIZE}
+  GENWORD(IC-EXITIC);{THE EXIT IC}
+  GENWORD(IC-ENTERIC);
+  FILLINDICT(1,IC);{Now know address of base procedure}
+  GENBYTE(1);{THE PROCNUM}
+  GENBYTE(0);{THE LEX LEVEL}
+END; {PROG}
+
+PROCEDURE NEWVAR{VAR OFFSET:INTEGER;SIZEINWORDS:INTEGER};
+BEGIN
+  OFFSET:=NEXTOFFSET;
+  NEXTOFFSET:=NEXTOFFSET+SIZEINWORDS;
+END;
+
+PROCEDURE NEW1VAL{VAR ONEVAL:P1VALLIST};
+  VAR SAVELINK:P1VALLIST;
+BEGIN
+  SAVELINK := ONEVAL;
+  IF FREE1VALLIST=NIL THEN
+    NEW(ONEVAL)
+  ELSE
+    BEGIN
+      ONEVAL := FREE1VALLIST;
+      FREE1VALLIST := FREE1VALLIST^.LINK;
+    END;
+  ONEVAL^.LINK := SAVELINK;
+END;
+
+PROCEDURE FREEONEVAL{VAR ONEVAL:P1VALLIST};
+  VAR SAVELINK:P1VALLIST;
+BEGIN
+  SAVELINK := ONEVAL^.LINK;
+  ONEVAL^.LINK := FREE1VALLIST;
+  FREE1VALLIST := ONEVAL;
+  ONEVAL := SAVELINK;
+END;
+
+PROCEDURE PUTBYTEFIX{PUTPLACE:INTEGER;THEVALUE:BYTE};
+VAR
+  DONTCARE:INTEGER;
+BEGIN
+  IF PUTPLACE>=BASEIC THEN
+    OUTBUF[PUTPLACE - BASEIC] := THEVALUE
+  ELSE
+    BEGIN
+      NEW2VAL(FIXUPLIST);
+      WITH FIXUPLIST^ DO
+        BEGIN
+          BYTENUM := PUTPLACE;
+          VALUE   := THEVALUE;
+        END;
+    END;
+  IF IC=BASEIC+OUTBUFMINUS1 THEN
+    BEGIN
+      OUTBLKCNT := OUTBLKCNT +
+                       BLOCKWRITE(USERINFO.WORKCODE^,OUTBUF,
+                                 (OUTBUFMINUS1 + 1) DIV 512);
+      BASEIC:=BASEIC+(OUTBUFMINUS1 + 1);
+    END;
+END;
+
+PROCEDURE GENBYTE{VALUE:BYTE};
+BEGIN
+  PUTBYTEFIX(IC,VALUE);
+  IC:=IC+1;
+END;
+
+PROCEDURE GENOP{VALUE:OPTYPE};
+BEGIN
+  GENBYTE(OPVAL[VALUE]);
+END;
+
+PROCEDURE GENWORD{VALUE:INTEGER};
+  VAR WORD:PACKED ARRAY[0..1] OF BYTE;
+BEGIN
+  MOVELEFT(VALUE,WORD,2);
+  GENBYTE(WORD[0]);
+  GENBYTE(WORD[1]);
+END;
+
+PROCEDURE GENBIG{IVAL:INTEGER};
+  VAR WORD:PACKED ARRAY[0..1] OF BYTE;
+BEGIN
+  IF IVAL<=127 THEN
+    GENBYTE(IVAL)
+  ELSE
+    BEGIN
+      MOVELEFT(IVAL,WORD,2);
+      GENBYTE(WORD[1]+128{TURNS ON HIGH ORDER BIT});
+      GENBYTE(WORD[0]);
+    END;
+END;
+
+PROCEDURE FILLINDICT{PROCNUM,VAL:INTEGER};
+VAR
+  I:INTEGER;
+  DICTPTR:P1VALLIST;
+BEGIN
+  DICTPTR := DICTRECP;
+  FOR I := NEXTPROCNUM - 2 DOWNTO PROCNUM DO
+    DICTPTR := DICTPTR^.LINK;
+  ASSERT(DICTPTR^.VAL = -1,'FILLINDICT');
+  DICTPTR^.VAL := VAL;
+END;
+
+PROCEDURE NEW2VAL{VAR LINEREC:P2VALLIST};
+  VAR SAVELINK:P2VALLIST;
+BEGIN
+  SAVELINK := LINEREC;
+  IF FREE2VALLIST=NIL THEN
+    NEW(LINEREC)
+  ELSE
+    BEGIN
+      LINEREC:=FREE2VALLIST;
+      FREE2VALLIST:=LINEREC^.LINK;
+    END;
+  LINEREC^.LINK := SAVELINK;
+END;
+
+PROCEDURE FREETWOVAL{VAR LINEREC:P2VALLIST};
+  VAR SAVELINK:P2VALLIST;
+BEGIN
+  SAVELINK := LINEREC^.LINK;
+  LINEREC^.LINK:=FREE2VALLIST;
+  FREE2VALLIST:=LINEREC;
+  LINEREC := SAVELINK;
+END;
+
+PROCEDURE GENLOADADDR{OFFSET:INTEGER;LDKIND:LDTYPES};
+BEGIN
+  IF LDKIND=LDGLOBAL  THEN
+    GENOP(OPLAO)
+  ELSE IF LDKIND=LDLOCAL THEN
+    GENOP(OPLLA)
+  ELSE
+    GENOP(OPLDL);
+  GENBIG(OFFSET);
+END;
+
+PROCEDURE GENJTAB{};
+BEGIN
+  WHILE JTABLIST<>NIL DO
+    BEGIN
+      GENWORD(IC-JTABLIST^.VAL);
+      FREEONEVAL(JTABLIST);
+    END;
+END;
+
+PROCEDURE ASSERT{B:BOOLEAN;S:STRING};
+VAR
+  I:INTEGER;
+BEGIN
+  IF NOT B THEN
+    BEGIN
+      FOR I := 1 TO 100 DO
+         WRITE(CHR(7));
+      WRITELN('ASSERTION FAILED, REPORT MESSAGE: ',S);
+    END;
+END;
+
+BEGIN {BASICCOMPILER}
+  COMPINIT;
+  PROG;
+  COMPCLOSE;
+END;
+
+BEGIN {DUMMY PASCALSYSTEM} END.

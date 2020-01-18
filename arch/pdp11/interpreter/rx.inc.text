@@ -1,0 +1,384 @@
+;
+; UCSD PASCAL - Version II.0
+; Copyright (C) 1978, 1979 Regents of the University of California
+; All Rights Reserved
+;
+; Permission to use, copy, modify and distribute any part of UCSD
+; PASCAL solely authored by UC authors before June 1, 1979 for
+; educational, research and non-profit purposes, without fee, and
+; without a written agreement is hereby granted, provided that the
+; above copyright notice, this paragraph and the following three
+; paragraphs appear in all copies.
+;
+; Those desiring to incorporate UCSD PASCAL into commercial products or
+; use for commercial purposes should contact the Technology Transfer &
+; Intellectual Property Services, University of California, San Diego,
+; 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+; Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+;
+; IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+; FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+; INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+; THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+; DAMAGE.
+;
+; THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+; OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+; UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+; MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+; EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+; WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+; THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+; OTHER RIGHTS.
+;
+; Case Number: SD1991-807 (2006)
+; http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+;
+;;; Source: http://bitsavers.org/bits/UCSD_Pascal/ucsd_II.0/
+;;;     U121.2_LSI-11_P-CODE_SOURCE.raw.gz
+;;; Description: DEC floppy driver.
+;;; Date: 1979-03-27
+        .TITLE  RX-11 FLOPPY HANDLER
+        ;
+        ; COPYRIGHT (C) 1979 REGENTS OF THE UNIVERSTIY OF CALIFORNIA.
+        ; PERMISSION TO COPY OR DISTRIBUTE THIS SOFTWARE OR DOCUMEN-
+        ; TATION IN HARD COPY OR SOFT COPY GRANTED ONLY BY WRITTEN LICENSE
+        ; OBTAINED FROM THE INSTITUTE OF INFORMATION SYSTEMS.  ALL RIGHTS
+        ; RESERVED.  NO PART OF THIS PUBLICATION MAY BE REPRODUCED, STORED
+        ; IN A RETRIEVAL SYSTEM ( E.G., IN MEMORY, DISK, OR CORE) OR BE
+        ; TRANSMITTED BY ANY MEANS, ELECTRONIC, MECHANICAL, PHOTOCOPY,
+        ; RECORDING, OR OTHERWISE, WITHOUT PRIOR WRITTEN PERMISSION FROM THE
+        ; PUBLISHER.
+        ;
+        ; MODIFIED, SLB 24-NOV-78:
+        ;       CHECK "DONE" BIT IN CSR BEFORE STUFFING COMMAND,
+        ;       AT LOC "DOFUNC:" AND AFTER "SILOFE:"
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                                                                   ;
+;                       SYSTEM TABLE CONTENTS                       ;
+;                                                                   ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+        .ASECT          ; INTERRUPT HANDLER LOCATION IN VECTORS
+.=264
+        RX$INT          ; RX FLOPPY INTERRUPT HANDLER
+        340             ; MAX PRIORITY
+
+        .CSECT  TABLES
+        .BLKW   128.    ; OPERATOR XFER TABLE
+        .REPT   4
+        .BLKW   3
+        .ENDR
+        .WORD   INBIT!OUTBIT,RXSTRT,RXBOMB
+        .WORD   INBIT!OUTBIT!400,RXSTRT,RXBOMB
+        .PAGE
+        .CSECT  RXDRVR
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                                                                   ;
+;               R X - 1 1   FLOPPY HANDLER                          ;
+;                                                                   ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+RXUNIT: .WORD   0       ; ADDRESS OF UNIT TABLE ENTRY FOR I/O
+RXOFST  = 14
+
+DUMCSW: .WORD           ; START OF PHONY IO Q ENTRY FOR DRIVER
+        .WORD   DUMCSW  ; POINTER TO CSW
+DUMIOQ: .WORD           ; DISK BLOCK #
+        .WORD           ; SPEC FUNC (0) AND UNIT # IN HIGH BYTE
+        .WORD           ; BUFFER ADDRESS
+        .WORD           ; WORD COUNT
+        .WORD   1       ; ASYNCHRONOUS IO REQUEST
+
+RXSTRT: ; ENTER HERE TO START FLOPPY IO'S.   WE JUST SET UP A PHONY
+        ; IO Q FOR THE RT-11 DRIVER FROM TERAK AND LET IT DO ALL THE
+        ; DIRTY WORK.
+        TST     RXUNIT  ; ANY IO'S ALREADY GOING?
+        BNE     RXSTRT  ; IF SO THEN HANG!
+        MOV     R1,RXUNIT       ; NOW IO IS GOING ON RX
+        BIS     #BSYBIT,@R1
+        TST     (R3)+           ; SKIP PAST IO TYPE
+        MOV     R3,@SP          ; SAVE ALL REGISTERS...KLUDGE!!
+        MOV     R0,-(SP)
+        MOV     R1,-(SP)
+        MOV     R2,-(SP)
+        MOV     R4,-(SP)
+        MOV     R5,-(SP)
+        CLR     DUMCSW          ; CLEAR ANY HARD ERROR PROBS
+        MOV     #DUMIOQ,R5      ; POINT R5 AT IO Q...READY TO BUILD IT
+        MOV     <UBLOCK+RXOFST>(SP),(R5)+
+        MOV     @R1,(R5)+       ; UNIT # (SPECIAL FORMAT IN MY UNITABLE)
+        MOV     <UBUFFR+RXOFST>(SP),(R5)+
+        MOV     <URLENG+RXOFST>(SP),R0
+        ROR     R0              ; IN WORD COUNT (CBIT IS CLEAR)
+        TST     -(R3)           ; CHECK IF READ OR WRITE
+        BNE     1$              ; 1 IS A READ...0 IS A WRITE
+        NEG     R0              ; NEGATIVE WORD COUNT IF A WRITE
+1$:     MOV     R0,(R5)+        ; FINALLY WORD COUNT SET IN Q EL
+        JSR     PC,QENTRY       ; AND START UP DRIVER
+        MOV     (SP)+,R5        ; NOW RESTORE THOSE REGS
+        MOV     (SP)+,R4
+        MOV     (SP)+,R2
+        MOV     (SP)+,R1
+        MOV     (SP)+,R0
+        MOVB    DUMCSW,@R1      ; SEND POSSIBLE ERROR BACK TO USER
+        JMP     @(SP)+          ; RETURN TO UIO NOW (OLD R3 VAL @SP)
+
+$INTEN: ; FAKE $INTEN FOR DRIVERS BENEFIT
+        MOV     R4,-(SP)        ; R5 ALREADY ON STACK
+        JSR     PC,@R5
+        MOV     (SP)+,R4
+        MOV     (SP)+,R5
+        JMP     @#INTRTN
+
+RXQUIT: ; THIS IS THE DUMMY QMANAGR ENTERED UPON IO COMPLETE
+        MOVB    DUMCSW,@RXUNIT  ; PLACE POSSIBLE HARD ERROR IN RESULT BYTE
+        BIC     #BSYBIT,@RXUNIT
+        CLR     RXUNIT
+        RTS     PC              ; FALLS INTO $INTEN
+
+RXBOMB: TST     RXUNIT
+        BNE     RXBOMB
+        RTS     PC
+        .PAGE
+        RXCS=177170
+        RXDB=177172
+;       CONTROL AND STATUS BITS
+        CSGO=1                  ;INITIATE FUNCTION
+;       FUNCTIONS (BITS 1-3)
+        CSFBUF= 0*2             ;FILL SILO (PRE-WRITE)
+        CSEBUF= 1*2             ;EMPTY SILO (POST-READ)
+        CSWRT=  2*2             ;WRITE SECTOR
+        CSRD=   3*2             ;READ SECTOR
+        CSRDST= 5*2             ;READ STATUS
+        CSWRTD= 6*2             ;WRITE SECTOR WITH DELETED DATA
+        CSMAIN= 7*2             ;MAINTENANCE
+
+        CSRDWR= CSRD&CSWRT      ;READ OR WRITE BIT
+        CSUNIT= 20              ;UNIT BIT
+        CSDONE= 40              ;DONE BIT
+        CSINT=  100             ;INTERUPT ENABLE
+        CSTR=   200             ;TRANSFER REQUEST
+        CSINIT= 40000           ;RX11 INITIALIZE
+        CSERR=  100000          ;ERROR
+
+        DBDD=   100             ;DELETED DATA MARK
+        DBIN=   4               ;RX INIT DONE INDICATOR
+
+        RETRY=8.                ;RETRY COUNT
+
+        SPFUNC= 100000          ;SPECIAL FUNCTIONS FLAG
+
+RXCQE:  .WORD   DUMIOQ
+;       REQUEST ENTRY POINT
+QENTRY:
+        CMP     -(SP),-(SP)     ;RESERVE 2 WORDS ON TO STACK TO USE
+                                ;COMMON EXIT SEQUENCE
+        MOV     RXCQE,R3        ;GET POINTER TO I/O ELEMENT
+        MOV     (R3)+,R5        ;GET BLOCK NUMBER
+        MOV     #CSGO+CSRD,R4   ;FORM A GUESS AT RXCS FUNCTION
+        MOVB    (R3)+,R1        ;SAVE FUNCTION FOR LATER
+        BITB    #6,@R3          ;ANY UNITS BUT 0 OR 1?
+        BNE     RXERR           ;BRANCH IF YES, ERROR
+        BITB    #1,(R3)+        ;CHECK FOR UNIT 0 OR 1?
+        BEQ     1$              ;BRANCH IF 0
+        BIS     #CSUNIT,R4      ;UPDATE GUESS AT RXCS
+1$:     MOV     (R3)+,R0        ;SAVE THE BUFFER ADDRESS
+        MOV     @R3,R2          ;GET WORD COUNT
+        BPL     2$              ;TAKE ABSOLUTE VALUE
+;       BIC     #CSEBUF,R4      ;WRITE FUNCTIONS ARE 0,2 SO CLEAR 1 BIT
+        CMPB    -(R4),-(R4)     ;EQUIVALENT TO ABOVE BIC
+        NEG     R2              ;MAKES IT POSITIVE
+2$:     ADD     PC,R1           ;FORM PIC REFERENCE TO CHGTBL
+        MOVB    CHGTBL-.(R1),R3 ;GET FUNCTION MODIFIER
+        ROR     R1              ;SET C TO FLAG IF SPECIAL FUNCTION
+        ROR     R3              ;SET SIGN TO SPFUNC FLAG (NON-OBVIOUS!)
+        ADD     R3,R4           ;MODIFY FUNCTION BASED ON READ/WRITE
+        BMI     3$              ;BRANCH IF SPECIAL FUNCTION REQUEST
+        ASL     R5              ;MAKE A LOGICAL SECTOR NUMBER
+        ASL     R5              ;BLOCK*4
+        ASL     R2              ;MAKE WORD COUNT UNSIGNED BYTE COUNT
+        BR      4$              ;SKIP SPECIAL FUNCTION INITING
+3$:     CLR     (R0)+           ;CLEAR DELETED DATA FLAG WORD
+        MOV     R2,PHYTRK       ;SAVE TRACK FOR LATER
+        MOV     #128.,R2        ;SET THE BYTE COUNT TO 128
+4$:     MOV     R0,BUFRAD       ;SAVE FOR LATER
+        MOV     R5,RXLSN        ;SAVE FOR LATER
+        MOV     R4,RXFUN2       ;SAVE READ OR WRITE RXCS COMMAND
+        MOV     R2,BYTCNT       ;SAVE FOR LATER
+        MOV     #RETRY,(PC)+    ;SET RETRY COUNT
+RXTRY:  .WORD   0               ;RETRY COUNT
+RXINIT: CLR     R3              ;SET THIS IS INITIAL INTERRUPT FLAG
+        BR      RXWAIT          ;PERFORM A RETURN TO WAIT FOR INTERUPT
+
+RXERR:  MOV     RXCQE,R4        ;R4 -> CURRENT QUEUE ELEMENT
+        BIS     #1,@-(R4)       ;SET HARD ERROR IN CSW
+RXDONE: MOV     (SP)+,R3        ;RESTORE SOME REGS
+        MOV     (SP)+,R2
+        CLR     @RXCSA          ;DISABLE FLOPPY INTERRUPTS
+        BR      RXEXIT          ;SKIP RX INITIALIZE FUNCTION
+;       RX ABORT ENTRY
+        BR      RXABRT          ;ABORT OPERATION
+
+;       INTERUPT ENTRY
+RX$INT: JSR     R5,$INTEN       ;FIX MY PRIORITY
+        MOV     R2,-(SP)        ;SAVE SOME REGS
+        MOV     R3,-(SP)
+        MOV     (PC)+,R4        ;GET ADDRESS OF RX STATUS
+RXCSA:  .WORD   RXCS            ;ONLY POINTER TO I/O PAGE
+        MOV     R4,R5           ;POINT R5 TO RX DATA BUFFER
+        TST     (R5)+           ;CHECK FOR ERROR
+        BMI     RXERR1          ;BRANCH IF ERROR
+
+;  CODE FOR FLOPPY POWER FAIL
+;       BIT     #DBIN,@R5       ;DID INITIALIZE APPEAR IN RXES?
+;       BNE     RXERR1          ;BRANCH IF SO TO RETRY
+
+        NEG     (PC)+           ;IS THIS INITIAL INTERRUPT? C=0 IF YES
+INTINT: .WORD   0               ;INTERNAL INITIAL INTERUPT FLAG
+        MOV     #128.,R3        ;INIT R3 FOR 128 BYTES, USED LATER
+        BIT     #CSEBUF,RXFUN2  ;READ OR WRITE INTERUPT?
+        BNE     2$              ;BRANCH IF READ
+        BCC     1$              ;BRANCH TO AVOID UPDATING POINTERS
+        JSR     PC,NXTSEC       ;SET UP FOR NEXT WRITE
+1$:     JSR     R0,SILOFE       ;LOAD THE SILO
+                                ;SILOFE ARG LIST
+        MOVB    (R2)+,@R5       ;MOVB TO BE PLACED IN-LINE IN SILOFE
+        .WORD   CSGO+CSFBUF     ;FILL BUFFER COMMAND
+        CLRB    @R5             ;ZERO FILL SECTOR INSTRUCTION WHICH
+                                ;WOULD BE USED FOR SHORT WRITES
+;       BR      3$              ;SKIP READ FINISHING, (C BIT IS 0)
+2$:     BCC     3$              ;BRANCH TO AVOID EMPTYING SILO
+        TST     RXFUN2          ;IS THIS SPECIAL FUNCTION REQUEST?
+        BPL     4$              ;BRANCH IF NOT SPECIAL FUNCTION CALL
+        BIT     #DBDD,@R5       ;IS DELETED DATA FLAG PRESENT?
+        BEQ     4$              ;BRANCH IF IT IS
+        MOV     BUFRAD,R2       ;GET ADDRESS OF USER BUFFER AREA
+        INC     -(R2)           ;SET FLAG WORD TO 1 INDICATING DEL DATA
+4$:     JSR     R0,SILOFE       ;MOVE THE DATA INTO MEMORY FROM SILO
+                                ;SILOFE ARG LIST
+        MOVB    @R5,(R2)+       ;MOVB TO BE PLACED IN LINE IN SILOFE
+        .WORD   CSGO+CSEBUF     ;EMPTY BUFFER COMMAND
+        MOVB    @R5,R2          ;DATA SLUFFER TO BE USED FOR SHORT READ
+
+        JSR     PC,NXTSEC       ;SET UP TO READ NEXT SECTOR
+3$:     MOV     (PC)+,R3        ;GET THE LOGICAL SECTOR NUMBER
+RXLSN:  .WORD   0               ;LOGICAL SECTOR NUMBER KEPT HERE
+        MOV     (PC)+,R2        ;IF SPECIAL FUNCTION R3 GETS SECTOR
+PHYTRK: .WORD   0               ;ABSOLUTE TRACK FOR SPECIAL FUNCS
+        TST     RXFUN2          ;IS THIS SPECIAL FUNCTION?
+        BMI     DOFUNC          ;BRANCH IF SPECIAL FUNCTIONS
+
+;       FLOPPY INTERLEAVE ALGORITHM
+
+        MOV     #8.,R2          ;LOOP COUNT
+1$:     CMP     #6400,R3        ;DOES 26 GO INTO DIVIDEND?
+        BHI     2$              ;BRANCH IF NOT, C CLEAR
+        ADD     #171400,R3      ;SUBTRACT 26 FROM DIVIDEND, SETS C
+2$:     ROL     R3              ;SHIFT DIVIDEND AND QUOTIENT
+        DEC     R2              ;DEC LOOP COUNT
+        BGT     1$              ;BRANCH TILL DIVIDE DONE
+        MOVB    R3,R2           ;COPY TRACK NUMBER
+        CLRB    R3              ;REMOVE TRACK NUMBER FROM REMAINDER
+        SWAB    R3              ;GET REMAINDER
+        CMP     #12.,R3         ;C=1 IF 13<=R3<=25, ELSE C=0
+        ROL     R3              ;DOUBLE FOR 2 TO 1 INTERLEAVE
+                                ;C-BIT COMES IN FOR SECTOR GROUP
+        ASL     R2              ;ADD TRACK TO TRACK SKEW TO SECTOR
+        ADD     R2,R3           ;SKEW BY 2* TRACK
+        ADD     R2,R3           ;SKEW BY 4* TRACK
+        ADD     R2,R3           ;SKEW BY 6* TRACK
+        ASR     R2              ;REFIX TRACK NUMBER
+        INC     R2              ;PUT TRACK # IN RANGE 1-76 TO HANDLE
+                                ;ANSI FLOPPY, TRACK 0 IS LEFT ALONE
+3$:     SUB     #26.,R3         ;MODULO SECTOR INTO RANGE -26,-1
+        BGE     3$              ;LOOP TILL REMAINDER GOES NEGATIVE
+        ADD     #27.,R3         ;PUT SECTOR IN RANGE 1,26
+DOFUNC: BIT     #40,@R4         ;"DONE" BIT SET?
+        BEQ     DOFUNC          ;IF NOT, WAIT FOR IT
+        MOV     (PC)+,@R4       ;SET THE FUNCTION
+RXFUN2: .WORD   0               ;READ OR WRITE COMMAND ON CORRECT UNIT
+1$:     TSTB    @R4             ;WAIT FOR TRANSFER READY
+        BEQ     1$              ;WAIT
+        BPL     RXERR1          ;TR IS NOT UP, THATS AN ERROR
+        MOV     R3,@R5          ;SET SECTOR FOR FLOPPY
+2$:     TSTB    @R4             ;WAIT FOR TRANSFER READY
+        BEQ     2$              ;WAIT
+        BMI     SECOK           ;BRANCH IF TR UP, ELSE ERROR
+
+RXERR1: DEC     RXTRY           ;SHOULD WE TRY AGAIN?
+        BLT     RXERR           ;BRANCH IF NO, RETRY COUNT EXPIRED
+        MOV     #CSINIT,@R4     ;START A RECALIBRATE
+        BR      RXINIT          ;EXIT THROUGH START OPERATION CODE
+
+SECOK:  MOV     R2,@R5          ;SET TRACK FOR FLOPPY
+RXWAIT: MOV     R3,INTINT       ;INTINT >0 FOR PROCESS INTERRUPT ENTRY
+        MOV     (SP)+,R3        ;RESTORE THE REGS
+        MOV     (SP)+,R2
+        BIS     #CSINT,@RXCSA   ;ENABLE FLOPPY INTERRUPTS, THIS SHOULD
+                                ;CAUSE AN INTERRUPT WHEN DONE IS UP
+RETURN: RTS     PC              ;RETURN, WE'LL BE BACK WITH AN INTERUPT
+NXTSEC:        ADD     R3,BUFRAD       ;UPDATE BUFFER ADDRESS
+        INC     RXLSN           ;BUMP LOGICAL SECTOR
+        SUB     R3,BYTCNT       ;REDUCE THE AMOUNT LEFT TO TRANSFER
+        BHI     RETURN          ;BRANCH IF WE ARE NOT DONE
+        CLR     BYTCNT          ;INIT FOR POSSIBLE SHORT WRITE
+        BIT     #CSEBUF+SPFUNC,RXFUN2   ;IS THIS A READ OR SPECIAL
+                                ;FUNCTION OPERATION?
+        BNE     1$              ;BRANCH IF EITHER, FOR .WRITE WE HAVE
+                                ;TO 0 TO THE END OF A BLOCK
+        BIT     #3,RXLSN        ;ARE WE AT 1ST SECTOR IN BLOCK?
+        BNE     RETURN          ;BRANCH IF NOT TO CONTINUE
+1$:     TST     (SP)+           ;POP RETURN ADDRESS FROM STACK
+        BR      RXDONE          ;REQUEST DONE
+RXABRT: MOV     #CSINIT,@RXCSA  ;PERFORM AN RX11 INITIALIZE
+RXEXIT: JMP     RXQUIT
+;  R3 IS 128 ON ENTRY
+;  THIS ROUTINE ASSUMES ERROR CAN NOT COME UP DURING A FILL OR EMPTY!!
+
+SILOFE: MOV     (R0)+,EFBUF     ;PUT CORRECT MOV INSTRUCTION IN FOR
+                                ;EITHER FILLING OR EMPTYING RX BUFFER
+1$:     BIT     #40,@R4         ;"DONE" BIT SET?
+        BEQ     1$              ;IF NOT, WAIT FOR IT
+        MOV     (R0)+,@R4       ;INITIATE FILL OR EMPTY BUFFER COMMAND
+        MOV     (PC)+,-(SP)     ;ASSUME MAXIMUM OF BYTCNT TO MOVE FROM
+                                ;BUFFER
+BYTCNT: .WORD   0               ;THE BYTE COUNT IS KEPT HERE
+        BEQ     ZFILL           ;BRANCH IF SEEK OR SHORT WRITE
+                                ;NOTE SEEK DOES THE EMPTY (TIME WASTER)
+        CMP     @SP,R3          ;NOW MAKE SURE COUNT IS 128 OR LESS
+        BLOS    1$              ;BRANCH IF @SP IS 128 OR LESS
+        MOV     R3,@SP          ;RESET COUNT TO 128
+1$:     MOV     (PC)+,R2        ;PUT THE BUFFER ADDRESS IN R2
+BUFRAD: .WORD   0               ;THE BUFFER ADDRESS IS KEPT HERE
+TRBYT:  TSTB    @R4             ;WAIT FOR TRANSFER READY
+        BPL     TRBYT           ;BRANCH IF TR NOT UP
+EFBUF:  HALT                    ;INSTRUCTION TO MOV OR SLUFF DATA FROM
+                                ;BUFFER GETS PLACED HERE
+                                ;  MOVE DATA        SLUFF DATA
+                                ;MOVB (R2)+,@R5     CLRB @R5       FILL
+                                ;MOVB @R5,(R2)+     MOVB @R5,R2   EMPTY
+        DEC     @SP             ;CHECK FOR COUNT DONE
+        BGT     TRBYT           ;STILL MORE TO TRANSFER
+ZFILL:  MOV     @R0,EFBUF       ;CHANGE MOV INSTRUCTION TO CORRECT
+                                ;INSTR FOR SLUFFING DATA TO/FROM BUFFER
+1$:     TSTB    @R4             ;WAIT LOOP
+        BEQ     1$              ;WAIT FOR SOME INDICATION (TR,DONE)
+        BMI     EFBUF           ;BRANCH IF TR CAME UP TO SLUFF DATA
+        BIT     (R0)+,(SP)+     ;BUMP R0 TO RETURN ADDR AND REMOVE JUNK
+                                ;WORD FROM STACK LEAVING C BIT=0
+        RTS     R0              ;RETURN
+
+
+        .BYTE   6*2             ;READ+GO -> WRITE DELETED+GO
+        .BYTE   -2*2            ;READ+GO -> WRITE+GO
+        .BYTE   0*2             ;READ+GO -> READ+GO
+CHGTBL: .BYTE   0*2             ;READ/WRITE STAY THE SAME
+
+        .EVEN
+
+$INPTR: .WORD   $INTEN          ;INTERUPT ENTRY COMMMUNICATIONS WORD
+
+        SYSIZE=.-RXSTRT         ;TOTAL SIZE OF HANDLER

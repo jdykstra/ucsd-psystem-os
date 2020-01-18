@@ -1,0 +1,314 @@
+'\" t
+.\" UCSD p-System Operating System
+.\" Copyright (C) 2006, 2010 Peter Miller
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions are met:
+.\"
+.\"   * Redistributions of source code must retain the above copyright notice,
+.\"     this list of conditions and the following disclaimer.
+.\"   * Redistributions in binary form must reproduce the above copyright
+.\"     notice, this list of conditions and the following disclaimer in the
+.\"     documentation and/or other materials provided with the distribution.
+.\"   * Neither the name of the ucsd-psystem-os project nor the names of its
+.\"     contributors may be used to endorse or promote products derived from
+.\"     this software without specific prior written permission.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+.\" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+.\" ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+.\" BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+.\" CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+.\" SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+.\" INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+.\" CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+.\" ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+.\" POSSIBILITY OF SUCH DAMAGE.
+.\"
+.de logo
+ps: exec
+gsave
+initmatrix
+2.35417 setlinewidth
+0.99 0.57 0.06 setrgbcolor
+113 195.722 moveto
+169.5 163.101 lineto
+226 195.722 lineto
+226 260.962 lineto
+169.5 293.583 lineto
+113 260.962 lineto
+closepath
+fill
+0.68 0.16 0.00 setrgbcolor
+113 195.722 moveto
+169.5 163.101 lineto
+226 195.722 lineto
+226 260.962 lineto
+169.5 293.583 lineto
+113 260.962 lineto
+closepath
+stroke
+1.00 0.45 0.10 setrgbcolor
+226 195.722 moveto
+282.5 163.101 lineto
+339 195.722 lineto
+339 260.962 lineto
+282.5 293.583 lineto
+226 260.962 lineto
+closepath
+fill
+0.68 0.16 0.00 setrgbcolor
+226 195.722 moveto
+282.5 163.101 lineto
+339 195.722 lineto
+339 260.962 lineto
+282.5 293.583 lineto
+226 260.962 lineto
+closepath
+stroke
+0.76 0.26 0.45 setrgbcolor
+339 195.722 moveto
+395.5 163.101 lineto
+452 195.722 lineto
+452 260.962 lineto
+395.5 293.583 lineto
+339 260.962 lineto
+closepath
+fill
+0.68 0.16 0.00 setrgbcolor
+339 195.722 moveto
+395.5 163.101 lineto
+452 195.722 lineto
+452 260.962 lineto
+395.5 293.583 lineto
+339 260.962 lineto
+closepath
+stroke
+0.99 0.71 0.03 setrgbcolor
+56.5 293.583 moveto
+113 260.962 lineto
+169.5 293.583 lineto
+169.5 358.823 lineto
+113 391.443 lineto
+56.5 358.823 lineto
+closepath
+fill
+0.68 0.16 0.00 setrgbcolor
+56.5 293.583 moveto
+113 260.962 lineto
+169.5 293.583 lineto
+169.5 358.823 lineto
+113 391.443 lineto
+56.5 358.823 lineto
+closepath
+stroke
+0.98 0.34 0.11 setrgbcolor
+169.5 293.583 moveto
+226 260.962 lineto
+282.5 293.583 lineto
+282.5 358.823 lineto
+226 391.443 lineto
+169.5 358.823 lineto
+closepath
+fill
+0.68 0.16 0.00 setrgbcolor
+169.5 293.583 moveto
+226 260.962 lineto
+282.5 293.583 lineto
+282.5 358.823 lineto
+226 391.443 lineto
+169.5 358.823 lineto
+closepath
+stroke
+0.89 0.28 0.40 setrgbcolor
+282.5 293.583 moveto
+339 260.962 lineto
+395.5 293.583 lineto
+395.5 358.823 lineto
+339 391.443 lineto
+282.5 358.823 lineto
+closepath
+fill
+0.68 0.16 0.00 setrgbcolor
+282.5 293.583 moveto
+339 260.962 lineto
+395.5 293.583 lineto
+395.5 358.823 lineto
+339 391.443 lineto
+282.5 358.823 lineto
+closepath
+stroke
+0.56 0.23 0.45 setrgbcolor
+395.5 293.583 moveto
+452 260.962 lineto
+508.5 293.583 lineto
+508.5 358.823 lineto
+452 391.443 lineto
+395.5 358.823 lineto
+closepath
+fill
+0.68 0.16 0.00 setrgbcolor
+395.5 293.583 moveto
+452 260.962 lineto
+508.5 293.583 lineto
+508.5 358.823 lineto
+452 391.443 lineto
+395.5 358.823 lineto
+closepath
+stroke
+1.00 0.31 0.13 setrgbcolor
+113 391.443 moveto
+169.5 358.823 lineto
+226 391.443 lineto
+226 456.684 lineto
+169.5 489.304 lineto
+113 456.684 lineto
+closepath
+fill
+0.68 0.16 0.00 setrgbcolor
+113 391.443 moveto
+169.5 358.823 lineto
+226 391.443 lineto
+226 456.684 lineto
+169.5 489.304 lineto
+113 456.684 lineto
+closepath
+stroke
+0.95 0.26 0.23 setrgbcolor
+226 391.443 moveto
+282.5 358.823 lineto
+339 391.443 lineto
+339 456.684 lineto
+282.5 489.304 lineto
+226 456.684 lineto
+closepath
+fill
+0.68 0.16 0.00 setrgbcolor
+226 391.443 moveto
+282.5 358.823 lineto
+339 391.443 lineto
+339 456.684 lineto
+282.5 489.304 lineto
+226 456.684 lineto
+closepath
+stroke
+0.47 0.26 0.48 setrgbcolor
+339 391.443 moveto
+395.5 358.823 lineto
+452 391.443 lineto
+452 456.684 lineto
+395.5 489.304 lineto
+339 456.684 lineto
+closepath
+fill
+0.68 0.16 0.00 setrgbcolor
+339 391.443 moveto
+395.5 358.823 lineto
+452 391.443 lineto
+452 456.684 lineto
+395.5 489.304 lineto
+339 456.684 lineto
+closepath
+stroke
+0.56 0.23 0.44 setrgbcolor
+339 195.722 moveto
+395.5 163.101 lineto
+0 -65.2406 lineto
+0 0 lineto
+closepath
+fill
+0.68 0.16 0.00 setrgbcolor
+339 195.722 moveto
+395.5 163.101 lineto
+0 -65.2406 lineto
+0 0 lineto
+closepath
+stroke
+0.98 0.33 0.12 setrgbcolor
+226 195.722 moveto
+282.5 163.101 lineto
+-113 -65.2406 lineto
+-113 0 lineto
+closepath
+fill
+0.68 0.16 0.00 setrgbcolor
+226 195.722 moveto
+282.5 163.101 lineto
+-113 -65.2406 lineto
+-113 0 lineto
+closepath
+stroke
+0.98 0.44 0.12 setrgbcolor
+113 195.722 moveto
+169.5 163.101 lineto
+-226 -65.2406 lineto
+-226 0 lineto
+closepath
+fill
+0.68 0.16 0.00 setrgbcolor
+113 195.722 moveto
+169.5 163.101 lineto
+-226 -65.2406 lineto
+-226 0 lineto
+closepath
+stroke
+0.99 0.60 0.04 setrgbcolor
+56.5 293.583 moveto
+113 260.962 lineto
+-282.5 32.6203 lineto
+-282.5 97.8609 lineto
+closepath
+fill
+0.68 0.16 0.00 setrgbcolor
+56.5 293.583 moveto
+113 260.962 lineto
+-282.5 32.6203 lineto
+-282.5 97.8609 lineto
+closepath
+stroke
+0.98 0.44 0.12 setrgbcolor
+113 260.962 moveto
+113 195.722 lineto
+-226 0 lineto
+-226 65.2406 lineto
+closepath
+fill
+0.68 0.16 0.00 setrgbcolor
+113 260.962 moveto
+113 195.722 lineto
+-226 0 lineto
+-226 65.2406 lineto
+closepath
+stroke
+0.99 0.60 0.04 setrgbcolor
+56.5 358.823 moveto
+56.5 293.583 lineto
+-282.5 97.8609 lineto
+-282.5 163.101 lineto
+closepath
+fill
+0.68 0.16 0.00 setrgbcolor
+56.5 358.823 moveto
+56.5 293.583 lineto
+-282.5 97.8609 lineto
+-282.5 163.101 lineto
+closepath
+stroke
+0.95 0.26 0.23 setrgbcolor
+113 456.684 moveto
+113 391.443 lineto
+-226 195.722 lineto
+-226 260.962 lineto
+closepath
+fill
+0.68 0.16 0.00 setrgbcolor
+113 456.684 moveto
+113 391.443 lineto
+-226 195.722 lineto
+-226 260.962 lineto
+closepath
+stroke
+grestore
+..
+.if t \Y[logo]

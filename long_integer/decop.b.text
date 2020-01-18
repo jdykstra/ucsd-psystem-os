@@ -1,0 +1,415 @@
+; UCSD PASCAL - Version I.5
+; Copyright (C) 1978, 1979 Regents of the University of California
+; All Rights Reserved
+;
+; Permission to use, copy, modify and distribute any part of UCSD
+; PASCAL solely authored by UC authors before June 1, 1979 for
+; educational, research and non-profit purposes, without fee, and
+; without a written agreement is hereby granted, provided that the
+; above copyright notice, this paragraph and the following three
+; paragraphs appear in all copies.
+;
+; Those desiring to incorporate UCSD PASCAL into commercial products or
+; use for commercial purposes should contact the Technology Transfer &
+; Intellectual Property Services, University of California, San Diego,
+; 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+; Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+;
+; IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+; FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+; INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+; THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+; DAMAGE.
+;
+; THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+; OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+; UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+; MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+; EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+; WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+; THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+; OTHER RIGHTS.
+;
+; Case Number: SD1991-807 (2006)
+; http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+        MOV     NNN,R5
+        SUB     MMM,R5
+        BEQ     $6
+        BPL     $5
+        JMP     BOMB
+$5:     MOV     BSIGN,-(SP)
+        SOB     R5,$5
+$6:     MOV     CADD,R4
+        MOV     AADD,R5
+        CMP     (R4)+,(R5)+     ; ADJUST R4 AND R5
+        MOV     NNN,R3
+$7:     MOV     -(R4),-(R5)
+        CLR     (R4)
+        SOB     R3,$7           ; MOVE A AND CLEAR C.
+        MOV     TWON,R3
+        ASL     R3
+        MOV     R3,LENG         ; SAVE LONG LENGTH IN BYTES
+        TST     -(R3)
+        MOV     AADD,AWS
+        SUB     R3,AWS          ; SAVE ADDRESS OF SIGN WORD OF A.
+        MOV     BADD,BWS
+        SUB     R3,BWS          ; SAVE ADDRESS OF SIGN WORD OF B.
+        MOV     AADD,R2
+        MOV     TWON,R3
+        JSR     PC,LASL
+        MOV     AADD,R2
+        MOV     TWON,R3
+        JSR     PC,LASL         ; ADJUST A FOR PROPER DIVISION.
+DDVB:   ;  DIVISION BEGINS HERE.
+        CMP     ASIGN,BSIGN
+        BEQ     $1
+        JSR     PC,LADDAB       ; SIGN OF A IS NOT SAME AS SIGN OF B
+        SEC                     ; SO A:=A+B AND ANSWER WILL BE NEGATIVE
+        BR      $2
+$1:     JSR     PC,LSUBAB       ; SIGN OF A SAME AS SIGN OF B SO A:=A-B
+        CLC                     ; AND ANSWER WILL BE POSITIVE.
+$2:     JSR     PC,LSLC         ; SHIFT CARRY LEFT INTO LSBIT OF C
+        MOV     TWON,R5         ; ON A 16 BIT MACHINE THE NUMBER OF REPITITIONS
+        ASL     R5              ; IS <NUMBER OF WORDS IN A> X
+        ASL     R5              ;       <16 BITS PER WORD> - 2
+        ASL     R5
+        TST     -(R5)           ; R5 CONTAINS THE NUMBER OF REPITITIONS FOR
+                                ; THE MAIN DIVISION LOOP.
+MDL:    ;  MAIN DIVISION LOOP BEGINS HERE.
+$1:     JSR     PC,LSRB         ; SHIFT TRIAL DIVISOR LEFT.
+        TST     @AWS
+        SXT     R0
+SXTBRK: TST     @BWS
+        SXT     R1
+        CMP     R0,R1           ; IF EQUAL THEN PARTIAL REMAINDER AND TRIAL
+        BEQ     $2              ; DIVISOR HAVE THE SAME SIGN.
+        JSR     PC,LADDAB       ; SIGN OF PR AND TD DIFFERENT
+                                ; SO PR:=PR+TD  (A:=A+B)
+        CLC                     ; AND SHIFT A ZERO INTO LSBIT OF QUOTIENT
+                                ; C:=(C$2)+0
+        BR      $3
+$2:     JSR     PC,LSUBAB       ; SIGN OF PR AND TD SAME SO PR:=PR-TD  (A:=A-B)
+        SEC                     ; AND SHIFT A ONE INTO LSBIT OF Q.  C:=(C$2)+1
+$3:     JSR     PC,LSLC         ; ACTUALLY DO THE SHIFT ON C.
+        SOB     R5,MDL
+EOMDL:  ;  END OF MAIN DIVISION LOOP
+        SEC
+        JSR     PC,LSLC         ; SHIFT A ONE INTO LSBIT OF C.
+        TST     @AWS
+        SXT     R5
+        CMP     R5,ASIGN        ; IF SIGN OF A EQUALS SIGN OF REMAINDER THEN
+        BEQ     $6              ; BRANCH TO $6 ELSE
+        TST     ASIGN           ; IF A<0 THEN
+        BNE     $3              ; ANSWER CORRECT AND DONE
+        TST     BSIGN           ; OTHERWISE
+        BEQ     $7              ; IF B>=0 THEN $7 ELSE
+        BR      $8              ; IF B<0 THEN $8
+$6:     TST     ASIGN
+        BEQ     $3              ; IF A>=0 THEN DONE OTHERWISE
+        TST     BSIGN
+        BEQ     $7              ; IF B>=0 THEN $7 ELSE
+        BR      $8              ; IF B<0 THEN $8.
+$8:     MOV     NNN,R0          ; DO LONG ADD  C=C+1
+        MOV     CADD,R1         ;  PREFORMED ONLY WHEN B>=0
+        TST     (R1)+
+        SEC
+$2:     ADC     -(R1)
+        BCC     $3              ; EARLY TERMINATION OF LONG ADDITION
+        SOB     R0,$2
+        BR      $3              ; END OF ADDITION    C=C+1
+$7:     BIC     #1,@CADD        ; IF B<0 THEN CLEAR LSBIT OF C AND FINISHED.
+$3:     MOV     AADD,SP         ; ADJUST STACK POINTER
+        TST     (SP)+           ; AND LEAVE.
+LEAVE:  JMP     @#BIGRTN          ; EXIT DECOPS
+
+BOMB:   MOV     CADD,SP         ; THIS IS THE ERROR  CASE.  IT CURRENTLY
+        CLR     (SP)            ; SETS THE ANSWER TO ZERO.  IN THE FUTURE IT
+        MOV     #1,-(SP)        ; WILL GENERATE AN ERROR TRAP.
+        BR      LEAVE
+
+LSLC:   MOV     CADD,R2
+        MOV     NNN,R3
+        ROL     (R2)
+        DEC     R3
+        BEQ     EOSL
+        BR      BSLC
+LASL:           ; LONG ARITHMETIC SHIFT LEFT
+        TST     (R2)+
+BSLC:   ;
+$1:     ROL     -(R2)
+        SOB     R3,$1
+EOSL:   RTS     PC              ;RETURN FROM ARITHMETIC SHIFT LEFT
+
+LSRB:   MOV     BWS,R2
+        MOV     TWON,R3
+LASR:   ASR     (R2)+           ; LONG ARITHMETIC SHIFT RIGHT
+        DEC     R3
+        BEQ     EOSR
+$1:     ROR     (R2)+
+        SOB     R3,$1
+EOSR:   RTS     PC              ; RETURN FROM ARITHMETIC SHIFT RIGHT
+
+LADDAB: MOV     AADD,R0         ; A=A+B
+        MOV     BADD,R1
+        MOV     TWON,R2
+LADD:   CMP     (R0)+,(R1)+     ; ADJUST ADDRESSES
+$1:     ADD     -(R1),-(R0)
+        MOV     R2,R3
+        DEC     R3
+        BEQ     $3
+        MOV     R0,R4
+$2:     BCC     $3
+        ADC     -(R4)
+        SOB     R3,$2
+$3:     SOB     R2,$1
+EOLADD: ;  END OF LONG ADD.
+        RTS     PC
+
+LSUBAB: MOV     AADD,R0         ; A=A-B
+        MOV     BADD,R1
+        MOV     TWON,R2
+LSUB:   CMP     (R0)+,(R1)+     ; ADJUST ADDRESSES
+$1:     SUB     -(R1),-(R0)
+        MOV     R2,R3
+        DEC     R3
+        BEQ     $3
+        MOV     R0,R4
+$2:     BCC     $3
+        SBC     -(R4)
+        SOB     R3,$2
+$3:     SOB     R2,$1
+EOLSUB: ;  END OF LONG SUBTRACT.
+        RTS     PC
+        ; THIS IS THE  END OF DDV.
+        ; FOLLOWING ARE STATIC STORAGE WORDS OF DDV.
+
+MMM:    .WORD
+NNN:    .WORD
+TWON:   .WORD
+LENG:   .WORD
+AWS:    .WORD
+BWS:    .WORD
+ASIGN:  .WORD
+BSIGN:  .WORD
+AADD:   .WORD
+BADD:   .WORD
+CADD:   .WORD
+DVIPC:  .WORD
+
+
+DECCMP: ; COMPARE DECIMALS
+        MOV     (SP)+,R0        ; GET COMPARISON TYPE INDEX
+        ASL     R0
+        MOV     SBROPS(R0),$5   ; PUT IN SIGNED CMP OPR
+        MOV     UBROPS(R0),$2   ; PUT IN UNSIGNED OPR
+        MOV     (SP),R0         ; PROCESSING TO POINT R0 AT LEFT OPR LENGTH
+        ASL     R0
+        ADD     SP,R0
+        TST     (R0)+           ; R0 NOW POINTS TO LENGTH
+        CMP     @R0,@SP         ; COMPARE LENGTHS
+        BEQ     $8
+        JSR     PC,DECADJ       ; MAKE LENGTHS EQUAL
+$8:     MOV     (R0),BASE       ; BASE WILL HOLD ADDR OF RESULT
+        ASL     BASE
+        ADD     R0,BASE         ; BASE NOW POINTS TO RESULT
+        TST     (R0)+           ; R0 POINTS TO LEFT OPR MSB
+        MOV     (SP)+,BK        ; SP POINTS TO RIGHT OPR MSB; BK HAS LENGTH
+        CMP     (R0)+,(SP)+     ; COMPARE SIGN WORDS
+        BNE     $5
+        BR      $7
+$1:     CMP     (R0)+,(SP)+     ; COMPARE UNSIGNED WORDS
+        BNE     $2              ; ANY NEQ STOPS LOOP
+$7:     SOB     BK,$1
+$2:     NOP                     ; UNSIGNED COMPARE OP GOES HERE
+        BR      $4
+        BR      $6
+$5:     NOP                     ; SIGNED CMP OP HERE
+        BR      $4
+$6:     MOV     #1,(BASE)
+$3:     MOV     BASE,SP
+        JMP     @#BIGRTN        ; EXIT DECOPS
+
+$4:     CLR     (BASE)
+        BR      $3
+
+DSTR:   ; DECIMAL TO STRING CONVERT
+                                ; REGISTER ASSIGNMENTS:
+                                ; IPC = POWER OF TEN INDEX
+                                ; BASE = POINTER TO STRING
+                                ; MP = POINTER TO LAST CHAR IN STRING
+                                ; BK = DECIMAL LENGTH
+        MOV     (SP)+,SLENG
+        MOV     (SP)+,BASE
+        MOV     BASE,MP
+        INC     MP
+        MOVB    #1,(BASE)
+        MOVB    #"0",(MP)       ; INITIALIZE
+        CLR     SIGNIF          ; SIGNIFICANCE FLAG
+        CLR     ZCOUNT          ; SHIFT COUNTER
+        MOV     SP,R1           ; FOR DODNG AND LATER PROCESSING
+        TST     2(SP)           ; NEGATIVE?
+        BGE     $1
+        JSR     PC,DODNG        ; MAKE POSITIVE
+        MOVB    #"-",(MP)       ; INSERT MINUS SIGN
+        INCB    (BASE)
+        INC     MP
+        MOVB    #"0",(MP)
+$1:     MOV     (SP),BK
+        TST     (R1)+           ; INCREMENT TO SIGN WORD
+$2:     TST     (R1)+           ; GET RID OF LEADING ZEROES
+        BNE     $3              ; -(R1) WAS NONZERO
+        SOB     BK,$2           ; BK KEEPS TRACK OF LENGTH
+        MOV     R1,SP           ; IF HERE, NUMBER WAS ZERO
+        BR      STREND          ; SO POP DECIMAL AND LEAVE
+$3:     TST     -(R1)           ; CHECK SIGN BIT - SHOULD BE POSITIVE
+        BGE     $4
+        TST     -(R1)           ; RESTORE A WORD OF ZEROES
+        INC     BK
+$4:     MOV     BK,-(R1)        ; PUT ON LENGTH TO MAKE
+        MOV     R1,SP           ; A COMPLETE (SHORTER) DECIMAL
+        ; NOW CHOOSE APPROPRIATE POWER OF TEN
+        CMP     BK,#2           ; DECIMAL LEN <= 2 ?
+        BGT     C4
+        MOV     #POT2,IPC       ; YES, POINT IPC TO RIGHT P.O.T.
+        BR      CEND
+C4:     CMP     BK,#4           ; DECIMAL LEN <= 4 ?
+        BGT     C8
+        MOV     #POT4,IPC
+        BR      CEND
+C8:     MOV     #POT8,IPC
+CEND:   ; HERE COMPARE INPUT TO  POT
+        CMP     (SP),(IPC)      ; COMPARE LENGTHS
+        BGT     $1              ; DECIMAL LONGER (GREATER)
+        BLT     DLESS           ; DECIMAL SHORTER (SMALLER)
+        CMP     2(SP),2(IPC)    ; COMPARE MSB WORDS
+        BLO     DLESS           ; DECIMAL SMALLER
+        ; ELSE ASSUME DECIMAL GREATER OR EQUAL FOR NOW
+$1:     JSR     PC,CLOAD        ; PUT POT ON STACK
+        MOV     SP,SUBFLAG      ; SET NONZERO FLAG
+        JSR     PC,ADDSUB       ; AND SUBTRACT (NOTE NO REG SAVE)
+        ; TEST FOR ZERO OR LESS
+        TST     2(SP)
+        BLT     RESTOR          ; OOPS DECIMAL WAS SMALLER
+        INCB    (MP)            ; ALSO INCREMENT STRING HERE
+        INC     SIGNIF          ; AND SET FLAG
+        MOV     (SP),R1         ; LENGTH
+        TST     (SP)+           ; INCREMENT
+$2:     TST     (SP)            ; LOOP TO TEST FOR ZERO
+        BLT     $3              ; RESULT AND ALSO
+        BNE     $4              ; SHORTEN DECIMAL
+        TST     (SP)+           ; BY REMOVING LEADING ZEROES
+        SOB     R1,$2
+        BR      TRAIL           ; DIFFERENCE ZERO - CONVERSION COMPLETE
+$3:     CLR     -(SP)           ; HERE, RETAIN EXTRA LEADING
+        INC     R1              ; ZEROES FOR POSITIVE SIGN
+$4:     MOV     R1,-(SP)        ; LENGTH
+        BR      CEND            ; DO IT AGAIN
+RESTOR: JSR     PC,CLOAD
+        CLR     SUBFLAG         ; INDICATES ADD
+        JSR     PC,ADDSUB       ; FALLS INTO DLESS
+DLESS:  MOV     MP,CHSAV        ; SAVE REGS EXCEPT IPC
+        MOV     BASE,BASESV
+        MOV     #10.,-(SP)      ; PUSH D 10 ON STACK
+        MOV     #1,-(SP)
+        JSR     PC,DMUL         ; AND MULTIPLY
+        MOV     CHSAV,MP        ; RESTORE
+        MOV     BASESV,BASE
+        INC     ZCOUNT          ; COUNT THE SHIFT
+        TST     SIGNIF          ; DON'T PUT OUT A NON-SIGNIF. ZERO
+        BEQ     CEND
+        INCB    (BASE)
+        INC     MP
+        MOVB    #"0",(MP)
+        BR      CEND            ; REPEAT PROCESS FOR NEXT DIGIT
+TRAIL:  ; HERE, ADD TRAILING BLANKS
+        MOV     -(IPC),R0       ; NO. OF ZEROES IN POT
+        SUB     ZCOUNT,R0       ; THESE DIGITS ACCOUNTED FOR
+        BEQ     STREND          ; IF NO TRAILING ZEROES
+$1:     INCB    (BASE)
+        INC     MP
+        MOVB    #"0",(MP)
+        SOB     R0,$1
+STREND: CMPB    @BASE,SLENG     ; CHECK STRING LENGTH
+        BLOS    $1
+        TRAP    S2LONG
+$1:     JMP     @#BIGRTN        ; EXIT DECOPS
+
+
+CLOAD:  ; LOAD A POWER OF TEN
+        MOV     (SP)+,$3        ; SAVE RETURN ADDR
+        MOV     (IPC),R0        ; LENGTH
+        INC     R0              ; INCLUDE LENGTH IN TRANSFER
+        MOV     IPC,R1
+        ADD     R0,R1
+        ADD     R0,R1           ; NOW R1 POINTS TO LSB +  2
+$1:     MOV     -(R1),-(SP)
+        SOB     R0,$1
+        TST     2(SP)
+        BGE     $2              ; IF SIGN BIT USED
+        MOV     (SP),-(SP)      ; THEN MAKE POSITIVE
+        CLR     2(SP)
+        INC     (SP)
+$2:     JMP     @(PC)+          ; RETURN
+$3:
+CHSAV:  .WORD                   ; DOUBLE DUTY
+BASESV: .WORD
+SLENG:  .WORD
+SIGNIF: .WORD
+ZCOUNT: .WORD
+POT2    .EQU    * + 2           ; STORAGE FOR 10**9 (MAX 2-WORD PWR OF TEN)
+        .WORD   9.              ; NUMBER OF 0'S IN 10**9
+        .WORD   2               ; LENGTH
+        .WORD   035632          ; OCTAL REPRESENTATION (HI-ORDER FIRST)
+        .WORD   145000
+POT4    .EQU    * + 2           ; SAME FOR  10**19 (4 WORDS)
+        .WORD   19.
+        .WORD   4
+        .WORD   105307          ; NOT TWOS COMPLEMENT!!
+        .WORD   021404
+        .WORD   104750
+        .WORD   000000
+POT8     .EQU  * + 2                    ; SAME FOR 10**36 (8 WORDS)
+; NOTE ANY NUMBERS GREATER THAN OR EQUAL TO 10**37 BUT 8 WORDS LONG
+; ARE MISREPRESENTED
+        .WORD   38.
+        .WORD   8.
+        .WORD   045473
+        .WORD   046250
+        .WORD   055206
+        .WORD   142172
+        .WORD   004612
+        .WORD   021100
+        .WORD   000000
+        .WORD   000000
+
+DCV:    ; CONVERT INTEGER TO DECIMAL AT NEXT-TO-TOS
+        ; TOS MUST BE A DECIMAL
+        MOV     (SP),R0         ; LENGTH IN R0
+        MOV     SP,BK           ; DESTINATION POINTER FOR MOVE
+        MOV     BK,R1           ; R1 IS
+        TST     (R1)+           ; SOURCE POINTER
+        MOV     (SP),-(SP)      ; MOVE LENGTH
+$1:     MOV     (R1)+,(BK)+     ; MOVE DECIMAL
+        SOB     R0,$1
+        MOV     #1,(BK)         ; LENGTH WORD FOR INTEGER
+        JMP     @#BIGRTN        ; EXIT DECOPS
+
+
+SBROPS  .EQU    * - 16.
+        BLT     * + 4
+        BLE     * + 4
+        BGE     * + 4
+        BGT     * + 4
+        BNE     * + 4
+        BEQ     * + 4
+
+UBROPS  .EQU    * - 16.
+        BLO     * + 4
+        BLOS    * + 4
+        BHIS    * + 4
+        BHI     * + 4
+        BNE     * + 4
+        BEQ     * + 4
+
+
+        .END

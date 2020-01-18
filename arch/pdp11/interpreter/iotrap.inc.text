@@ -1,0 +1,474 @@
+;
+; UCSD PASCAL - Version II.0
+; Copyright (C) 1978, 1979 Regents of the University of California
+; All Rights Reserved
+;
+; Permission to use, copy, modify and distribute any part of UCSD
+; PASCAL solely authored by UC authors before June 1, 1979 for
+; educational, research and non-profit purposes, without fee, and
+; without a written agreement is hereby granted, provided that the
+; above copyright notice, this paragraph and the following three
+; paragraphs appear in all copies.
+;
+; Those desiring to incorporate UCSD PASCAL into commercial products or
+; use for commercial purposes should contact the Technology Transfer &
+; Intellectual Property Services, University of California, San Diego,
+; 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+; Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+;
+; IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+; FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+; INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+; THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+; DAMAGE.
+;
+; THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+; OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+; UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+; MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+; EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+; WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+; THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+; OTHER RIGHTS.
+;
+; Case Number: SD1991-807 (2006)
+; http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+;
+;;; Source: http://bitsavers.org/bits/UCSD_Pascal/ucsd_II.0/
+;;;         U121.2_LSI-11_P-CODE_SOURCE.raw.gz
+;;; Description: SYSCOM and trap-vector ASECT and console device driver.
+;;; Date: 1979-02-06
+        .TITLE  INTERRUPT AND TRAP SUBSYSTEM
+        ; FOR VERSION I.5, II.0 INTERPS.
+        ;
+        ; COPYRIGHT (C) 1978 REGENTS OF THE UNIVERSTIY OF CALIFORNIA.
+        ; PERMISSION TO COPY OR DISTRIBUTE THIS SOFTWARE OR DOCUMEN-
+        ; TATION IN HARD COPY OR SOFT COPY GRANTED ONLY BY WRITTEN LICENSE
+        ; OBTAINED FROM THE INSTITUTE OF INFORMATION SYSTEMS.  ALL RIGHTS
+        ; RESERVED.  NO PART OF THIS PUBLICATION MAY BE REPRODUCED, STORED
+        ; IN A RETRIEVAL SYSTEM ( E.G., IN MEMORY, DISK, OR CORE) OR BE
+        ; TRANSMITTED BY ANY MEANS, ELECTRONIC, MECHANICAL, PHOTOCOPY,
+        ; RECORDING, OR OTHERWISE, WITHOUT PRIOR WRITTEN PERMISSION FROM THE
+        ; PUBLISHER.
+        ;
+        ;
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                                                                   ;
+;                       TRAP VECTOR CONTENTS                        ;
+;                                                                   ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+        .ASECT          ; INTERRUPT HANDLER LOCATION IN VECTORS
+.=0
+        TRAP    NOTIMP  ; ILLEGAL OPCODE MOST LIKELY, NO FP
+        0
+        T4$INT          ; 4-TRAP HANDLER
+        0
+        T10$INT         ; 10-TRAP HANDLER
+        0
+.=24
+        173000          ; POWER UP LOCATION
+        0
+.=34
+        TP$INT          ; TRAP HANDLER
+        0               ; PR-0
+        BACK            ; ENTRY POINT FOR BOOT LOADER
+.=60
+        TR$INT          ; KEYBOARD INTERRUPT HANDLER
+        200             ; PR-4
+        TX$INT          ; CONSOLE PRINTER HANDLER
+        200             ; PR-4
+.=100
+        KW$INT          ; KW-11 (MAYBE REFRESH HARDWARE!) CLOCK HANDLER
+        301             ; PR-6...CARRY SET FOR ADC OP
+.=244
+        FP$INT          ; FLOATING POINT EXCEPTIONS
+        0
+        .PAGE
+
+.=300
+        .ASCII  'COPYRIGHT (C) 1978, REGENTS OF UNIV OF CALIF,SD'
+;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                                                                   ;
+;                       SYSCOM CONTENTS                             ;
+;                                                                   ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+.=400
+
+IORSLT: .WORD   0
+XEQERR: .WORD   0
+SYSUNT: .WORD   0
+BUGSTA: .WORD   0
+GDIRP:  .WORD   NIL
+BOMBP:  .WORD   NIL
+STKBAS: .WORD   NIL
+LASTMP: .WORD   NIL
+JTAB:   .WORD   NIL
+SEG:    .WORD   NIL
+MEMTOP: .WORD   157776
+BOMBIPC:.WORD   0
+HLTLIN: .WORD   NIL
+BRKPTS: .BLKW   4
+        .BLKW   10.
+LOTIME: .WORD   0
+HITIME: .WORD   0
+NOBREAK=100     ;NO BREAK BIT IN MISCINFO
+MSCNFO: .WORD   ^B0000000
+CRTTYP: .WORD   3       ;TELETYPE
+CRTESC: .BYTE   0,CR,0,0,0,0,0
+FILCNT: .BYTE   10.
+CLRLINE:.BYTE   0       ; FOR EDITOR USE
+CLRSCRN:.BYTE   14
+        .BLKB   2
+CRTNFO: .WORD   0.,72.
+        .BYTE   0,0,0,0
+EOF:    .BYTE   3
+FLUSH:  .BYTE   6
+BREAK:  .BYTE   0
+STOP:   .BYTE   23
+CHRDEL: .BYTE   '_
+BADCHR: .BYTE   '?
+LINDEL: .BYTE   177
+ALTMOD: .BYTE   33
+PREFIX: .BYTE   0
+ETX:    .BYTE   3
+BKSPACE:.BYTE   10
+        .BLKB   3
+SEGTBL: .BLKW   3*<MAXSEG+1>
+        .PAGE
+        .CSECT  IOTRAP
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                                                                   ;
+;               KW-11, 4 & 10 TRAP HANDLERS                         ;
+;                                                                   ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+T4$INT: TRAP    BADMEM
+
+T10$INT:TRAP    NOTIMP  ; CROAK SYSTEM FOR ILLEGAL OPCODE
+
+FP$INT: TRAP    FPIERR  ; EXECUTION ERROR!
+
+KW$INT: ADC     @#LOTIME        ; IN 60-TH'S...CARRY IS SET IN TRAP VECTOR
+        ADC     @#HITIME
+        RTI
+
+INTRTN: ; ALL IO DRIVERS MUST USE JUMP HERE INSTEAD OF
+        ; DOING THEIR OWN RTI...THE SYSTEM MAY HANG IN THE WAIT
+        ; INSTRUCTION OF UNITIO IF THIS IS NOT DONE!!
+        CMP     @(SP),(PC)+     ; IS THE NEXT INSTRUCTION A WAIT??
+        WAIT
+        BNE     1$              ; IF NOT THEN DO IT
+        ADD     #2,@SP          ; ELSE SKIP THE WAIT OPCODE AND THEN
+1$:     RTI                     ; RETURN
+        .PAGE
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                                                                   ;
+;               "TRAP"  INTERRUPT  HANDLER                          ;
+;                                                                   ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+TP$INT: ; ENTRY POINT FOR "TRAP" INSTRUCTION INTERRUPTS.  THESE
+        ; ARE USED FOR EXECUTION ERRORS AND SOME SYSTEM REQUESTS.
+        MOV     R1,-(SP)        ; R1 IS USED FOR DETERMINING TRAP TYPE
+        MOV     2(SP),R1        ; GRAB OLD PC OFF THE STACK
+        MOV     -(R1),R1        ; NOW R1 HAS TRAP INSTRUCTION FROM CORE
+        MOVB    R1,R1           ; ISOLATE LOW BYTE WITH SIGN EXTEND
+        BLT     TPRQST          ; A MINUS PARAM IS A SYSTEM REQUEST
+        BGT     XQ.ERR          ; GREATER THAN IS EXECUTION ERROR
+        RESET                   ; ZERO IS FATAL SYSTEM ERROR...REBOOT!
+        JMP     @24             ; USE POWER-UP VECTOR FOR BOOT ADDR
+XQ.ERR: ; HERE WE ARE FOR AN EXECUTION ERROR...RESTORE A VALID
+        ; ENVIRONMENT FOR THE SYSTEM AND CXP 0,2...EXECERROR
+        MOV     LASTMP,MP
+        MOV     STKBAS,BASE
+        MOV     #BACK,BK
+        MOV     (PC)+,@BK       ; ENSURE OP FETCH IS OK...STOP BREAKING
+        GETNEXT
+        MOVB    R1,XEQERR       ; SET UP PARAMS IN SYSCOM TO ERR HANDLERS
+        MOV     SP,BOMBP        ; SET UP BOMB MCSWP FOR DEBUGGER
+        SUB     #MSDLTA+4,BOMBP
+        MOV     IPC,BOMBIPC
+        CLR     -(SP)
+        MOV     BK,-(SP)
+        MOV     #CXP0.2,IPC
+        RTI
+CXP0.2: .BYTE   77.+128.,0,2,326
+
+TPRQST: ASL     R1              ; DOUBLE FOR WORD ADDRESSING
+        SUB     R1,PC           ; CASE STMT, R1 NEGATIVE...REALLY ADDS R1
+        TRAP    SYSERR          ; SHOULD NEVER DO THIS
+        BR      TTYOUT          ; -1 IS TTYOUT REQUEST
+
+TTYOUT: TST     TXCHAR          ; SEE IF ANY CHAR WAITING ALREADY
+        BPL     TTYOUT          ; >=0 -> BUSY...HANG UNTIL NEG
+        MOV     R0,TXCHAR       ; PLACE THE CHAR IN HIGH PRIOR BUFFER
+        MOV     (SP)+,R1        ; RESTORE REG
+        TSTB    @TXCSR          ; SEE IF DL-11 IS READY FOR A CHAR
+        BPL     1$              ; IF NOT THEN RETURN ELSE
+        JMP     TX$INT          ; MAKE TX THINK AN IO IS COMPLETED
+1$:     RTI
+        .PAGE
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                                                                   ;
+;               CRT INPUT-OUTPUT HANDLER                            ;
+;                                                                   ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+TRCSR:  .WORD   177560
+TRBUF:  .WORD   177562
+TRBFSZ  =  64.                  ; BYTES IN TT INPUT BUFFER
+TRBUFR: .BLKB   TRBFSZ          ; RING BUFFER FOR TTY INPUT
+TRHEAD: .WORD   0               ; INDEX OF CURRENT QUEUE HEAD
+TRTAIL: .WORD   0               ; INDEX OF CURRENT QUEUE TAIL
+TRQUED: .WORD   0               ; CHARS IN QUEUE WAITING TO BE READ
+TRUNIT: .WORD   0               ; UNIT # OF CURRENT IO (ZERO MEANS NONE)
+TRBUFA: .WORD   0               ; ADDRESS OF USERS BUFFER (BYTE ADDR)
+TRLENG: .WORD   0               ; NUMBER OF BYTES USER WANTS READ IN
+TROFST  =  6                    ; OFFSET FROM MY STACK TO PARAMS
+BUZZ    = 07
+SFLAG:  .WORD   0               ; NON-ZERO IF OUTPUT TO BE STOPPED
+OFLAG:  .WORD   0               ; NON-ZERO IF OUTPUT TO BE FLUSHED
+ALOCK:  .WORD   0               ; ZERO -> ALPHA LOCK ON
+
+TR$INT: ; ENTRY POINT FOR KEYBOARD INTERRUPTS
+        MOV     R0,-(SP)        ; SAVE R0, R0 IS USED FOR CHAR
+        MOVB    @TRBUF,R0       ; GRAB CHAR FROM DL-11
+        BIC     #177600,R0      ; CHUCK PARITY AND ANY JUNK BITS
+        CMPB    R0,BREAK        ; IS IT THE STANDARD BREAK CHAR
+        BNE     1$
+        BIT     #NOBREAK,MSCNFO ; BREAK DISABLED??
+        BNE     TREXIT          ; IF SO THEN NO BLOWUP
+        MOV     (PC)+,R0        ; STICK TRAP OP INTO R0
+        TRAP    UBREAK
+        MOV     R0,@#BACK       ; STICK TRAP INTO FETCH SEQUENCE
+        BR      TREXIT
+1$:     CMPB    R0,STOP         ; IS IT A CONTROL S? (START-STOP)
+        BNE     2$
+        COM     SFLAG           ; FLIP STATE OF STOPPED FLAG (0 MEANS GOING)
+        BR      TREXIT          ; AND SPLIT
+2$:     CMPB    R0,FLUSH        ; A CONTROL F? (FLUSH REQUEST?)
+        BNE     3$
+        COM     OFLAG           ; FLIP FLUSH STATE
+        CLR     TXLENG          ; HALT ANY IO IN PROGRESS
+        BR      TREXIT          ; AND THEN GO AWAY
+3$:     CMPB    R0,#DC2         ; ALPHALOC/K SWAP?
+        BNE     TRQCHR
+        COM     ALOCK
+        BR      TREXIT
+TRQCHR: CMP     TRQUED,#TRBFSZ  ; OVERFLOW BUFFER?
+        BLT     1$              ; IF NOT THEN OK TO QUEUE CHAR
+        .TTYOUT #BUZZ           ; TELL THE USER HIS INPUT WAS CHUCKED
+        BR      TREXIT          ; AND FORGET IT (LIFE'S A BITCH)
+1$:     TST     ALOCK           ; CHECK OUT ALHPA LOCK TOGGLE
+        BNE     5$              ; ZERO SIGNALS ALOCK ON
+        CMPB    R0,#'A!40       ; COMPARE TO A LOWER CASE A
+        BLT     5$              ; IF LESS THEN PASS ON THOUGH
+        CMPB    R0,#'Z!40       ; NOW SEE IF LEQ LC Z
+        BHI     5$              ; IF > Z THEN PASS THROUGH
+        BIC     #40,R0          ; ELSE ZAP LC BIT FOR 'A..'Z
+5$:     MOV     R3,-(SP)        ; SAVE R3 FOR USE AS SCRATCH
+        MOV     TRTAIL,R3       ; POINTER TO TAIL OF INPUT QUEUE
+        MOVB    R0,TRBUFR(R3)   ; PLACE THE CHAR INTO TAIL OF QUEUE
+        INC     R3              ; POINT AT NEXT POSITION IN QUEUE
+        BIC     #TRBFSZ,R3      ; CHECK FOR WRAPAROUND
+        INC     TRQUED          ; COUNT THE CHAR AS QUEUED
+        MOV     R3,TRTAIL       ; AND SAVE FOR NEXT INPUT
+        MOV     (SP)+,R3        ; RESTORE R3
+        TST     TRUNIT          ; ANY IO'S IN PROGRESS TO KEYBOARD?
+        BEQ     TREXIT          ; EQUAL ZERO IF NOT...QUIT
+TRFLBF: MOV     R3,-(SP)        ; WELL, PUT SOME CHARS INTO INPUT BUFFER
+        MOV     TRHEAD,R3       ; POINTER TO HEAD OF INPUT QUEUE
+        MOVB    TRBUFR(R3),R0   ; MOVE A QUEUED CHAR TO USER BUFFER
+        MOVB    R0,@TRBUFA      ; BUT WE WANT IT IN R0 FOR ECHO TOO
+        INC     R3              ; BUMP QUEUE HEAD POINTER
+        BIC     #TRBFSZ,R3      ; WRAPAROUND AGAIN (MAYBE)
+        MOV     R3,TRHEAD       ; AND STASH NEW HEAD POINTER
+        DEC     TRQUED          ;ONE LESS CHAR IN INPUT QUEUE
+        MOV     (SP)+,R3        ; AND RESTORE R3
+        CMP     TRUNIT,#UNITBL+6 ; SEE IF WE WANT TO ECHO AS WE READ IN
+        BNE     2$              ; IF NOT INPUT UNIT, SKIP ECHO STUFF
+        CMPB    R0,EOF          ; INPUT EOF CHAR?
+        BNE     3$              ; IF NOT THEN SKIP
+        MOV     TRLENG,R0       ; USE R0 FOR LOOP COUNTER
+1$:     CLRB    @TRBUFA         ; ELSE NULL FILL INPUT BUFFER
+        INC     TRBUFA
+        SOB     R0,1$           ; FOR ALL REMAINING CHARS
+        BR      TRQUIT          ; AND CONSIDER IO COMPLETE
+3$:     CMPB    R0,#177         ; A DEL???
+        BEQ     2$              ; DONT ECHO IT...TERAK BUG
+        CMPB    R0,CRTESC       ; IS IT THE ESCAPE CHAR?
+        BEQ     2$              ; DONT ECHO...MAY MESS UP FORMATTING
+        BIC     #100,@TRCSR     ; PREVENT INPUT WHILE ECHOING (FUNNY WINDOW)
+        .TTYOUT ; SEND R0 TO TTY AS ECHO
+2$:     BIS     #100,@TRCSR     ; RESTORE INPUT ENABLE
+        INC     TRBUFA          ; BUMP BUFFER ADDRESS
+        DEC     TRLENG          ; ONE FEWER CHARS TO READ INTO BUFFER
+        BEQ     TRQUIT          ; WE ARE DONE IF IT GOES TO ZERO
+        TST     TRQUED          ; WE CAN TRANSFER MORE CHARS IF ANY IN BUFFER
+        BGT     TRFLBF          ; SO GO TO FILL BUFFER LOCATION
+        BR      TREXIT          ; WELL, NO CHARS, RETURN TO USER NOT DONE
+TRQUIT: BIC     #BSYBIT,@TRUNIT ; MARK OUR UNIT AS NOT BUSY
+        CLR     TRUNIT          ; AND NOW HANDLER IS NOT BUSY EITHER
+TREXIT: MOV     (SP)+,R0        ; RESTORE R0
+        JMP     INTRTN          ; AND RETURN TO WHEREVER
+
+TRSTRT: ; THIS IS THE ENTRY POINT FOR STARTING I-O'S TO THE
+        ; KEYBOARD DEVICE.  NOTE THE REASON THIS CODE IS HERE
+        ; IS TO MAKE BRANCHING EASY.  ALSO PLEASE FORGIVE
+        ; THE DIDLING TO SAVE REGISTERS ACROSS TRFLBF ETC.
+        TST     TRUNIT          ; SEE IF ANY IO'S IN PROGRESS
+        BNE     TRSTRT          ; AND HANG IF SO
+        MTPS    #200            ; PREVENT ANY INTERRUPTS NOW
+        MOV     R1,TRUNIT       ; MARK AS IO IN PROGRESS
+        BIS     #BSYBIT,(R1)    ; MARK UNIT AS BUSY
+        CLR     (SP)            ; ON RTI, BE AT PR0
+        TST     (R3)+           ; GET RETURN ADDRESS AND
+        MOV     R3,-(SP)        ; PLACE ON STACK FOR RTI AT TREXIT
+        MOV     R0,-(SP)        ; NOW STACK LOOKS LIKE INSIDE OF TRINT
+        MOV     <UBUFFR+TROFST>(SP),TRBUFA      ; SAVE USER BUF ADDR
+        MOV     <URLENG+TROFST>(SP),TRLENG      ; AND REQUESTED TRANSFER LENG
+        BEQ     TRQUIT          ; IF NOTHING, THEN QUIT NOW
+        TST     TRQUED          ; IF SOME CHARS WAITING, THEN GET EM
+        BNE     TRFLBF          ; AND PUT EM IN USERS BUFFER
+        BR      TREXIT          ; ELSE RETURN TO SYSTEM
+
+TRMSTRT:; THIS ROUTINE JUST FIGURES IF INPUT OR OUTPUT
+        ; REQUEST AND TRANSFERS TO THE PROPER HANDLER.
+        TST     @R3             ; ZERO MEANS A WRITE REQUEST...SEE UWRITE
+        BEQ     TXSTRT          ; SO START TERM TRANSMIT
+        BR      TRSTRT          ; ELSE A READ START
+
+TRMABRT:; ENTERED TO CANCEL ANY IO'S PENDING
+        ; OR IN PROGRESS ON CRT DEVICE
+        MTPS    #200
+        CLR     SFLAG
+        CLR     OFLAG
+        CLR     TRQUED
+        MOV     TRTAIL,TRHEAD
+        TST     TRUNIT
+        BEQ     1$
+        CLR     TRLENG
+        BIC     #BSYBIT,@TRUNIT
+        CLR     TRUNIT
+1$:     TST     TXUNIT
+        BEQ     2$
+        CLR     TXLENG
+        BIC     #BSYBIT,@TXUNIT
+        CLR     TXUNIT
+2$:     MTPS    #0
+        RTS     PC
+
+TXCSR:  .WORD   177564
+TXBUF:  .WORD   177566
+DLEFLG: .WORD   0       ; BLANK COMP EXPANSION FLAG
+TXUNIT: .WORD   0       ; UNIT TABLE ADDRESS OF IO IN PROGRESS
+TXLENG: .WORD   0       ; NUMBER OF BYTES LEFT TO BE SENT TO TERMINAL
+TXBUFA: .WORD   0       ; BYTE ADDRESS OF NEXT CHAR TO SEND
+TXCHAR: .WORD   -1      ; HIGH PRIORITY CHAR TO SEND...FROM TTYOUT
+
+TXOFST  = 4
+TXSTRT: ; THIS CODE STARTS IO'S TO THE CONSOLE DEVICE
+        ; ACCORDING TO STANDARD IO.OPS PROTOCOL
+        TST     TXUNIT          ; SEE IF AN IO ALREADY IN PROGRESS
+        BNE     TXSTRT          ; IF SO LOOP UNTIL THE IO IS COMPLETE
+        MTPS    #200            ; NO INTERRUPTS PLEASE
+        MOV     R1,TXUNIT       ; MARK HANDLER AS BUSY
+        BIS     #BSYBIT,(R1)    ; MARK LOGICAL UNIT AS BUSY
+        CLR     (SP)            ; SET UP RETURN STUFF ON STACK...PR-0 PS
+        TST     (R3)+           ; SKIP R3 OVER IO INFO WORD
+        MOV     R3,-(SP)        ; NOW THE RETURN ADDRESS
+        CMP     R1,#UNITBL+14   ; IS THE WRITE TO SYSTERM??
+        BNE     1$              ; IF NOT THEN LEAVE OUTPUT FLAGS ALONE
+        CLR     SFLAG           ; ELSE CLEAR THE STOP FLAG
+        CLR     OFLAG           ; AND FLUSH FLAG
+1$:     TST     OFLAG           ; IF OUTPUT TO BE FLUSHED?
+        BNE     TXQUIT          ; IF SO THEN MARK IO AS COMPLETE NOW
+        MOV     <UBUFFR+TXOFST>(SP),TXBUFA      ; GRAB USER BUFFER ADDR
+        MOV     <URLENG+TXOFST>(SP),TXLENG      ; AND REQUESTED IO LENGTH
+TX$INT: BIC     #100,@TXCSR     ; NO INTERRUPTS PLEASE
+        TST     TXCHAR          ; SEE IF ANY CHARS TO SEND RIGHT NOW
+        BMI     NOCHAR          ; IF NEG THEN NO CHAR TO SEND
+        MOV     R0,-(SP)        ; STASH A REG FOR NULLING
+        MOV     TXCHAR,R0       ; GRAB THE ACTUAL CHAR
+        MOVB    R0,@TXBUF
+        CMPB    R0,#CR          ; IS IT ACR (MUST FILL AND LF)
+        BNE     1$
+        JSR     PC,NULLER       ; SEND STUFF FOR FILL COUNT
+1$:     COM     TXCHAR          ; FLIP NEG BIT...NO DATA ANYMORE
+        MOV     (SP)+,R0        ; RESTORE
+        BIS     #100,@TXCSR     ; OK TO INTERRUPT NOW
+        JMP     INTRTN          ; AND GO ON AS IF NOTHING HAPPENED
+NOCHAR: TST     TXUNIT          ; ANY IO'S IN PROGRESS
+        BEQ     TXEXIT          ; IF NOT JUST FORGET IT
+        TST     TXLENG          ; ANY CHARS LEFT TO BE SENT?
+        BEQ     TXQUIT          ; IF NOT THEN FINISH UP IO
+        TST     SFLAG           ; SEE IF OUTPUT IS STOPPED
+        BEQ     1$              ; IF NOT THEN SKIP THE WAITING STATE
+        MTPS    #0              ; LEAVE CRITICAL REGION FOR DEVICE
+        MTPS    #200            ; BACK UP TO PR-4
+        BR      NOCHAR          ; AND GO TEST SFLAG AGAIN
+1$:     MOV     R0,-(SP)        ; STASH REG
+        CLR     R0
+        BISB    @TXBUFA,R0      ; GRAB CHAR FROM USER BUFFER
+        TST     DLEFLG          ; IS THIS CHAR THE DLE BLANK COUNT?
+        BEQ     3$
+        CLR     DLEFLG
+        SUB     #32.,R0         ; NORMALIZE TO ACTUAL BLANK COUNT
+        BLE     5$              ; DO NOTHING...SEND NULL
+        MTPS    #0              ; BUSY WAIT LOOP
+6$:     TSTB    @TXCSR
+        BPL     6$
+        MOVB    #' ,@TXBUF
+        SOB     R0,6$
+        MTPS    #200
+3$:     CMPB    R0,#DLE         ; IS CHAR = DLE?
+        BNE     4$
+        COM     DLEFLG
+5$:     CLR     R0
+4$:     MOVB    R0,@TXBUF       ; SEND CHAR TO DL
+        CMPB    R0,#CR          ; IS IT A CR??
+        BNE     2$              ; IF NOT THEN....SKIP
+        JSR     PC,NULLER       ; SEND FILL AND LF
+2$:     MOV     (SP)+,R0        ; RESTORE TEMP REG
+        BIS     #100,@TXCSR     ; ENABLE FOR NEXT COMPLETE
+        INC     TXBUFA          ; BUMP BUFFER POINTER TO NEXT CHAR
+        DEC     TXLENG          ; ALSO REFLECT ONE FEWER CHAR TO SEND
+        JMP     INTRTN          ; THIS STRUCTURE IMPLIES AN IO IS NOT
+                                ; DONE UNTIL THE LAST INTERRUPT IS RECEIVED
+TXQUIT: BIC     #BSYBIT,@TXUNIT ; CLEAR BUSY BIT IN IO UNIT TABLE
+        CLR     TXUNIT          ; MARK HANDLER AS NOT BUSY NOW
+TXEXIT: JMP     INTRTN          ; AND BACK NOW TO WHEREVER
+
+NULLER: ; HANDY SUBROUTINE FOR NULL FILLING AND LF AFTER CR
+        ; ASSUME R0 SCRATCH (WELL...=CR) AND INTERRUPTS DISABLED
+        MTPS    #0
+        .IF     NDF,TERAK
+        MOVB    FILCNT,R0       ; GRAB NILL COUNT (IF ANY)
+        BEQ     2$
+1$:     TSTB    @TXCSR          ; HANG UNTIL DL READY
+        BPL     1$
+        CLRB    @TXBUF
+        SOB     R0,1$
+        .ENDC
+2$:     TSTB    @TXCSR          ; HANG UNTIL READY FOR LF SEND
+        BPL     2$
+        MOVB    #LF,@TXBUF
+        MTPS    #200
+        RTS     PC
+        .PAGE
+        .CSECT  TABLES
+
+        .BLKW   128.    ; ROOM FOR OP XFER TABLE
+
+UNITBL: .WORD   0,0,0   ; UNIT 0 NOT USED
+        .WORD   INBIT!OUTBIT,TRMSTRT,TRMABRT
+        .WORD   INBIT!OUTBIT,TRMSTRT,TRMABRT
+        .REPT   <MAXUNT-2>
+        .WORD   0,0,0
+        .ENDR

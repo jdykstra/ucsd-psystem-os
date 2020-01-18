@@ -1,0 +1,689 @@
+;
+; UCSD PASCAL - Version I.5
+; Copyright (C) 1978, 1979 Regents of the University of California
+; All Rights Reserved
+;
+; Permission to use, copy, modify and distribute any part of UCSD
+; PASCAL solely authored by UC authors before June 1, 1979 for
+; educational, research and non-profit purposes, without fee, and
+; without a written agreement is hereby granted, provided that the
+; above copyright notice, this paragraph and the following three
+; paragraphs appear in all copies.
+;
+; Those desiring to incorporate UCSD PASCAL into commercial products or
+; use for commercial purposes should contact the Technology Transfer &
+; Intellectual Property Services, University of California, San Diego,
+; 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+; Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+;
+; IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+; FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+; INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+; THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+; DAMAGE.
+;
+; THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+; OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+; UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+; MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+; EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+; WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+; THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+; OTHER RIGHTS.
+;
+; Case Number: SD1991-807 (2006)
+; http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+;
+;;; Source: http://bitsavers.org/bits/UCSD_Pascal/ucsd_II.0/
+;;;     U120_Z80_P-CODE_SOURCE.raw.gz
+;;; Date: 1979-Jan-19
+
+        .IF ~LSTVARS
+         .NOLIST
+        .ELSE
+         .LIST
+        .ENDC
+
+;Copyright (c) 1978
+;  by the Regents of the University of California, San Diego
+
+; start of file VARS
+
+
+;********** LOADING, STORING, INDEXING, AND MOVING **********;
+
+
+;****The rest of the load constant word instructions
+
+LDCI    ; Load constant word
+        LD      A,(BC)          ; low byte
+        LD      L,A
+        INC     BC
+        LD      A,(BC)          ; high byte
+        LD      H,A
+        INC     BC
+        PUSH    HL
+        JP      BACK
+
+LDCN    ; Load constant nil pointer
+        LD      HL,NIL
+        PUSH    HL
+        JP      BACK
+
+
+GBDE    ; get a big (possibly two byte) constant from code into DE
+        LD      A,(BC)
+        INC     BC
+        LD      E,A             ; assume 1-byte...by far the most common case
+        LD      D,00H
+        TSTA
+        RET     P               ; if bit 7 is zero, assumtion was correct
+        AND     7FH             ; clear bit 7
+        LD      D,A             ; this is the high order byte
+        LD      A,(BC)          ; get lower
+        INC     BC
+        LD      E,A
+        RET
+
+
+;***** Local vars
+
+SLDL    ; Short load local word
+        ADD     A,52H           ; get displacement from opcode
+        LD      E,A             ; DE := displacement
+        LD      D,00H
+        LD      HL,(MPD0)
+        ADD     HL,DE           ; compute address of var
+        LD      E,(HL)          ; load the data
+        INC     HL
+        LD      D,(HL)
+        PUSH    DE
+        JP      BACK
+
+LLA     ; Load local address
+        CALL    GBDE
+        LD      HL,(MPD0)
+        ADD     HL,DE
+        ADD     HL,DE
+        PUSH    HL
+        JP      BACK
+
+LDL     ; Load local word
+        CALL    GBDE
+        LD      HL,(MPD0)
+        ADD     HL,DE
+        ADD     HL,DE
+        LD      E,(HL)
+        INC     HL
+        LD      D,(HL)
+        PUSH    DE
+        JP      BACK
+
+STL     ; Store local word
+        CALL    GBDE
+        LD      HL,(MPD0)
+        ADD     HL,DE
+        ADD     HL,DE
+        POP     DE
+        LD      (HL),E
+        INC     HL
+        LD      (HL),D
+        JP      BACK
+
+
+;***** Global vars
+
+SLDO    ; Short load global word - just like SLDL
+        ADD     A,32H
+        LD      E,A
+        LD      D,00H
+        LD      HL,(BASED0)
+        ADD     HL,DE
+        LD      E,(HL)
+        INC     HL
+        LD      D,(HL)
+        PUSH    DE
+        JP      BACK
+
+LAO     ; Load global address
+        CALL    GBDE
+        LD      HL,(BASED0)
+        ADD     HL,DE
+        ADD     HL,DE
+        PUSH    HL
+        JP      BACK
+
+LDO     ; Load global word
+        CALL    GBDE
+        LD      HL,(BASED0)
+        ADD     HL,DE
+        ADD     HL,DE
+        LD      E,(HL)
+        INC     HL
+        LD      D,(HL)
+        PUSH    DE
+        JP      BACK
+
+SRO     ; Store global word
+        CALL    GBDE
+        LD      HL,(BASED0)
+        ADD     HL,DE
+        ADD     HL,DE
+        POP     DE
+        LD      (HL),E
+        INC     HL
+        LD      (HL),D
+        JP      BACK
+
+
+;***** Intermediate vars
+
+GETIA   ; Get intermediate address into HL. Routine used by LDA, LOD, STR
+        LD      A,(BC)          ; # of lex levels to chain (always > 1)
+        INC     BC
+        LD      HL,(MP)
+$10     LD      E,(HL)          ; go up static links till reach proper MSCW
+        INC     HL
+        LD      D,(HL)
+        EX      DE,HL
+        DEC     A
+        JP      NZ,$10
+        CALL    GBDE            ; get displacement...
+        ADD     HL,DE           ; ...and calculate address
+        ADD     HL,DE
+        LD      DE,DISP0
+        ADD     HL,DE
+        RET
+
+LDA     ; Load intermediate address
+        CALL    GETIA
+        PUSH    HL
+        JP      BACK
+
+LOD     ; Load intermedate word
+        CALL    GETIA
+        LD      E,(HL)
+        INC     HL
+        LD      D,(HL)
+        PUSH    DE
+        JP      BACK
+
+STR     ; Store intermediate word
+        CALL    GETIA
+        POP     DE
+        LD      (HL),E
+        INC     HL
+        LD      (HL),D
+        JP      BACK
+
+
+;***** Indirect, Records, Arrays, and Indexing
+
+INCR    ; Increment (SP) by literal
+        CALL    GBDE
+        POP     HL
+        ADD     HL,DE
+        ADD     HL,DE
+        PUSH    HL
+        JP      BACK
+
+STO     ; Store indirect
+        POP     DE              ; value
+        POP     HL              ; address
+        LD      (HL),E
+        INC     HL
+        LD      (HL),D
+        JP      BACK
+
+SIND0   ; Short index and load word, index=0 (load indirect)
+        POP     HL
+        LD      E,(HL)
+        INC     HL
+        LD      D,(HL)
+        PUSH    DE
+        JP      BACK
+
+SIND    ; Short static index and load word
+        POP     HL              ; get array base address
+        ADD     A,10H           ; calculate index from opcode
+        LD      E,A
+        LD      D,00H
+        ADD     HL,DE           ; calculate address
+        LD      E,(HL)          ; and load the value
+        INC     HL
+        LD      D,(HL)
+        PUSH    DE
+        JP      BACK
+
+STIND   ; Static index and load word
+        POP     HL              ; base address
+        CALL    GBDE            ; get index from code
+        ADD     HL,DE
+        ADD     HL,DE
+        LD      E,(HL)          ; load the word
+        INC     HL
+        LD      D,(HL)
+        PUSH    DE              ; and stick it on the stack
+        JP      BACK
+
+IXA     ; Index array
+        ;   Given an array element_size in code stream,
+        ;   an index and array base address on stack,
+        ;   compute the indexed address and push it.
+        CALL    GBDE            ; DE := element_size
+        SAVIPC
+        POP     BC              ; BC := index
+        LD      H,B             ; Check if element_size = 1
+        LD      L,C
+        LD      A,E
+        DEC     A
+        OR      D
+        CALL    NZ,MULT
+        ADD     HL,HL           ; make into word offset
+        POP     BC              ; get array base
+        ADD     HL,BC
+        PUSH    HL
+        JP      BACK1
+
+MOV     ; Move words
+        CALL    GBDE            ; DE := number of words to move
+        SAVIPC
+
+        .IF Z80
+         LD     A,E             ; BC := number of bytes to move
+         ADD    A,A
+         LD     C,A
+         LD     A,D
+         ADC    A,D
+         LD     B,A
+         POP    HL              ; HL := ^source
+         POP    DE              ; DE := ^dest
+         LDIR                   ; move the stuff in one swell foop
+         JP     BACK1
+        .ENDC
+
+        .IF ~Z80
+         CLRA                   ; BC := -number of words to move
+         SUB    E               ; (allows counting up to zero)
+         LD     C,A
+         LD     A,00H
+         SBC    A,D
+         LD     B,A
+         POP    HL              ; HL := ^source
+         POP    DE              ; DE := ^dest
+$10      LD     A,(HL)          ; move a word
+         INC    HL
+         LD     (DE),A
+         INC    DE
+         LD     A,(HL)
+         INC    HL
+         LD     (DE),A
+         INC    DE
+         INC    C               ; loop control
+         JP     NZ,$10
+         INC    B
+         JP     NZ,$10
+         JP     BACK1
+        .ENDC
+
+
+
+;***** Multiple word vars (sets and reals)
+
+LDC     ; Load multiple word constant (constant is backwards in code stream)
+        LD      A,(BC)          ; A := number of words long
+        LD      HL,0002H        ; put HL on a word boundary
+        ADD     HL,BC
+        LD      B,A             ; B := # words to move
+        LD      A,L
+        AND     0FEH
+        LD      L,A
+$10     LD      E,(HL)          ; transfer the stuff from code...
+        INC     HL
+        LD      D,(HL)
+        INC     HL
+        PUSH    DE              ; ...to stack
+        DJNZM   $10
+        LD      C,L             ; fix up IPC
+        LD      B,H
+        JP      BACK
+
+LDM     ; Load multiple words (no more than 255)
+        POP     DE              ; DE := ^source
+        LD      A,(BC)          ; A := number of words to transfer
+        INC     BC
+        TSTA
+        JP      Z,BACK          ; just in case...supposedly unnecessary
+        LD      L,A             ; HL := ^word following source
+        LD      H,00H
+        ADD     HL,HL
+        ADD     HL,DE
+$10     DEC     HL              ; get words from dest...
+        LD      D,(HL)
+        DEC     HL
+        LD      E,(HL)
+        PUSH    DE              ; ...and put them on the stack.
+        DEC     A
+        JP      NZ,$10
+        JP      BACK
+
+STM     ; Store multiple words
+        LD      A,(BC)          ; Number of words to transfer
+        INC     BC
+        TSTA
+        JP      Z,$20           ; Again, just in case!
+        LD      L,A             ; HL := ^dest  (the pointer is buried under all
+        LD      H,00H           ;   the words that need to be transferred)
+        ADD     HL,HL
+        ADD     HL,SP
+        LD      E,(HL)
+        INC     HL
+        LD      D,(HL)
+        EX      DE,HL
+$10     POP     DE              ; Transfer stuff from stack...
+        LD      (HL),E          ; ...to dest.
+        INC     HL
+        LD      (HL),D
+        INC     HL
+        DEC     A
+        JP      NZ,$10
+$20     POP     HL              ; junk ^dest
+        JP      BACK
+
+
+
+;***** Character vars, and byte array vars
+
+LDB     ; Load byte
+        POP     DE              ; DE := index
+        POP     HL              ; HL := base
+        ADD     HL,DE           ; HL := ^char
+        LD      E,(HL)
+        LD      D,00H
+        PUSH    DE
+        JP      BACK
+
+STB     ; Store byte
+        POP     DE              ; E := char
+        LD      A,E
+        POP     DE              ; DE := index
+        POP     HL              ; HL := base
+        ADD     HL,DE
+        LD      (HL),A          ; store it
+        JP      BACK
+
+LPA     ; Load constant packed array of characters address
+        ;   The length of the array (in bytes) is a byte parameter,
+        ;   followed by the automatically word-aligned array.
+        ;   Push the address of the array, and zap IPC around it
+        LD      A,(BC)          ; Get number of characters in array
+        INC     BC
+        PUSH    BC              ; Address of array
+        ADD     A,C             ; Skip over characters
+        LD      C,A
+        LD      A,00H
+        ADC     A,B
+        LD      B,A
+        JP      BACK
+
+
+;***** String vars
+
+; A String is...
+;   The first byte contains the current number of characters
+;     in the string.  (0..declared_size)
+;   The next bytes are those characters, with garbage fill
+;     out to the declared_size of the string.
+;
+;   Declared_size (<= 255) is in the instruction stream for instructions
+;     that need to know.
+
+LSA     ; Load constant string address
+        ;   The string is in the code.  Put its address on
+        ;   the stack and move the IPC past it
+        PUSH    BC              ; Address of string
+        LD      A,(BC)          ; Get number of characters in string
+        INC     BC              ; Skip over length byte
+        ADD     A,C             ; Skip over characters
+        LD      C,A
+        LD      A,00H
+        ADC     A,B
+        LD      B,A
+        JP      BACK
+
+IXS     ; Index string check
+        POP     DE              ; index
+        POP     HL              ; ^string
+        PUSH    HL
+        CLRA                    ; Make sure 1 <= index <= 255
+        OR      D
+        JP      NZ,$99
+        OR      E
+        JP      Z,$99
+        CP      (HL)            ; make sure index <= current length
+        JP      C,$20
+        JP      NZ,$99
+$20     PUSH    DE
+        JP      BACK
+$99     LD      DE,1
+        PUSH    DE              ; leave ^string[1] on top of stack
+        SAVIPC
+        JP      INVNDX
+
+SAS     ; String assignment
+        ;   On stack can be either
+        ;   ^src_string, ^dst_string  or
+        ;   a character, ^dst_string
+MAXLEN  .EQU     BYTE1
+        LD      A,(BC)          ; Save declared_size of dest
+        LD      (MAXLEN),A
+        INC     BC
+        SAVIPC
+        POP     HL              ; get the source
+        LD      A,H             ; and see if char or ^string
+        TSTA                    ; char has zero upper byte
+        JP      NZ,$10
+        LD      A,L
+        LD      (LTSTRNG+1),A   ; turn the char into a string
+        LD      HL,LTSTRNG      ; and point HL at it
+$10     LD      C,(HL)          ; make sure source is not longer
+$20     LD      A,(MAXLEN)      ; than declared_size of dest
+        CP      C
+        JP      C,$99
+        POP     DE              ; DE := ^dst_string
+        .IF Z80
+         LD     B,00H
+         INC    BC              ; include length byte
+         LDIR
+        .ENDC
+        .IF ~Z80
+         INC    C               ; include length byte
+$30      LD     A,(HL)
+         LD     (DE),A
+         INC    HL
+         INC    DE
+         DEC    C
+         JP     NZ,$30
+        .ENDC
+        JP      BACK1
+$99     POP     HL              ; junk ^dst
+        JP      S2LONG
+
+
+;***** Packed arrays and record
+
+IXP     ; Index a packed array
+        ;   Given...
+        ;     elements_per_words, bits_per_element in code stream,
+        ;     index, base address of array on stack
+        ; Compute...
+        ;     right_bit_number, bits_per_element, ^indexed_word
+ELTLEN  .EQU     WORD1
+
+        LD      A,(BC)          ; E := elements_per_word
+        LD      E,A
+        INC     BC
+        LD      A,(BC)          ; (ELTLEN) := bits_per_element
+        LD      (ELTLEN),A
+        INC     BC
+        SAVIPC
+        POP     HL              ; HL := index
+        LD      C,E             ; BC := elements_per_word
+        LD      B,00H
+        CALL    DIVPOS          ; HL := index in words, DE := remainder
+        EX      DE,HL
+        ADD     HL,HL           ; HL := ^indexed word
+        POP     BC
+        ADD     HL,BC
+        PUSH    HL              ; push ^indexed word
+$10     LD      A,(ELTLEN)      ; HL := bits_per_element
+        LD      L,A
+        LD      H,00H
+        PUSH    HL
+        LD      B,L             ; Compute right_bit_number :=
+        CLRA                    ;   remainder*bits_per_element
+$20     ADD     A,E
+        DJNZM   $20
+        LD      L,A
+        PUSH    HL              ; push right_bit_number
+        JP      BACK1
+
+LDP     ; Load a packed field
+        ;   get the field described by
+        ;     right_bit_number,
+        ;     bits_per_element
+        ;     ^word.  all info is on the stack
+
+        SAVIPC
+        POP     DE              ; B := right_bit_number
+        LD      B,E
+        POP     DE              ; C := bits_per_element
+        LD      C,E
+        POP     HL              ; DE := word field is in
+        LD      E,(HL)
+        INC     HL
+        LD      D,(HL)
+        ; position the field by a bunch of right shifting
+        LD      A,B             ; see if shift >= 8 bits
+        SUB     08H
+        JP      C,$10
+        LD      B,A             ; B := future right_bit_number
+        LD      L,D             ; swap bytes
+        LD      D,E
+        LD      E,L
+        JP      NZ,$20          ; if amount left to shift>0, do it
+        JP      $30
+$10     ADD     A,08H           ; restore amount to shift, and test if zero
+        JP      Z,$30
+$20     ; do the actual shifting
+        .IF Z80
+         SRL    D
+         RR     E
+        .ENDC
+        .IF ~Z80
+         LD     A,D
+         RRA
+         LD     D,A
+         LD     A,E
+         RRA
+         LD     E,A
+        .ENDC
+        DJNZM   $20
+$30     LD      HL,CLRMSK       ; clear out all the junk in high order bits
+        ADD     HL,BC
+        ADD     HL,BC           ; HL = ^CLRMSK[bits_per_element]
+        LD      A,(HL)
+        AND     E
+        LD      E,A
+        INC     HL
+        LD      A,(HL)
+        AND     D
+        LD      D,A
+        PUSH    DE              ; push the cleaned field
+        JP      BACK1
+
+STP     ; Store into a packed field
+        ; Given data, right_bit_number, bits_per_element, ^target
+        SAVIPC
+        POP     DE              ; DE := data
+        POP     BC              ; A := right_bit_number
+        LD      A,C
+        POP     BC              ; BC := CLRMSK[bits_per_word]
+        LD      HL,CLRMSK
+        ADD     HL,BC
+        ADD     HL,BC
+        LD      C,(HL)
+        INC     HL
+        LD      B,(HL)
+        ; left shift data and mask
+        SUB     08H             ; shift >= 8 bits ?
+        JP      C,$10
+        LD      L,A             ; save future # of bits to shift
+        LD      H,B             ; swap bytes of mask
+        LD      B,C
+        LD      C,H
+        LD      H,D             ; and of data.
+        LD      D,E
+        LD      E,H
+        JP      NZ,$20          ; go on to shifting if necessary
+        JP      $30
+$10     ADD     A,08H           ; right_bit_number < 8, so restore
+        JP      Z,$30           ; see if = 0
+        LD      L,A             ; and stick into loop control variable
+        CLRCF
+$20     ; do the shifting
+        .IF Z80
+         SLA    E
+         RL     D
+         SLA    C
+         RL     B
+        .ENDC
+        .IF ~Z80
+         LD     A,E
+         RLA
+         LD     E,A
+         LD     A,D
+         RLA
+         LD     D,A
+         LD     A,C
+         RLA
+         LD     C,A
+         LD     A,B
+         RLA
+         LD     B,A
+        .ENDC
+        DEC     L
+        JP      NZ,$20
+$30     POP     HL              ; HL = ^word
+        LD      A,C             ; insert low byte
+        CPL
+        AND     (HL)
+        OR      E
+        LD      (HL),A
+        INC     HL              ; insert high byte
+        LD      A,B
+        CPL
+        AND     (HL)
+        OR      D
+        LD      (HL),A
+        JP      BACK1
+
+CLRMSK  .WORD    0000H
+BITTER  .WORD    0001H           ; used by set stuff
+        .WORD    0003H
+        .WORD    0007H
+        .WORD    000FH
+        .WORD    001FH
+        .WORD    003FH
+        .WORD    007FH
+        .WORD    00FFH
+        .WORD    01FFH
+        .WORD    03FFH
+        .WORD    07FFH
+        .WORD    0FFFH
+        .WORD    1FFFH
+        .WORD    3FFFH
+        .WORD    7FFFH
+        .WORD    0FFFFH
+
+; End-of-File VARS

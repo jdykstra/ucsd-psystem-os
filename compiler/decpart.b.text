@@ -1,0 +1,376 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+(*
+ * UCSD p-System Operating System
+ * Copyright (C) 2010 Peter Miller
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of the ucsd-psystem-os project nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *)
+
+    PROCEDURE USESDECLARATION(MAGIC: BOOLEAN);
+      LABEL 1;
+      TYPE DCREC = RECORD
+                     DISKADDR: INTEGER;
+                     CODELENG: INTEGER
+                   END;
+      VAR SEGDICT: RECORD
+                       DANDC: ARRAY[SEGRANGE] OF DCREC;
+                       SEGNAME: ARRAY[SEGRANGE] OF ALPHA;
+                       SEGKIND: ARRAY[SEGRANGE] OF INTEGER;
+                       TEXTADDR: ARRAY[SEGRANGE] OF INTEGER;
+                       FILLER: ARRAY[0..127] OF INTEGER
+                   END;
+          FOUND: BOOLEAN; BEGADDR: INTEGER;
+          LCP: CTP; LLEXSTK: LEXSTKREC; LNAME: ALPHA;
+          LSY: SYMBOL; LOP: OPERATOR; LID: ALPHA;
+
+      PROCEDURE GETTEXT(VAR FOUND: BOOLEAN);
+        VAR LCP: CTP; SEGINDEX: INTEGER;
+
+      BEGIN FOUND := FALSE;
+        LCP := MODPTR;
+        WHILE (LCP <> NIL) AND NOT FOUND DO
+          IF LCP^.NAME = ID THEN FOUND := TRUE ELSE LCP := LCP^.NEXT;
+        IF FOUND THEN
+          BEGIN
+            LSEPPROC := SEGTABLE[LCP^.SEGID].SEGKIND = 4 (* SEPRTSEG *);
+            IF NOT LSEPPROC THEN
+              BEGIN SEG := LCP^.SEGID; NEXTPROC := 1 END;
+            BEGADDR := SEGTABLE[LCP^.SEGID].TEXTADDR;
+            USEFILE := WORKCODE;
+          END
+        ELSE
+          BEGIN FOUND := TRUE;
+            IF LIBNOTOPEN THEN
+              BEGIN RESET(LIBRARY,SYSTEMLIB);
+                IF IORESULT <> 0 THEN BEGIN ERROR(187); FOUND := FALSE END
+                ELSE
+                  IF BLOCKREAD(LIBRARY,SEGDICT,1,0) <> 1 THEN
+                    BEGIN ERROR(187); FOUND := FALSE END;
+              END;
+            IF FOUND THEN
+              BEGIN LIBNOTOPEN := FALSE;
+                SEGINDEX := 0; FOUND := FALSE;
+                WHILE (SEGINDEX <= MAXSEG) AND (NOT FOUND) DO
+                  IF MAGIC THEN
+                      IF SEGDICT.SEGNAME[SEGINDEX] = LNAME THEN FOUND := TRUE
+                      ELSE SEGINDEX := SEGINDEX + 1
+                  ELSE
+                    IF SEGDICT.SEGNAME[SEGINDEX] = ID THEN FOUND := TRUE
+                    ELSE SEGINDEX := SEGINDEX + 1;
+                IF FOUND THEN
+                  BEGIN USEFILE := SYSLIBRARY;
+                    BEGADDR := SEGDICT.TEXTADDR[SEGINDEX];
+                    LSEPPROC := SEGDICT.SEGKIND[SEGINDEX] = 4 (* SEPRTSEG *);
+                    IF NOT LSEPPROC THEN
+                      BEGIN
+                        IF MAGIC THEN SEG := 6
+                        ELSE
+                          BEGIN SEG := NEXTSEG;
+                            NEXTSEG := NEXTSEG + 1;
+                            IF NEXTSEG > MAXSEG THEN ERROR(250)
+                          END;
+                        WITH SEGTABLE[SEG] DO
+                          BEGIN DISKADDR := 0; CODELENG := 0;
+                            SEGNAME := SEGDICT.SEGNAME[SEGINDEX];
+                            IF INMODULE OR MAGIC
+                            THEN
+                              SEGKIND := 0 (* LINKED *)
+                            ELSE
+                              SEGKIND := SEGDICT.SEGKIND[SEGINDEX];
+                            TEXTADDR := 0
+                          END;
+                        NEXTPROC := 1
+                      END
+                  END
+                ELSE ERROR(190) (*NOT IN LIBRARY*)
+              END
+          END;
+        IF BEGADDR = 0 THEN BEGIN ERROR(195); FOUND := FALSE END;
+        IF FOUND THEN
+          BEGIN
+            USING := TRUE;
+            PREVSYMCURSOR := SYMCURSOR;
+            PREVLINESTART := LINESTART;
+            PREVSYMBLK := SYMBLK - 2;
+            SYMBLK := BEGADDR; GETNEXTPAGE;
+            INSYMBOL
+          END
+      END (*GETTEXT*) ;
+
+    BEGIN (*USESDECLARATION*)
+      IF LEVEL <> 1 THEN ERROR(189);
+      IF INMODULE AND NOT ININTERFACE THEN ERROR(192);
+      IF NOT MAGIC THEN DLINKERINFO := TRUE;
+      IF NOT USING THEN USINGLIST := NIL;
+      REPEAT
+        IF (NOT MAGIC) AND (SY <> IDENT) THEN ERROR(2)
+        ELSE
+          IF USING THEN
+            BEGIN LCP := USINGLIST;
+              WHILE LCP <> NIL DO
+                IF LCP^.NAME = ID THEN GOTO 1
+                ELSE LCP := LCP^.NEXT;
+              ERROR(188)(*UNIT MUST BE PREDECLARED IN MAIN PROG*);
+          1:
+            END
+          ELSE
+            BEGIN
+              IF MAGIC THEN
+                BEGIN LNAME := 'TURTLE  ';
+                  LSY := SY; LOP := OP; LID := ID
+                END
+              ELSE
+                BEGIN LNAME := ID;
+                  WRITELN(OUTPUT); WRITELN(OUTPUT,ID,' [',MEMAVAIL:5,' words]');
+                  WRITE(OUTPUT,'<',SCREENDOTS:4,'>')
+                END;
+              WITH LLEXSTK DO
+                BEGIN DOLDSEG := SEG; SOLDPROC := NEXTPROC END;
+              GETTEXT(FOUND);
+              IF FOUND THEN
+                BEGIN
+                  NEW(LCP,MODULE);
+                  WITH LCP^ DO
+                    BEGIN NAME := LNAME; NEXT := USINGLIST;
+                      IDTYPE := NIL; KLASS := MODULE;
+                      IF LSEPPROC THEN SEGID := -1 (*NO SEG*) ELSE SEGID := SEG
+                    END;
+                  ENTERID(LCP);
+                  USINGLIST := LCP;
+                  DECLARATIONPART(FSYS + [ENDSY]);
+                  IF NEXTPROC=1 (*NO PROCS DECLARED*) THEN
+                    LCP^.SEGID := -1; (*NO SEG*)
+                  SYMBLK := 9999; (*FORCE RETURN TO SOURCEFILE*)
+                  GETNEXTPAGE
+                END;
+              IF NOT LSEPPROC THEN
+                WITH LLEXSTK DO
+                  BEGIN SEG := DOLDSEG;
+                    NEXTPROC := SOLDPROC
+                  END;
+              LSEPPROC := FALSE;
+            END;
+        IF NOT MAGIC THEN
+          BEGIN INSYMBOL;
+            TEST := SY <> COMMA;
+            IF TEST THEN
+              IF SY <> SEMICOLON THEN ERROR(20)
+              ELSE
+            ELSE INSYMBOL
+          END
+      UNTIL TEST OR MAGIC;
+      IF NOT MAGIC THEN
+        IF SY = SEMICOLON THEN INSYMBOL ELSE ERROR(14)
+      ELSE BEGIN SY := LSY; OP := LOP; ID := LID END;
+      IF NOT USING THEN
+        BEGIN
+          IF INMODULE THEN USINGLIST := NIL;
+          CLOSE(LIBRARY,LOCK);
+          LIBNOTOPEN := TRUE
+        END
+    END (*USESDECLARATION*) ;
+
+    PROCEDURE LABELDECLARATION;
+      VAR LLP: LABELP; REDEF: BOOLEAN;
+    BEGIN
+      REPEAT
+        IF SY = INTCONST THEN
+          WITH DISPLAY[TOP] DO
+            BEGIN LLP := FLABEL; REDEF := FALSE;
+              WHILE (LLP <> NIL) AND NOT REDEF DO
+                IF LLP^.LABVAL <> VAL.IVAL THEN
+                  LLP := LLP^.NEXTLAB
+                ELSE BEGIN REDEF := TRUE; ERROR(166) END;
+              IF NOT REDEF THEN
+                BEGIN NEW(LLP);
+                  WITH LLP^ DO
+                    BEGIN LABVAL := VAL.IVAL;
+                      CODELBP := NIL; NEXTLAB := FLABEL
+                    END;
+                  FLABEL := LLP
+                END;
+              INSYMBOL
+            END
+        ELSE ERROR(15);
+        IF NOT ( SY IN FSYS + [COMMA, SEMICOLON] ) THEN
+          BEGIN ERROR(6); SKIP(FSYS+[COMMA,SEMICOLON]) END;
+        TEST := SY <> COMMA;
+        IF NOT TEST THEN INSYMBOL
+      UNTIL TEST;
+      IF SY = SEMICOLON THEN INSYMBOL ELSE ERROR(14)
+    END (* LABELDECLARATION *) ;
+
+    PROCEDURE CONSTDECLARATION;
+      VAR LCP: CTP; LSP: STP; LVALU: VALU;
+    BEGIN
+      IF SY <> IDENT THEN
+        BEGIN ERROR(2); SKIP(FSYS + [IDENT]) END;
+      WHILE SY = IDENT DO
+        BEGIN NEW(LCP,KONST);
+          WITH LCP^ DO
+            BEGIN NAME := ID; IDTYPE := NIL;
+              NEXT := NIL; KLASS := KONST
+            END;
+          INSYMBOL;
+          IF (SY = RELOP) AND (OP = EQOP) THEN INSYMBOL ELSE ERROR(16);
+          CONSTANT(FSYS + [SEMICOLON],LSP,LVALU);
+          ENTERID(LCP);
+          LCP^.IDTYPE := LSP; LCP^.VALUES := LVALU;
+          IF SY = SEMICOLON THEN
+            BEGIN INSYMBOL;
+              IF NOT (SY IN FSYS + [IDENT]) THEN
+                BEGIN ERROR(6); SKIP(FSYS + [IDENT]) END
+            END
+          ELSE
+            IF NOT ((SY = ENDSY) AND (INMODULE)) THEN ERROR(14)
+        END
+    END (*CONSTDECLARATION*) ;
+
+    PROCEDURE TYPEDECLARATION;
+      VAR LCP,LCP1,LCP2: CTP; LSP: STP; LSIZE: ADDRRANGE;
+    BEGIN
+      IF SY <> IDENT THEN
+        BEGIN ERROR(2); SKIP(FSYS + [IDENT]) END;
+      WHILE SY = IDENT DO
+        BEGIN NEW(LCP,TYPES);
+          WITH LCP^ DO
+            BEGIN NAME := ID; IDTYPE := NIL; KLASS := TYPES END;
+          INSYMBOL;
+          IF (SY = RELOP) AND (OP = EQOP) THEN INSYMBOL ELSE ERROR(16);
+          TYP(FSYS + [SEMICOLON],LSP,LSIZE);
+          ENTERID(LCP);
+          LCP^.IDTYPE := LSP;
+          LCP1 := FWPTR;
+          WHILE LCP1 <> NIL DO
+            BEGIN
+              IF LCP1^.NAME = LCP^.NAME THEN
+                BEGIN
+                  LCP1^.IDTYPE^.ELTYPE := LCP^.IDTYPE;
+                  IF LCP1 <> FWPTR THEN
+                    LCP2^.NEXT := LCP1^.NEXT
+                  ELSE FWPTR := LCP1^.NEXT;
+                END;
+              LCP2 := LCP1; LCP1 := LCP1^.NEXT
+            END;
+          IF SY = SEMICOLON THEN
+            BEGIN INSYMBOL;
+              IF NOT (SY IN FSYS + [IDENT]) THEN
+                BEGIN ERROR(6); SKIP(FSYS + [IDENT]) END
+            END
+          ELSE
+            IF NOT ((SY = ENDSY) AND (INMODULE)) THEN ERROR(14)
+        END;
+      IF FWPTR <> NIL THEN
+        BEGIN ERROR(117); FWPTR := NIL END
+    END (*TYPEDECLARATION*) ;
+
+    PROCEDURE VARDECLARATION;
+      VAR LCP,NXT,IDLIST: CTP; LSP: STP; LSIZE: ADDRRANGE;
+    BEGIN NXT := NIL;
+      REPEAT
+        REPEAT
+          IF SY = IDENT THEN
+            BEGIN
+              IF INMODULE THEN NEW(LCP,ACTUALVARS,TRUE)
+              ELSE NEW(LCP,ACTUALVARS,FALSE);
+              WITH LCP^ DO
+               BEGIN NAME := ID; NEXT := NXT; KLASS := ACTUALVARS;
+                 IDTYPE := NIL; VLEV := LEVEL;
+                 IF INMODULE THEN
+                   IF ININTERFACE THEN PUBLIC := TRUE
+                   ELSE PUBLIC := FALSE
+               END;
+              ENTERID(LCP);
+              NXT := LCP;
+              INSYMBOL;
+            END
+          ELSE ERROR(2);
+          IF NOT (SY IN FSYS + [COMMA,COLON] + TYPEDELS) THEN
+            BEGIN ERROR(6); SKIP(FSYS+[COMMA,COLON,SEMICOLON]+TYPEDELS) END;
+          TEST := SY <> COMMA;
+          IF NOT TEST THEN INSYMBOL
+        UNTIL TEST;
+        IF SY = COLON THEN INSYMBOL ELSE ERROR(5);
+        IDLIST := NXT;
+        TYP(FSYS + [SEMICOLON] + TYPEDELS,LSP,LSIZE);
+        WHILE NXT <> NIL DO
+          WITH  NXT^ DO
+            BEGIN IDTYPE := LSP; VADDR := LC;
+              LC := LC + LSIZE; NXT := NEXT;
+              IF NEXT = NIL THEN
+                IF LSP <> NIL THEN
+                  IF LSP^.FORM = FILES THEN
+                      BEGIN (*PUT IDLIST INTO LOCAL FILE LIST*)
+                        NEXT := DISPLAY[TOP].FFILE;
+                        DISPLAY[TOP].FFILE := IDLIST
+                      END
+            END;
+        IF SY = SEMICOLON THEN
+          BEGIN INSYMBOL;
+            IF NOT (SY IN FSYS + [IDENT]) THEN
+              BEGIN ERROR(6); SKIP(FSYS + [IDENT]) END
+          END
+        ELSE
+            IF NOT ((SY = ENDSY) AND (INMODULE)) THEN ERROR(14)
+      UNTIL (SY <> IDENT) AND NOT (SY IN TYPEDELS);
+    IF FWPTR <> NIL THEN
+        BEGIN ERROR(117); FWPTR := NIL END
+    END (*VARDECLARATION*) ;

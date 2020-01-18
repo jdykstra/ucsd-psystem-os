@@ -1,0 +1,271 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+{--------------------- WORKFILE MAINTANENCE PROCEDURES ------------------------}
+
+  { Allows the user to save his workfile under any desired name }
+  FUNCTION SAVEWORK : BOOLEAN;
+  TYPE
+    FILESTRG = STRING [4];
+  VAR
+    GS : SHORTSTRING;
+    OK : BOOLEAN;
+
+    FUNCTION SAVEIT(WHATFILE : FILESTRG; WHICH : FILEKIND;
+        VAR TITLE : TID; VAR SAVED,GOTIT  : BOOLEAN; MSG : INTEGER) : BOOLEAN;
+    VAR
+      GFIB : UNTYPED;
+      GFIBP : FIBP;
+
+    { Changes the name of the workfile to the name desired by the user }
+    BEGIN { SAVEIT }
+      SAVED := TRUE;
+      WITH USERINFO DO
+        BEGIN
+          RESET(GFIB,CONCAT('*SYSTEM.WRK.',WHATFILE));
+          GFIBP := GETPTR(GFIB);
+          WITH USERINFO, GFIBP^.FHEADER DO
+          IF GFIBP^.FISOPEN THEN
+            BEGIN
+              DACCESS.YEAR := 100;
+              TITLE := CONCAT(WORKTID,'.',WHATFILE);{ Change the workfile name }
+              DTID := TITLE;    { Change the name of the file }
+              SAVEIT := TRUE;
+              CLOSE(GFIB,NORMAL)
+            END
+          ELSE
+            BEGIN
+              SAVEIT := FALSE;
+              GOTIT := FALSE;
+              MESSAGES(MSG,FALSE)  { Couldn't find the workfile }
+            END
+        END
+    END { SAVEIT };
+
+    { Create input string to be sent to the T(ransfer command }
+    PROCEDURE CONCATIT(STR : FILESTRG; SAVED : BOOLEAN);
+    BEGIN
+      IF NOT SAVED THEN
+        INSTRING := CONCAT(INSTRING,'*SYSTEM.WRK.',STR,',',
+                                         GVID2,':',GTID,'.',STR,',')
+    END;
+
+  BEGIN { SAVEWORK }
+    WITH USERINFO DO
+      BEGIN
+        SAVEWORK := FALSE; { Will be set to true if saving to a different disk }
+        GTID := WORKTID;
+        GVID := WORKVID;
+        GVID2 := WORKVID;
+        IF TEXTSAVED AND CODESAVED THEN   { Error nothing to save }
+          BEGIN
+            WRITELN;
+            IF GOTSYM OR GOTCODE THEN
+              MESSAGES(WRKSAVED,TRUE);    { Workfile already saved }
+            MESSAGES(NOWRK,TRUE);         { No workfile to save }
+          END;
+        OK := FALSE;
+        IF WORKTID <> '' THEN { Already have a filename }
+          BEGIN
+            CLEARLINE;
+            WRITE('Save as ',WORKVID,':',WORKTID,' ? ');
+            OK := NGETCHAR(FALSE)
+          END;
+        IF NOT OK THEN        { Need a new filename }
+          CHECKFILE('Save as','',1,FILEEXP,FALSE,TRUE,
+                                   [NOVOL,BADDIR,BADFILE,OKDIR,OKFILE]);
+        IF LENGTH(GTID) > TIDLENG-5 THEN
+          MESSAGES(ILLFILEVOL,TRUE);   { Filename is too long }
+        IF GVID2 <> SYVID THEN
+          BEGIN                        { Save to alternate disk }
+            INSTRING := '';
+            CONCATIT('TEXT',TEXTSAVED);
+            CONCATIT('CODE',CODESAVED);
+            DELETE(INSTRING,LENGTH(INSTRING),1);   { Remove trailing comma }
+            SAVEWORK := TRUE;     { Will need to enter T(ransfer after leaving }
+            EXIT(SAVEWORK)
+          END;
+        WORKTID := GTID;          { Change title of worfile }
+        WORKVID := GVID;          { Change volume i.d. of worfile }
+        CLEARLINE;
+        IF NOT TEXTSAVED THEN
+          BEGIN                   { Text file needs to be saved }
+            IF SAVEIT('TEXT',TEXTFILE,SYMTID,TEXTSAVED,GOTSYM,TEXTLOST) THEN
+              BEGIN
+                IF CODESAVED THEN { Remove old code existing file }
+                  IF PURGEIT(CONCAT('*',WORKTID,'.CODE'),'') THEN
+                    WRITE('Old code removed, ');
+                WRITE('Text file saved ')
+              END;
+            IF NOT CODESAVED THEN
+              WRITE('& ')         { Will also need to save new codefile }
+          END;
+        IF NOT CODESAVED THEN  { Save code file }
+          IF SAVEIT('CODE',CODEFILE,CODETID,CODESAVED,GOTCODE,CODELOST) THEN
+            WRITE('Code file saved')
+      END
+  END {SAVEWORK} ;
+
+  { Informs the user if a workfile exists and if so }
+  { what name it is associated with                 }
+  PROCEDURE WHATWORK;
+  BEGIN
+    WRITEANDCLEAR;
+    WITH USERINFO DO
+      IF GOTSYM OR GOTCODE THEN          { There's a code or text file loaded }
+        BEGIN
+          IF WORKTID = '' THEN
+            WRITE('not named')
+          ELSE
+            WRITE('Workfile is ',WORKVID,':',WORKTID);
+          IF NOT (TEXTSAVED AND CODESAVED) THEN
+            WRITE(' (not saved)')
+        END
+      ELSE
+        WRITE('No workfile')
+  END {WHATWORK} ;
+
+  { Clears the present workfile. Used in GETWORK & NEWWORK }
+  PROCEDURE CLEARWORK;
+  BEGIN
+    WITH USERINFO DO
+      BEGIN
+        GOTSYM := FALSE;
+        GOTCODE := FALSE;
+        WORKTID := '';
+        SYMTID := '';
+        CODETID := ''
+      END
+  END;
+
+  { Clears the present workfile. If a SYSTEM.WRK exists will remove it }
+  PROCEDURE NEWWORK(GIVEBLURB: BOOLEAN);
+  VAR
+    GFIB : FILE;
+  BEGIN { NEWWORK }
+    WITH USERINFO DO
+      BEGIN
+        IF NOT (TEXTSAVED AND CODESAVED) THEN
+          BEGIN     { Current workfile hasn't been saved verify its removal }
+            CLEARLINE;
+            WRITE('Throw away current workfile ? ');
+            IF NOT NGETCHAR(FALSE) THEN
+              EXIT(CALLPROC);
+          END
+        ELSE
+          IF GIVEBLURB THEN
+            WRITELN;  { Wasn't called from GETWORK }
+
+        { Remove all workfiles }
+        IF PURGEIT('*SYSTEM.WRK.TEXT','') THEN;
+        IF PURGEIT('*SYSTEM.WRK.CODE','') THEN;
+        IF PURGEIT('*SYSTEM.LST.TEXT','') THEN;
+
+        { Check for a .BACK file in case user has a large file EDITOR }
+        IF PURGEIT(CONCAT(WORKTID,'.BACK'),'Remove') THEN;
+
+        TEXTSAVED := TRUE;
+        CODESAVED := TRUE;
+        IF GIVEBLURB THEN
+          WITH USERINFO DO  { Inform the user of the status of the workfile }
+            BEGIN
+              CLEARLINE;
+              WRITE('Workfile cleared');
+              CLEARWORK;
+            END
+      END
+  END { NEWWORK };
+
+  { Allows the user to load a new file name into his workfile }
+  PROCEDURE GETWORK;
+  TYPE
+    SHORT = STRING[5];
+  VAR
+    DONE,OK : BOOLEAN;
+    X : INTEGER;
+
+    { Checks to see whether or not the requested file to be loaded exists }
+    FUNCTION CHECKIT(SUFFIX,MESS:SHORT; VAR TITLE:TID; VAR VOLID:VID) : BOOLEAN;
+    BEGIN
+      WITH USERINFO DO
+      BEGIN
+        CHECKIT := FALSE;
+        SCANINPUT(CONCAT(WORKVID,':',WORKTID,SUFFIX),[OKFILE],0,NEITHER,TRUE);
+        IF LASTSTATE = OKFILE THEN
+          BEGIN      { The requested file has been found }
+            CHECKIT := TRUE;
+            DONE := TRUE;
+            TITLE := CONCAT(WORKTID,SUFFIX);
+            VOLID := WORKVID;
+            IF GOTSYM THEN
+              WRITE('& ');
+            WRITE(MESS)
+          END
+      END
+    END;
+
+  BEGIN { GETWORK }
+    NEWWORK(FALSE);     { Clear existing workfile }
+    CHECKFILE('Get','',1,FILEEXP,FALSE,TRUE,[BADFILE,OKFILE]);
+    WITH USERINFO DO
+    BEGIN
+      CLEARWORK;  { Clearwork hasn't cleared workfile yet in case of nul input }
+      WORKVID := GVID;
+      WORKTID := GTID;
+      X := LENGTH(WORKTID);
+      OK := X <= TIDLENG-5;      { Can a '.TEXT' or '.CODE' suffix be added }
+      CLEARLINE;
+      REPEAT
+        DONE := NOT OK;
+        IF DONE AND (X > 5) THEN { '.TEXT' OR '.CODE' Suffix may already exist }
+          IF (COPY(WORKTID,X-4,5)='.TEXT') OR (COPY(WORKTID,X-4,5)='.CODE') THEN
+            DELETE(WORKTID,X - 4,5); { Remove '.TEXT' or '.CODE' suffix }
+        IF (LENGTH(WORKTID) <= TIDLENG-5) AND (WORKTID <> '') THEN
+          BEGIN { See if file is in directory }
+            GOTSYM := CHECKIT('.TEXT','Text ',SYMTID,SYMVID);
+            GOTCODE := CHECKIT('.CODE','Code ',CODETID,CODEVID)
+          END;
+        OK := FALSE
+      UNTIL DONE;
+      IF NOT (GOTSYM OR GOTCODE) THEN
+        BEGIN  { Wasn't able to find the file }
+          CLEARWORK;
+          WRITE('No ')
+        END;
+      WRITE('file loaded')
+    END
+  END {GETWORK} ;

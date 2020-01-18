@@ -1,0 +1,528 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+ PROCEDURE LEX;
+
+ PROCEDURE PCONST;
+ VAR RADIX,I,NUM:INTEGER;
+     TEMP,ID:STRING;
+     VAL:WORDSWAP;
+ BEGIN
+   IF DEBUG THEN WRITELN('Pcon');
+   TEMP:=' '; ID:=' ';
+   WHILE (((CH>='A') AND (CH<='F')) OR ((CH>='0') AND (CH<='9'))) DO
+     BEGIN
+       IF CH>='A' THEN TEMP[1]:=CHR(ORD(CH)-55)
+         ELSE TEMP[1]:=CHR(ORD(CH)-ORD('0'));
+       ID:=CONCAT(ID,TEMP);
+       GETCHAR;
+     END;
+   REPEAT
+     DELETE(ID,1,1);
+   UNTIL (ORD(ID[1])<>0) OR (LENGTH(ID)=1);
+   IF ORD(CH)=ORD(HEXSWITCH) THEN
+     RADIX:=16
+   ELSE IF ORD(CH)=ORD(DECSWITCH) THEN
+     RADIX:=10
+   ELSE IF ORD(CH)=ORD(OCTSWITCH) THEN
+     RADIX:=8
+   ELSE IF ORD(CH)=ORD(BINSWITCH) THEN
+     RADIX:=2
+   ELSE
+     BEGIN
+       RADIX:=DEFRADIX;
+       ADVANCE:=FALSE;
+     END;
+   LEXTOKEN:=CONSTANT;
+   TEMP[1]:=CHR(0);
+   CONSTVAL:=0;
+   CASE RADIX OF
+     16:IF LENGTH(ID)>4 THEN
+          ERROR(29{constant overflow})
+        ELSE
+          BEGIN
+            WHILE LENGTH(ID)<4 DO ID:=CONCAT(TEMP,ID);
+            VAL.HEX1:=ORD(ID[1]);
+            VAL.HEX2:=ORD(ID[2]);
+            VAL.HEX3:=ORD(ID[3]);
+            VAL.HEX4:=ORD(ID[4]);
+            CONSTVAL:=VAL.HWORD;
+          END;
+     10:IF LENGTH(ID)>5 THEN
+          ERROR(29{constant overflow})
+        ELSE
+          BEGIN
+            WHILE LENGTH(ID)<5 DO ID:=CONCAT(TEMP,ID);
+            NUM:=0;
+            FOR I:=1 TO 4 DO
+              IF ORD(ID[I])>9 THEN
+                BEGIN
+                  ERROR(30{illegal decimal constant});
+                  EXIT(PCONST);
+                END
+              ELSE NUM:=NUM*10 + ORD(ID[I]);
+            IF (NUM>3276) OR ((NUM=3276) AND (ORD(ID[5])>7)) THEN
+              ERROR(29{constant overflow})
+            ELSE CONSTVAL:=NUM*10 + ORD(ID[5]);
+          END;
+      8:IF (LENGTH(ID)>6) OR ((ORD(ID[1])>1) AND (LENGTH(ID)=6)) THEN
+          ERROR(29{constant overflow})
+        ELSE
+          BEGIN
+            WHILE LENGTH(ID)<6 DO ID:=CONCAT(TEMP,ID);
+            FOR I:=2 TO 6 DO
+              IF ORD(ID[I])>7 THEN
+                BEGIN
+                  ERROR(31{illegal octal constant});
+                  EXIT(PCONST);
+                END;
+            VAL.OCT1:=ORD(ID[1]);
+            VAL.OCT2:=ORD(ID[2]);
+            VAL.OCT3:=ORD(ID[3]);
+            VAL.OCT4:=ORD(ID[4]);
+            VAL.OCT5:=ORD(ID[5]);
+            VAL.OCT6:=ORD(ID[6]);
+            CONSTVAL:=VAL.HWORD;
+          END;
+      2:IF (LENGTH(ID)>16) THEN
+          ERROR(29{constant overflow})
+        ELSE
+          BEGIN
+            WHILE LENGTH(ID)<16 DO ID:=CONCAT(TEMP,ID);
+            FOR I:=1 TO 16 DO
+              IF ORD(ID[I])>1 THEN
+                BEGIN
+                  ERROR(32{illegal binary constant});
+                  EXIT(PCONST);
+                END
+              ELSE VAL.BIN[16 - I]:=ORD(ID[I]);
+            CONSTVAL:=VAL.HWORD;
+          END
+   END; {Case}
+ END;
+
+         {Looks up the reserved word in the KWORD array and returns the correct
+          token for that key word. Only the LEXTOKEN is returned}
+
+ PROCEDURE PKWORD;
+ VAR I:INTEGER; KLUDGEPTR:^INTEGER;
+     ID:PACKNAME;
+     TEMP,ALTNAME:STRING;
+ BEGIN
+   IF DEBUG THEN WRITELN('PKW');
+   GETCHAR;{Skip over the period}
+   ID:='        ';
+   I:=0;
+   WHILE (((CH>='A') AND (CH<='Z')) OR ((CH>='0') AND (CH<='9'))) DO
+     BEGIN
+       IF I<8 THEN ID[I]:=CH;
+       I:=I+1;
+       GETCHAR;
+     END;
+   IF I=0 THEN ERROR(45{Keyword expected});
+   I:=-1;
+   FOUND:=FALSE;
+   WHILE NOT FOUND AND (I<NUMKWORDS) DO
+     BEGIN
+       I:=I+1;
+       FOUND:=(KWORDS[I]=ID);
+     END;
+   IF NOT FOUND THEN
+    BEGIN
+     WRITELN('>',ID,'<');
+     ERROR(33{invalid key word})
+    END ELSE
+     LEXTOKEN:=KTOKEN[I];
+   ADVANCE:=FALSE;
+   IF ID='ENDM    ' THEN {macro end}
+     BEGIN
+       MCSTKINDEX:=MCSTKINDEX - 1;
+       IF MCSTKINDEX>0 THEN
+         BEGIN
+           MCPTR:=MACROSTACK[MCSTKINDEX];
+           MACROINDEX:=MCINDEX[MCSTKINDEX];
+           WHILE MCPTR^[MACROINDEX]<>CHR(13) DO MACROINDEX:=MACROINDEX + 1;
+         END
+       ELSE
+         BEGIN
+           SOURCE:=FILESOURCE;
+           WHILE XBLOCK[BLOCKPTR]<>CHR(13) DO BLOCKPTR:=BLOCKPTR + 1;
+         END;
+       REPEAT
+         LEX;
+       UNTIL (LEXTOKEN=ENDLINE) OR (LEXTOKEN=TEOF);
+       IF LEXTOKEN=TEOF THEN
+         ERROR(34{Unexpected end of input - after macro})
+       ELSE LEX;
+     END
+   ELSE IF LEXTOKEN=INCLUDE THEN
+     IF ALTINPUT THEN
+       ERROR(35{Include files may not be nested})
+     ELSE IF SOURCE<>FILESOURCE THEN
+       ERROR(37{This is a bad place for an include file})
+     ELSE
+       BEGIN
+         ALTINPUT:=TRUE;
+         TEMP:=' '; ALTNAME:=' ';
+         REPEAT
+           GETCHAR;
+           IF (CH<>' ') AND (CH<>CHR(13)) THEN
+             BEGIN
+               TEMP[1]:=CH;
+               ALTNAME:=CONCAT(ALTNAME,TEMP);
+             END;
+         UNTIL CH=CHR(13);
+         ALTBLOCNO:=BLOCKNO;
+         ALTBLOCPTR:=BLOCKPTR;
+         (*$I-*)
+         RESET(ALTFILE,ALTNAME);
+         IOCHECK(TRUE);
+         (*$I+*)
+         MARK(KLUDGEPTR);{dumps disk direc so next proc call won't STK-OFLW}
+         CURFNAME:=ALTNAME;
+         BLOCKNO:=2; BLOCKPTR:=1024;
+         LEXTOKEN:=ENDLINE;
+         IF NOT (CONSOLE AND DISPLAY) THEN
+           BEGIN
+             WRITELN;
+             WRITELN(TEXTLINE);
+             WRITE('<',LINENUM:4,'>');
+           END;
+       END;
+ END;
+
+       {Search the symbol tree to locate the identifier and determine
+        what it is. The types returned can be: OPCODE1..10,TIDENTIFIER,
+        if start-line is true then we return the token type of TLABEL}
+
+ PROCEDURE PIDENT;
+ VAR HASHA,HASHB,I:INTEGER;
+     ID:PACKNAME;
+
+ BEGIN
+   IF DEBUG THEN WRITELN('PID');
+   ID:='        ';
+   I:=0;
+   WHILE ((CH>='A') AND (CH<='Z')) OR ((CH>='0') AND (CH<='9')) OR (CH='_') DO
+     BEGIN
+       IF I<8 THEN ID[I]:=CH;
+       I:=I+1;
+       GETCHAR;
+     END;
+   HASHA:=0; FOUND:=FALSE;
+   FOR I:=0 TO 7 DO
+     BEGIN
+       HASHA:=HASHA + HASHA; {left shift}
+       HASHB:=ORD(ID[I]);
+       HASHA:=ORD((NOT ODD(HASHA) AND ODD(HASHB)) OR
+                      (ODD(HASHA) AND NOT ODD(HASHB))); {xor}
+     END;
+   HASHB:=HASHA MOD HASHRANGE; {lo-order part}
+   HASHA:=HASHA DIV HASHRANGE; {hi-order part}
+   HASHA:=ORD((NOT ODD(HASHA) AND ODD(HASHB)) OR
+              (ODD(HASHA) AND NOT ODD(HASHB)));
+   HASHA:=HASHA MOD HASHRANGE;
+   SYM:=HASH[HASHA];
+   WHILE (NOT FOUND) AND (SYM<>NIL) DO
+     IF SYM^.NAME=ID THEN FOUND:=TRUE ELSE SYM:=SYM^.LINK;
+   IF NOT FOUND THEN
+     BEGIN
+       IF DEBUG THEN WRITELN('not found',ORD(CURRENTATRIB):3);
+              {insert at the top of the list}
+       CASE CURRENTATRIB OF
+         MACROS:
+           BEGIN
+             NEW(SYM,MACROS);
+             SYM^.EXPANDMCRO:=EXPANDMACRO;
+           END;
+         DEFS:
+           BEGIN
+             NEW(SYM,DEFS);
+             SYM^.PROCNUM:=PROCNUM;
+             SYM^.CODEOFFSET:=-1;
+             SYM^.DEFFWDREF:=NIL;
+           END;
+         PUBLICS,PRIVATES,REFS,CONSTS:
+           BEGIN
+             CASE CURRENTATRIB OF
+               PUBLICS:NEW(SYM,PUBLICS);
+               PRIVATES:NEW(SYM,PRIVATES);
+               REFS:NEW(SYM,REFS);
+               CONSTS:NEW(SYM,CONSTS)
+             END;
+             SYM^.NREFS:=0;
+             SYM^.NWORDS:=1;
+             SYM^.LINKOFFSET:=NIL;
+           END;
+         PROCS:NEW(SYM,PROCS);
+         FUNCS:NEW(SYM,FUNCS);
+         UNKNOWN:
+           BEGIN
+             NEW(SYM,UNKNOWN);
+             SYM^.OFFSETORVALUE:=0;
+             SYM^.FWDREF:=NIL;
+           END
+         END;
+       SYM^.NAME:=ID; SYM^.ATTRIBUTE:=CURRENTATRIB;
+       SYM^.LINK:=HASH[HASHA];
+       HASH[HASHA]:=SYM;
+     END
+   ELSE IF SYM^.ATTRIBUTE=MACROS THEN
+     BEGIN
+       IF MCSTKINDEX>0 THEN
+         MCINDEX[MCSTKINDEX]:=MACROINDEX
+       ELSE
+         BEGIN
+           MCINDEX[MCSTKINDEX]:=BLOCKPTR;
+           EXPANDMACRO:=SYM^.EXPANDMCRO;
+         END;
+       WHILE CH<>CHR(13) DO GETCHAR;
+       PRINTLINE;
+       SOURCE:=MACROSOURCE;
+       MCSTKINDEX:=MCSTKINDEX + 1;
+       MACROSTACK[MCSTKINDEX]:=SYM^.MACRO;
+       MCPTR:=SYM^.MACRO;
+       MACROINDEX:=0;
+       LEXTOKEN:=ENDLINE;
+       LEX; {re-initiate LEX with appropriate SOURCE then exit to return called}
+       EXIT(LEX); {LEX's LEXTOKEN.  style - 0, effeciency - 1}
+     END;
+   IF STARTLINE THEN
+    BEGIN
+     IF DEBUG THEN WRITELN('STARTLINE true');
+     IF CH=':' THEN GETCHAR;
+     IF NOT FOUND THEN LEXTOKEN:=TLABEL
+       ELSE IF (SYM^.ATTRIBUTE=UNKNOWN) OR (SYM^.ATTRIBUTE=DEFS) THEN
+              LEXTOKEN:=TLABEL
+               ELSE ERROR(38{only labels & comments may occupy column one});
+    END
+     ELSE
+       IF (SYM^.ATTRIBUTE>=OPS1) AND (SYM^.ATTRIBUTE<=OPS20) THEN
+         CASE SYM^.ATTRIBUTE OF
+            OPS1: LEXTOKEN:=OP1;
+            OPS2: LEXTOKEN:=OP2;
+            OPS3: LEXTOKEN:=OP3;
+            OPS4: LEXTOKEN:=OP4;
+            OPS5: LEXTOKEN:=OP5;
+            OPS6: LEXTOKEN:=OP6;
+            OPS7: LEXTOKEN:=OP7;
+            OPS8: LEXTOKEN:=OP8;
+            OPS9: LEXTOKEN:=OP9;
+           OPS10: LEXTOKEN:=OP10;
+           OPS11: LEXTOKEN:=OP11;
+           OPS12: LEXTOKEN:=OP12;
+           OPS13: LEXTOKEN:=OP13;
+           OPS14: LEXTOKEN:=OP14;
+           OPS15: LEXTOKEN:=OP15;
+           OPS16: LEXTOKEN:=OP16;
+           OPS17: LEXTOKEN:=OP17;
+           OPS18: LEXTOKEN:=OP18;
+           OPS19: LEXTOKEN:=OP19;
+           OPS20: LEXTOKEN:=OP20
+         END
+           ELSE LEXTOKEN:=TIDENTIFIER;
+   IF DEBUG THEN WRITELN('PASSED=',SYM^.NAME,' VALUE=',
+                                  ORD(SYM^.ATTRIBUTE):5,HASHA:10);
+   ADVANCE:=FALSE;
+ END;
+
+       {A $ has been encountered and we are now processing a local label}
+
+ PROCEDURE PLLABEL;
+ VAR I:INTEGER;
+     ID:PACKNAME;
+ BEGIN
+   IF DEBUG THEN WRITELN('PLLAB');
+   ID:='        ';
+   I:=0;
+   WHILE (CH>='0') AND (CH<='9') DO
+     BEGIN
+       IF I<8 THEN ID[I]:=CH;
+       I:=I+1;
+       GETCHAR;
+     END;
+   IF I=0 THEN ERROR(39{expected local label});
+   FOUND:=FALSE;
+   TEMPLABEL:=0;
+   WHILE NOT FOUND AND (TEMPLABEL<TEMPTOP) DO
+     IF TEMP[TEMPLABEL].TEMPNAME=ID THEN
+       FOUND:=TRUE
+     ELSE
+       TEMPLABEL:=TEMPLABEL+1;
+   IF NOT FOUND THEN
+     IF TEMPTOP=21 THEN
+       BEGIN
+         ERROR(40{Local label stack overflow});
+         EXIT(TLA);
+       END
+     ELSE
+        BEGIN
+          TEMP[TEMPTOP].TEMPNAME:=ID;
+          TEMP[TEMPTOP].TEMPATRIB:=UNKNOWN;
+          TEMP[TEMPTOP].DEFOFFSET:=0;
+          TEMP[TEMPTOP].FWDREF:=NIL;
+          TEMPTOP:=TEMPTOP+1;
+        END;
+   LEXTOKEN:=LOCLABEL;
+   IF STARTLINE AND (CH=':') THEN GETCHAR;
+   ADVANCE:=FALSE;
+ END;
+
+       {Returns the value of a string constant in STRVAL and sets
+        LEXTOKEN to TSTRING. Checks for the closing double quote}
+
+ PROCEDURE PSTRING;
+ VAR I:INTEGER;
+     BACKSCAN:BOOLEAN;
+     SCH:STRING;
+ BEGIN
+   IF DEBUG THEN WRITELN('PSTR');
+   LEXTOKEN:=TSTRING;
+   NOTSTRING:=FALSE;
+   BACKSCAN:=FALSE;
+   SCH:=' ';
+   STRVAL:='';
+   GETCHAR;
+   I:=0;
+   WHILE (CH<>'"') AND (I<80) AND (CH<>CHR(13)) DO
+   BEGIN
+     SCH[1]:=CH;
+     STRVAL:=CONCAT(STRVAL,SCH);
+     IF SOURCE=PARMSOURCE THEN BACKSCAN:=TRUE; {always true if ever!}
+     GETCHAR;
+     I:=I+1;
+   END;
+   NOTSTRING:=TRUE;
+   IF BACKSCAN THEN
+     BEGIN
+       I:=SCAN(-I,<>' ',STRVAL[I]);
+       STRVAL[0]:=CHR(LENGTH(STRVAL) + I);
+     END;
+   IF CH=CHR(13) THEN
+   BEGIN
+     LEXTOKEN:=ENDLINE;
+     ERROR(41{string constant must be on one line});
+   END;
+   IF I>80 THEN
+     ERROR(42{string constant exceeds 80 chars});
+ END;
+
+ BEGIN {Lex}
+   IF DEBUG THEN WRITELN('Lex');
+   STARTLINE:=(LEXTOKEN=ENDLINE);
+   IF STARTLINE THEN
+     BEGIN
+       TEXTLINE:=BLANKLINE;
+       TEXTINDEX:=-1;
+     END;
+   GETCHAR;
+   WHILE CH=' ' DO
+     BEGIN
+       GETCHAR;
+       STARTLINE:=FALSE;
+     END;
+   IF CH=CHR(13) THEN LEXTOKEN:=ENDLINE ELSE
+   BEGIN
+     CASE CH OF
+       '0','1','2','3','4','5','6','7','8','9':PCONST;
+       'A','B','C','D','E','F','G','H','I','J','K','L','M',
+       'N','O','P','Q','R','S','T','U','V','W','X','Y','Z':PIDENT;
+       '.':PKWORD;
+       '#':LEXTOKEN:=NUMBERSIGN;
+       '(':LEXTOKEN:=OPENPAREN;
+       '[':LEXTOKEN:=OPENBRACKET;
+       '{':LEXTOKEN:=OPENBRACE;     (* This is 7 on the numeric pad *)
+       ',':LEXTOKEN:=COMMA;
+       '~':LEXTOKEN:=ONESCOMPLEMENT;  (* This is 4 on the numeric pad *)
+       '?':LEXTOKEN:=QUERY;
+       ']':LEXTOKEN:=CLOSEBRACKET;
+       ')':LEXTOKEN:=CLOSEPAREN;
+       '}':LEXTOKEN:=CLSBRACE;
+       ';':LEXTOKEN:=ENDLINE;
+       '@':LEXTOKEN:=ATSIGN;
+       '$':IF LCCHAR='$' THEN
+             BEGIN
+               GETCHAR;
+               IF (CH<'0') OR (CH>'9') THEN
+                 BEGIN
+                   LEXTOKEN:=LOCCTR;
+                   ADVANCE:=FALSE;
+                 END
+               ELSE PLLABEL;
+             END
+           ELSE
+             BEGIN
+               GETCHAR;
+               PLLABEL;
+             END;
+       '"':PSTRING;         {Process a string}
+       '/':LEXTOKEN:=DIVIDE;
+       '!':LEXTOKEN:=TNOT;
+       '+':BEGIN
+             GETCHAR;
+             IF CH=CHR(ORD(AFTERPLUS)) THEN LEXTOKEN:=AUTOINCR
+               ELSE LEXTOKEN:=PLUS; {Char after plus isn't eaten}
+             ADVANCE:=FALSE;
+           END;
+       '-':BEGIN
+             GETCHAR;
+             IF CH=CHR(ORD(AFTERMINUS)) THEN LEXTOKEN:=AUTODECR
+               ELSE LEXTOKEN:=MINUS; {Char after minus isn't eaten}
+             ADVANCE:=FALSE;
+           END;
+       ':':LEXTOKEN:=COLON;
+       '|':LEXTOKEN:=BITWISEOR;
+       '^':LEXTOKEN:=EXCLUSIVEOR;
+       '&':LEXTOKEN:=AMPERSAND;
+       '*':LEXTOKEN:=ASTERISK;
+       '%':LEXTOKEN:=MODULO;
+       '<':BEGIN
+             GETCHAR;
+             IF CH='>' THEN
+               LEXTOKEN:=NOTEQUAL
+             ELSE
+               BEGIN
+                 LEXTOKEN:=OPNBROKEN;
+                 ADVANCE:=FALSE;
+               END;
+           END;
+       '>':LEXTOKEN:=CLSBROKEN;
+       '=':LEXTOKEN:=EQUAL;
+     END;(*OF CASE STATMENT*)
+   END;
+   IF DEBUG THEN WRITELN('LEXTOKEN IS:',ORD(LEXTOKEN));
+ END;   (*of procedure LEX*)

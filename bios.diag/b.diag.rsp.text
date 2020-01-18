@@ -1,0 +1,418 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+(*
+ * UCSD p-System Operating System
+ * Copyright (C) 2010 Peter Miller
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of the ucsd-psystem-os project nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *)
+
+  {This is an unpublished work copyright by the Regents of
+   the University of California. This item is the property of SofTech
+   Microsystems Inc., and it may be used, copied or distributed only
+   as permitted in a written license from that company.}
+
+  PROCEDURE DLE_tester(level: INTEGER; device: sys_units);
+  {
+          This procedure will test DLE expansion and control for
+    the specified device
+  }
+  VAR
+    line: STRING;
+
+    PROCEDURE dump_DLE(count: INTEGER);
+    {
+          This routine will dump out a DLE followed by the space
+          count as specified by 'count'.
+    }
+    VAR
+      error_line, dump_line: STRING;
+    BEGIN {dump_DLE}
+      line :=
+       '         1111111111222222222233333333334444444444555555555566666666667';
+      line := CONCAT(line,s_cr);
+      UNITWRITE(device,line[1],LENGTH(line));
+      line :=
+       '1234567890123456789012345678901234567890123456789012345678901234567890';
+      line := CONCAT(line,s_cr);
+      UNITWRITE(device,line[1],LENGTH(line));
+      line := '  ';
+      line[1] := CHR(DLE);
+      line[2] := CHR(count + 32); {Set the space count}
+      UNITWRITE(device,line[1],2);
+      intstr(count,dump_line);
+      error_line := dump_line;
+      dump_line := CONCAT('<-- ',dump_line,' spaces',s_cr);
+      UNITWRITE(device,dump_line[1],LENGTH(dump_line));
+      UNITWRITE(device,line[1],2,0,nospec);
+      INSERT(' (NOSPEC on, 1 or 2 chars only)',dump_line,LENGTH(dump_line));
+      UNITWRITE(device,dump_line[1],LENGTH(dump_line));
+      is_it_correct(level,device,CONCAT('DLE Test - DLE of ',error_line));
+    END {of dump_DLE};
+
+  BEGIN {DLE_tester}
+    level := level + 1;
+    test_name := CONCAT(name,' - DLE tester');
+    squawk(level,test_start,test_name);
+    dump_DLE(0);
+    dump_DLE(1);
+    dump_DLE(13);
+    dump_DLE(16);
+    dump_DLE(32);
+    dump_DLE(48);
+    dump_DLE(59);
+    dump_DLE(65);
+    dump_DLE(-32);
+    UNITCLEAR(device); {Clear any additional characters}
+    squawk(level,test_end,test_name);
+  END {of DLE_tester};
+
+  PROCEDURE CRLF_tester(level: INTEGER; device: sys_units);
+  {
+        This routine will test the automatic line feed after a
+    carriage return feature of the RSP and test if it can be turned
+    off properly.
+  }
+  VAR
+    line: STRING;
+
+    PROCEDURE part1;
+    BEGIN
+      line := 'Test Line 1';
+      line := CONCAT(line,s_cr);
+      UNITWRITE(device,line[1],LENGTH(line));
+      line := 'Test Line 2 - Directly under line 1';
+      line := CONCAT(line,s_cr);
+      UNITWRITE(device,line[1],LENGTH(line));
+      is_it_correct(level,device,'CRLF test - Normal');
+      line := 'Test Line 3';
+      line := CONCAT(line,s_cr,s_lf);
+      UNITWRITE(device,line[1],LENGTH(line));
+      line := 'Test Line 5 - Test Line 4 should be blank';
+      line := CONCAT(line,s_cr);
+      UNITWRITE(device,line[1],LENGTH(line));
+      is_it_correct(level,device,'CRLF test - LF after CR');
+      line := 'Test Line 6';
+      line := CONCAT(line,s_cr,s_lf);
+      UNITWRITE(device,line[1],LENGTH(line),0,nocrlf);
+      line := 'Test Line 7 - No blank line between 6 and 7';
+      line := CONCAT(line,s_cr);
+      UNITWRITE(device,line[1],LENGTH(line));
+      is_it_correct(level,device,'CRLF test - NOCRLF on');
+    END {of part1};
+
+    PROCEDURE part2;
+    BEGIN
+      line := 'Test Line 8';
+      line := CONCAT(line,s_cr,s_lf,s_lf);
+      UNITWRITE(device,line[1],LENGTH(line),0,nocrlf);
+      line := 'Test Line 10 - Test Line 9 should be blank';
+      line := CONCAT(line,s_cr);
+      UNITWRITE(device,line[1],LENGTH(line));
+      is_it_correct(level,device,'CRLF test - NOCRLF on, 2 LFs');
+      line := 'Test Line 11';
+      line := CONCAT(line,s_cr);
+      UNITWRITE(device,line[1],LENGTH(line),0,nospec);
+      line := 'Test Line 12 - No blank line between 11 and 12';
+      line := CONCAT(line,s_cr);
+      UNITWRITE(device,line[1],LENGTH(line));
+      is_it_correct(level,device,'CRLF test - NOSPEC on');
+      line := 'Test Line 13';
+      line := CONCAT(line,s_cr,s_lf,s_lf);
+      UNITWRITE(device,line[1],LENGTH(line),0,nospec+nocrlf);
+      line := 'Test Line 15 - Test Line 14 should be blank';
+      line := CONCAT(line,s_cr);
+      UNITWRITE(device,line[1],LENGTH(line));
+      is_it_correct(level,device,'CRLF test - NOSPEC and NOCRLF on');
+    END {of part2};
+
+  BEGIN {CRLF_tester}
+    level := level + 1;
+    test_name := CONCAT(name,' - CRLF Tester');
+    squawk(level,test_start,test_name);
+    part1;
+    part2;
+    UNITCLEAR(device); {Clear any additional characters}
+    squawk(level,test_end,test_name);
+  END {of CRLF_tester};
+
+  PROCEDURE EOF_tester(level: INTEGER; device: sys_units);
+  {
+        This routine will test the End-of-File determination and
+    control features of the RSP.
+  }
+  VAR
+    index: buffer_range;
+  BEGIN
+    level := level + 2;
+    test_name := CONCAT(name,' - EOF tester');
+    squawk(level-1,test_start,test_name);
+    FILLCHAR(buffer_1,SIZEOF(buffer_1),255);  {Fill with 0FFH}
+    UNITCLEAR(device); {Clear any additional characters}
+    WRITELN('':level,'Enter from ',name,
+            ' less than 10 characters followed by the EOF character');
+    UNITREAD(device,buffer_1,10);
+    IF device = console THEN
+      WRITELN;
+    IF IORESULT = 3 THEN
+      squawk(level,user_error,CONCAT('Can''t read from ',name))
+    ELSE
+      BEGIN
+        index := SCAN(SIZEOF(buffer_1),=CHR(255),buffer_1);
+        IF index > 10 THEN
+          squawk(level,user_error,
+                 CONCAT(name,' - Buffer destroyed during EOF'))
+        ELSE IF (index = 10) AND (device <> console) THEN
+          squawk(level,user_error,CONCAT(name,' - EOF not recognized'))
+        ELSE IF (device = console) AND (index <> 10) THEN
+          squawk(level,user_error,
+                 'CONSOLE - Buffer not zero-filled on EOF');
+        FILLCHAR(buffer_1,SIZEOF(buffer_1),255);  {Fill with 0FFH}
+        UNITCLEAR(device); {Clear any additional characters}
+        WRITELN('':level,'Enter from ',name,
+                ' the EOF character followed by 9 characters');
+        UNITREAD(device,buffer_1,10,0,nospec);
+        IF device = console THEN
+          WRITELN;
+        index := SCAN(SIZEOF(buffer_1),=CHR(255),buffer_1);
+        IF index = 0 THEN
+          squawk(level,user_error,
+                 CONCAT(name,' - NOSPEC didn''t inhibit EOF'))
+        ELSE IF index <> 10 THEN
+          squawk(level,user_error,
+                 CONCAT(name,' - Buffer destroyed during EOF (NOSPEC on)'));
+      END;
+    UNITCLEAR(device); {Clear any additional characters}
+    squawk(level-1,test_end,test_name);
+  END {of EOF_tester};
+
+  PROCEDURE ALPHALOCK_tester(level: INTEGER; device: sys_units);
+  {
+        This routine will test the ALPHALOCK determination and
+    control features of the RSP.
+  }
+
+    FUNCTION found(letters: set_of_char; count: INTEGER): BOOLEAN;
+    {
+        Return TRUE if a character NOT in 'letters' is found in
+      the first 'count' locations of buffer_1.
+    }
+    VAR
+      index: buffer_range;
+      was_found: BOOLEAN;
+    BEGIN
+      index := 0;
+      REPEAT
+        was_found := NOT(CHR(buffer_1[index]) IN letters);
+        index := index + 1;
+      UNTIL was_found OR (index = count);
+      found := was_found;
+    END {of found};
+
+  BEGIN {ALPHALOCK_tester}
+    level := level + 2;
+    test_name := CONCAT(name,' - ALPHALOCK Tester');
+    squawk(level-1,test_start,test_name);
+    FILLCHAR(buffer_1,SIZEOF(buffer_1),255);  {Fill with 0FFH}
+    UNITCLEAR(device); {Clear any additional characters}
+    WRITELN('':level,'Enter from ',name,
+            ' the ALPHALOCK character, then 10 lower case characters');
+    UNITREAD(device,buffer_1,10);
+    IF device = console THEN
+      WRITELN;
+    IF IORESULT = 3 THEN
+      squawk(level,user_error,CONCAT('Can''t read from ',name))
+    ELSE
+      BEGIN
+        IF found(capital_letters,10) THEN
+          squawk(level,user_error,
+                 CONCAT(name,' - Character not ALPHALOCKed'));
+        FILLCHAR(buffer_1,SIZEOF(buffer_1),255);  {Fill with 0FFH}
+        UNITCLEAR(device); {Clear any additional characters}
+        WRITELN('':level,'Enter from ',name,
+                ' the ALPHALOCK character, then 9 lower case characters');
+        UNITREAD(device,buffer_1,10,0,nospec);
+        buffer_1[0] := ORD('a'); {Clear out Alphalock character}
+        IF device = console THEN
+          WRITELN;
+        IF found(lower_case_letters,10) THEN
+          squawk(level,user_error,
+                 CONCAT(name,' - NOSPEC didn''t inhibit ALPHALOCK'));
+      END;
+    UNITCLEAR(device); {Clear any additional characters}
+    squawk(level-1,test_end,test_name);
+  END {of ALPHALOCK_tester};
+
+  PROCEDURE status_tester(level: INTEGER; device: sys_units);
+  {
+        This routine will test the UNITSTATUS function of the specified
+      device.
+  }
+  VAR
+    statusrec: ARRAY [0..29] OF INTEGER;
+    answer: CHAR;
+    count, stall: INTEGER;
+    squeued: STRING;
+
+    PROCEDURE normal;
+
+      PROCEDURE overflow;
+      VAR
+        ch: PACKED ARRAY [0..0] OF CHAR;
+      BEGIN
+        WRITELN('':level,'Enter from ',name,
+                ' enough characters to overflow type-ahead buffer');
+        count := 0;
+        REPEAT
+          FOR stall := 1 TO 200 DO {Stall};
+          UNITSTATUS(device,statusrec,1);
+          count := count + 1;
+        UNTIL (count = 100) OR (IORESULT <> 0);
+        IF IORESULT <> 0 THEN
+          BEGIN
+            intstr(IORESULT,squeued);
+            squawk(level,user_error,CONCAT(name,' - Bad IORESULT (',
+                   squeued,') from UNITSTATUS after overflow'));
+          END
+        ELSE
+          BEGIN
+            count := 0;
+            REPEAT
+              FOR stall := 1 TO 200 DO {Stall};
+              UNITREAD(device,ch,1);
+              count := count + 1;
+            UNTIL (count = 100) OR (IORESULT <> 0);
+            IF IORESULT <> 15 THEN
+              BEGIN
+                intstr(IORESULT,squeued);
+                squawk(level,user_error,CONCAT(name,
+                       ' - Overflow not reported on UNITREAD (IORESULT = ',
+                       squeued,')'));
+              END
+            ELSE
+              BEGIN
+                UNITCLEAR(device); {Clear the characters}
+                UNITSTATUS(device,statusrec,1);
+                IF statusrec[0] <> 0 THEN
+                  squawk(level,user_error,CONCAT(name,
+                      ' - UNITCLEAR after overflow didn''t clear type-ahead'))
+                ELSE IF IORESULT <> 0 THEN
+                  BEGIN
+                    intstr(IORESULT,squeued);
+                    squawk(level,user_error,CONCAT(name,' - Bad IORESULT (',
+                           squeued,') after UNITCLEAR after overflow'));
+                  END;
+              END;
+          END;
+      END {of overflow};
+
+    BEGIN {normal}
+      WRITELN('':level,'Enter from ',name,' 5 characters');
+      count := 0;
+      REPEAT
+        FOR stall := 1 TO 200 DO {Stall};
+        UNITSTATUS(device,statusrec,1);
+        count := count + 1;
+      UNTIL (count = 100) OR (IORESULT <> 0) OR (statusrec[0] >= 5);
+      intstr(statusrec[0],squeued);
+      IF count = 100 THEN
+        squawk(level,user_error,
+               CONCAT(name,' - UNITSTATUS timed-out (',squeued,' chars)'))
+      ELSE IF IORESULT <> 0 THEN
+        BEGIN
+          intstr(IORESULT,squeued);
+          squawk(level,user_error,CONCAT(name,
+                 ' - Bad IORESULT (',squeued,') from UNITSTATUS'));
+        END
+      ELSE IF statusrec[0] <> 5 THEN
+        squawk(level,user_error,CONCAT(name,
+               ' - Incorrect # of chars reported (',squeued,')'))
+      ELSE
+        BEGIN
+          UNITCLEAR(device); {Clear the characters}
+          UNITSTATUS(device,statusrec,1);
+          IF statusrec[0] <> 0 THEN
+            squawk(level,user_error,CONCAT(name,
+                   ' - UNITCLEAR after UNITSTATUS didn''t clear type-ahead'))
+          ELSE IF NOT(device IN [console,systerm]) THEN
+            overflow;
+        END;
+    END {of normal};
+
+  BEGIN {status_tester}
+    level := level + 2;
+    test_name := CONCAT(name,' - Status Tester');
+    squawk(level-1,test_start,test_name);
+    WRITE('':level,name,' queueing enabled (Y/N) ? ');
+    answer := getchar;
+    WRITELN;
+    IF answer = 'Y' THEN
+      BEGIN
+        UNITCLEAR(device); {Clear any current type-ahead}
+        UNITSTATUS(device,statusrec,1);
+        IF statusrec[0] <> 0 THEN
+          squawk(level,user_error,
+                 CONCAT(name,' - 1st UNITCLEAR didn''t clear type-ahead'))
+        ELSE
+          normal;
+      END;
+    UNITCLEAR(device); {Clear any additional characters}
+    squawk(level-1,test_end,test_name);
+  END {of status_tester};

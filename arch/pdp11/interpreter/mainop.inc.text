@@ -1,0 +1,1186 @@
+;
+; UCSD PASCAL - Version II.0
+; Copyright (C) 1978, 1979 Regents of the University of California
+; All Rights Reserved
+;
+; Permission to use, copy, modify and distribute any part of UCSD
+; PASCAL solely authored by UC authors before June 1, 1979 for
+; educational, research and non-profit purposes, without fee, and
+; without a written agreement is hereby granted, provided that the
+; above copyright notice, this paragraph and the following three
+; paragraphs appear in all copies.
+;
+; Those desiring to incorporate UCSD PASCAL into commercial products or
+; use for commercial purposes should contact the Technology Transfer &
+; Intellectual Property Services, University of California, San Diego,
+; 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+; Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+;
+; IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+; FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+; INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+; THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+; DAMAGE.
+;
+; THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+; OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+; UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+; MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+; EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+; WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+; THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+; OTHER RIGHTS.
+;
+; Case Number: SD1991-807 (2006)
+; http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+;
+;;; Source: http://bitsavers.org/bits/UCSD_Pascal/ucsd_II.0/
+;;;     U121.2_LSI-11_P-CODE_SOURCE.raw.gz
+;;; Description: Interpreter section for most P-machine instructions
+;;; Date: 1979-02-09
+        .TITLE  MAIN OPERATORS    VERSION II.0.A
+        ; FOR VERSION II.0 INTERPS.
+        ;
+        ; COPYRIGHT (C) 1978 REGENTS OF THE UNIVERSTIY OF CALIFORNIA.
+        ; PERMISSION TO COPY OR DISTRIBUTE THIS SOFTWARE OR DOCUMEN-
+        ; TATION IN HARD COPY OR SOFT COPY GRANTED ONLY BY WRITTEN LICENSE
+        ; OBTAINED FROM THE INSTITUTE OF INFORMATION SYSTEMS.  ALL RIGHTS
+        ; RESERVED.  NO PART OF THIS PUBLICATION MAY BE REPRODUCED, STORED
+        ; IN A RETRIEVAL SYSTEM ( E.G., IN MEMORY, DISK, OR CORE) OR BE
+        ; TRANSMITTED BY ANY MEANS, ELECTRONIC, MECHANICAL, PHOTOCOPY,
+        ; RECORDING, OR OTHERWISE, WITHOUT PRIOR WRITTEN PERMISSION FROM THE
+        ; PUBLISHER.
+        ;
+        ;
+        .CSECT  MAINOP
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                                                                   ;
+;                       MAIN OPERATORS                              ;
+;                                                                   ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; FIRST ARE THE SHORT FORM LDL,LDO, AND IND OPS.
+; THESE ARE THE MOST COMMON OPS (EXCEPT LDCI) AND RUN
+; VERY FAST.  EACH DISP VALUE FOR THESE IS A NEW OPCODE
+
+; SHORT LOCAL LOADS...16 OF THEM
+SLDLS:  .IRP    N,<1,2,3,4,5,6,7,10,11,12,13,14,15,16,17,20>
+        MOV     <N+N>+MSDLTA(MP),-(SP)
+        BR      BACK
+        .ENDR
+
+; SHORT LOAD GLOBALS...16 OF THEM
+SLDOS:  .IRP    N,<1,2,3,4,5,6,7,10,11,12,13,14,15,16,17,20>
+        MOV     <N+N>+MSDLTA(BASE),-(SP)
+        BR      BACK
+        .ENDR
+
+; SHORT IND OPS...8 OF THEM
+SINDS:  MOV     @(SP)+,-(SP)
+        BR      BACK
+        .BLKW   2       ; FUNNY BUSINESS FOR EXTRA FAST IND 0
+        .IRP    N,<1,2,3,4,5,6,7>
+        ADD     #<N+N>,@SP
+        MOV     @(SP)+,-(SP)
+        BR      BACK
+        .ENDR
+        .PAGE
+;;;;;;;;;;;;;;;;;;;;;;;
+; MAIN INTERPRETER LOOP
+; GO HERE FOR OPCODE
+; FETCH SEQUENCE
+;;;;;;;;;;;;;;;;;;;;;;;;
+
+SLDCI:  MOV     R0,-(SP)        ; PUSH THE LIT VALUE AND FALL INTO NEXT OP
+BACK:   GETNEXT                 ; GET NEXT INSTRUCTION BYTE
+        BPL     SLDCI           ; IF POSITIVE THEN A SHORT LDCI
+        ASL     R0              ; DOUBLE FOR WORD INDEXING
+        MOV     XFRTBL(R0),PC   ; TRANSFER CONTROL TO PROPER OP
+
+ABI:    ; INTEGER ABSOLUTE VALUE
+        TST     @SP
+        BPL     1$
+        NEG     @SP
+        BPL     1$
+        CLR     @SP
+1$:     MORE
+
+ABR:    ; REAL ABSOLUTE VALUE
+        BIC     #100000,@SP
+        MORE
+
+ADI:    ; ADD INTEGER
+        ADD     (SP)+,@SP
+        MORE
+
+ADR:    ; ADD REAL
+        .IF     DF,FPI
+        FADD    SP
+        MORE
+        .IFF
+        JSR     R4,ENTFP
+        .WORD   $ADR,XITFP
+        .ENDC
+
+AND:    ; LOGICAL AND
+        COM     @SP
+        BIC     (SP)+,@SP
+        MORE
+
+BPT:    ; CONDITIONAL HALT (BREAKPOINT)
+        GETBIG                  ; LINE IN LIST FILE
+        MOV     R0,HLTLIN
+        CMP     BUGSTA,#3
+        BGE     BPTTRP
+        ; NOT IN STEPPING MODE, SO SEE IF MATCHES A BREAKPOINT
+        MOV     #BRKPTS,R1
+        CMP     (R1)+,R0
+        BEQ     BPTTRP
+        CMP     (R1)+,R0
+        BEQ     BPTTRP
+        CMP     (R1)+,R0
+        BEQ     BPTTRP
+        CMP     (R1),R0
+        BEQ     BPTTRP
+        MORE
+BPTTRP: TRAP    BRKPNT
+
+DIF:    ; SET DIFFERENCE
+        JSR     PC,SETADJ
+        BEQ     2$
+1$:     BIC     (SP)+,(R0)+
+        SOB     R1,1$
+2$:     MORE
+
+DVI:    ; INTEGER DIVIDE
+        MOV     (SP)+,R1
+        MOV     (SP)+,R0
+        JSR     PC,DIV
+        MOV     R0,-(SP)
+        MORE
+
+DVR:    ; REAL DIVIDE
+        .IF     DF,FPI
+        FDIV    SP
+        MORE
+        .IFF
+        JSR     R4,ENTFP
+        .WORD   $DVR,XITFP
+        .ENDC
+
+CHK:    ; CHECK INDEX OR RANGE
+        CMP     (SP)+,2(SP)     ; CHECK MAXIMUM VALUE
+        BLT     CHKERR
+        CMP     (SP)+,@SP       ; CHECK MINIMUM VALUE
+        BGT     CHKERR
+        MORE
+CHKERR: TRAP    INVNDX
+
+FLO:    ; FLOAT NEXT TO TOP-OF-STACK
+        MOV     (SP)+,FLO1      ; SAVE REAL ON TOS
+        MOV     (SP)+,FLO0
+        JSR     R4,ENTFP
+        .WORD   $IR,FIXTOS,XITFP
+FIXTOS: MOV     (PC)+,-(SP)
+FLO0:   .WORD
+        MOV     (PC)+,-(SP)
+FLO1:   .WORD
+        JMP     @(R4)+
+
+FLT:    ; FLOAT TOP-OF-STACK
+        JSR     R4,ENTFP
+        .WORD   $IR,XITFP
+
+INN:    ; SET INCLUSION
+        MOV     (SP)+,BK        ; GET SET SIZE FROM STACK
+        MOV     SP,R0           ; NOW POINT R0 AT THE SCALAR VAL
+        ADD     BK,R0           ; BY SKIPPING IT ABOVE
+        ADD     BK,R0           ; THE SET
+        MOV     @R0,R1          ; R1 HAS THE VALUE TO TEST FOR NOW
+        BMI     NOTINN          ; NO NEGATIVE SET INDEXES
+        .IF     DF,EIS
+        ASH     #-4,R1
+        .IFF
+        ASR     R1
+        ASR     R1
+        ASR     R1
+        ASR     R1
+        .ENDC
+        CMP     R1,BK           ; CHECK IF ENOUGH WORD ARE IN SET
+        BGE     NOTINN          ; TO ACCOMODATE THE VALUE IN R1
+        ASL     R1              ; IF THERE ARE, POINT R1 AT THE WORD
+        ADD     SP,R1           ; WHICH HAS THE BIT IN IT
+        MOV     @R1,BK          ; PLACE THE WORD INTO BK FOR LATER
+        MOV     @R0,R1          ; GET THE SCALAR AGAIN
+        BIC     #177760,R1      ; CHUCK ALL BUT LOW 4 BITS
+        ASL     R1              ; MAKE A WORD INDEX INTO BITTER
+        BIT     BITTER(R1),BK   ; TEST IF THE BIT IN QUESTION IS ON
+        BEQ     NOTINN
+        MOV     R0,SP           ; FOUND IT...CUT BACK STACK
+        MOV     #1,@SP          ; PUT A TRUE ON TOP
+XITINN: MOV     #BACK,BK        ; RESTORE REGISTER
+        MORE
+NOTINN: MOV     R0,SP           ; CUT BACK HERE TOO
+        CLR     @SP             ; EXCEPT PUSH A FALSE
+        BR      XITINN
+
+
+INT:    ; SET INTERSECTION
+        JSR     PC,SETADJ
+        MOV     R1,TOPSIZ       ; SAVE TOP SET SIZE
+        BEQ     2$
+1$:     COM     @SP
+        BIC     (SP)+,(R0)+
+        SOB     R1,1$
+2$:     MOV     @SP,R1          ; GET FINAL SET SIZE
+        SUB     TOPSIZ,R1       ; SUBTRACT THE TOP SIZE...R1 = DIFF
+        BEQ     4$              ; IF NO LEFTOVER WORDS THEN EXIT
+3$:     CLR     (R0)+           ; ELSE CLEAR EXTRA WORDS IN FINAL SET
+        SOB     R1,3$
+4$:     MORE
+TOPSIZ: .WORD           ; SIZE OF TOP SET (TEMP)
+
+IOR:    ; LOGICAL OR
+        BIS     (SP)+,@SP
+        MORE
+
+MOD:    ; INTEGER REMAINDER DIVIDE
+        MOV     (SP)+,R1
+        MOV     (SP)+,R0
+        JSR     PC,DIV
+        MOV     R1,-(SP)
+        MORE
+
+MPI:    ; INTEGER MULTIPLY
+        MOV     (SP)+,R0
+        MOV     (SP)+,R1
+        JSR     PC,MLI
+        MOV     R0,-(SP)
+        MORE
+
+MPR:    ; REAL MULTIPLY
+        .IF     DF,FPI
+        FMUL    SP
+        MORE
+        .IFF
+        JSR     R4,ENTFP
+        .WORD   $MLR,XITFP
+        .ENDC
+
+NGI:    ; INTEGER NEGATION
+        NEG     @SP
+        MORE
+
+NGR:    ; REAL NEGATION
+        TST     @SP
+        BEQ     1$
+        ADD     #100000,@SP
+1$:     MORE
+
+NOT:    ; LOGICAL NOT
+        COM     @SP
+        MORE
+
+SRS:    ; BUILD SUBRANGE SET
+        MOV     (SP)+,R0        ; GRAB HIGHER VALUE J OF I..J
+        MOV     (SP)+,R1        ; AND LOWER VALUE I
+        BMI     NULSET          ; IF I IS NEG THEN NULL SET TIME
+        CMP     R1,R0           ; IF I > J THEN
+        BGT     NULSET          ; ALSO A NULL SET
+        MOV     #1,SETWDS       ; FINAL SET SIZE...START WITH 1 WORD
+        MOV     #177777,-(SP)   ; OF ALL ONES
+        MOV     R0,BK           ; CLEAR HIGH BITS 15 DOWNTO J
+        BIC     #177760,BK      ; USE LOW BITS IN BK FOR CLRMSK INX
+        ASL     BK              ; DOUBLE FOR WORDS INDEX
+        BIC     CLRMSK+2(BK),@SP ; HIGH ORDER BITS GONE NOW
+        BIS     #17,R0          ; FIND WORDS TO PUT BETWEEN I..J
+        SUB     R1,R0           ; HAVE DIFFERENCE NOW * 16
+        .IF     DF,EIS
+        ASH     #-4,R0          ; DIV 16...NUMBER WORDS FROM I..J
+        .IFF
+        ASR     R0
+        ASR     R0
+        ASR     R0
+        ASR     R0
+        .ENDC
+        BEQ     2$              ; IF ZERO, THEN 1 WORD IS ENOUDH
+        ADD     R0,SETWDS       ; ELSE BUMP SET SIZE COUNTER
+1$:     MOV     #177777,-(SP)   ; AND PUSH ALL BIT SET WORDS
+        SOB     R0,1$           ; FOR NUMBER WORDS DIFFERENCE
+2$:     MOV     R1,BK           ; NOW ZAP LOW BITS ON TOS WORD
+        BIC     #177760,BK      ; THAT ARE LESS THAN I VALUE
+        ASL     BK              ; WORD INDEX
+        MOV     CLRMSK(BK),BK   ; GRAB HIGH ORDER CLEARING BIT MASK
+        COM     BK              ; CHANGE TO LOW ORDER MASK
+        BIC     BK,@SP          ; NOW THE ON BITS IN SET ARE OK
+        .IF     DF,EIS
+        ASH     #-4,R1          ; DIV 16...# OF ZERO TO PUSH NOW
+        .IFF
+        ASR     R1
+        ASR     R1
+        ASR     R1
+        ASR     R1
+        .ENDC
+        BEQ     4$              ; IF NO MORE ZEROES THEN SKIP
+        ADD     R1,SETWDS       ; ELSE ADD ON ZERO COUNT TO SET SIZE
+3$:     CLR     -(SP)           ; AND LOOP ADDING ON ZEROES
+        SOB     R1,3$
+4$:     MOV     SETWDS,-(SP)    ; PUSH SET SIZE...NOW GOOD, CLEAN SET ON STACK
+        MOV     #BACK,BK
+        MORE
+SETWDS: .WORD   ; SIZE OF SET BUILD ABOVE STUCK HERE
+
+SBI:    ; INTEGER SUBTRACT
+        SUB     (SP)+,@SP
+        MORE
+
+SBR:    ; REAL SUBTRACT
+        .IF     DF,FPI
+        FSUB    SP
+        MORE
+        .IFF
+        JSR     R4,ENTFP
+        .WORD   $SBR,XITFP
+        .ENDC
+
+        ; SGS IS BELOW THE SQUARE OP
+
+SQI:    ;  SQUARE INTEGER
+        MOV     @SP,-(SP)
+        BR      MPI
+
+SQR:    ; SQUARE REAL
+        MOV     2(SP),-(SP)
+        MOV     2(SP),-(SP)
+        BR      MPR
+
+NULSET: CLR     -(SP)           ; ZERO WORD SET SIZE
+        MORE
+
+SGS:    ; MAKE SINGLETON SET
+        MOV     (SP)+,R0        ; GET THE SCALAR VALUE WANTED
+        BMI     NULSET          ; IF NEGATIVE THEN GO BUILD A NULL SET
+        CLR     -(SP)           ; PUT A WORD TO SET BIT INN
+        MOV     R0,R1           ; NOW SET PROPER BIT IN TOS
+        BIC     #177760,R1      ; ZAP ALL BUT LOW 4 BITS
+        ASL     R1              ; MAKE A WORD INDEX IN BITTER
+        BIS     BITTER(R1),@SP  ; NOW WE HAVE PROPER BIT SET
+        BIC     #170017,R0      ; ZAP ALL BUT WORD BITS
+        BEQ     2$              ; IF NO ZEROES NEEDED THEN DONE
+        .IF     DF,EIS
+        ASH     #-4,R0
+        .IFF
+        ASR     R0
+        ASR     R0
+        ASR     R0
+        ASR     R0
+        .ENDC
+        MOV     R0,R1           ; SAVE WORD COUNT FOR LATER PUSH
+1$:     CLR     -(SP)           ; CLEAR A STACK WORD
+        SOB     R1,1$
+2$:     INC     R0              ; SET R0 TO TOTAL SET SIZE
+        MOV     R0,-(SP)        ; AND PUSH IT FINALLY
+        MORE
+
+STO:    ; STORE INDIRECT
+        MOV     (SP)+,@(SP)+
+        MORE
+
+IXS:    ; STRING INDEX...DYNAMIC RANGE CHECK
+        MOV     @SP,R0          ; GRAB INDEX VALOUE
+        BEQ     IXSERR          ; ZERO INDEX IS AN ERROR
+        CMP     R0,#255.        ; CHECK IF WAY TOO BIG
+        BHI     IXSERR          ; BOMB IF SO
+        CMPB    R0,@2(SP)       ; CHECK INDEX AGAINST STRING LENGTH
+        BHI     IXSERR          ; AND BOMB FOR THAT TOO
+        MORE
+IXSERR: TRAP    INVNDX
+
+UNI:    ; SET UNION
+        JSR     PC,SETADJ
+        BEQ     2$
+1$:     BIS     (SP)+,(R0)+
+        SOB     R1,1$
+2$:     MORE
+
+S2P:    ; STRING TO PACKED ARRAY CONVERT
+        TRAP    NOTIMP
+
+LDCN:   ; LOAD CONSTANT NIL
+        .IIF    EQ,NIL,         CLR     -(SP)
+        .IIF    NE,NIL,         MOV     #NIL,-(SP)
+        MORE
+
+ADJ:    ; SET ADJUST
+        GETBYTE                 ; GRAB REQUESTED SET SIZE
+        MOV     (SP)+,R1        ; GET SET SIZE FROM TOS
+        CMP     R1,R0           ; COMPARE SET SIZE TO REQ SIZE
+        BLT     EXPAND          ; IF SET TOO SMALL THEN EXPAND IT
+        BGT     CRUNCH          ; IF TOO BIG THEN CRUNCH THE SET
+        MORE                    ; ELSE ALL'S OK...NEXT INSTRUCTION
+CRUNCH: MOV     R0,BK           ; SAVE REQUESTED LENGTH
+        ASL     R0              ; NOW POINT R0 AT TOP OF VALID PART OF SET
+        ADD     SP,R0
+        ASL     R1              ; POINT R1 ABOVE ENTIRE SET...IS DEST
+        ADD     SP,R1           ; FOR FUTURE MOVES TO CRUNCH OUT JUNK
+1$:     MOV     -(R0),-(R1)     ; COPY THE WORDS OF GOOD SEOT PART
+        SOB     BK,1$
+        MOV     R1,SP           ; R1 IS NEW TOS...CUT BACK STUFF
+        BR      XITADJ
+EXPAND: MOV     SP,BASE         ; REMEMBER TOP OF SMALL SET
+        SUB     R1,R0           ; R0 HAS SET SIZE DIFFERENCE NOW
+        MOV     R0,BK           ; SAVE DIFF FOR LATER ZEROING
+        ASL     R0              ; DOUBLE FOR WORD COUNT
+        SUB     R0,SP           ; ADD JUNK ONTO STACK POINTER FOR ZERO FILL
+        MOV     SP,R0           ; NOW DEST FOR SET COPYING
+        TST     R1              ; CHECK IF OLD SET SIZE = 0!!
+        BEQ     2$              ; IF SO THEN DONT DO LOOP...SYSBOMB!
+1$:     MOV     (BASE)+,(R0)+   ; COPY THE SET NOW
+        SOB     R1,1$
+2$:     CLR     (R0)+           ; NOW ZERO IN THE REST OF SET
+        SOB     BK,2$
+        MOV     STKBAS,BASE     ; RESTORE SCRATCH REG
+XITADJ: MOV     #BACK,BK        ; RESTORE THIS TOO
+        MORE
+
+        ; FJP IS UP AHEAD WITH UJP
+
+INC:    ; INCREMENT TOS BY PARAM
+        GETBIG
+        ASL     R0
+        ADD     R0,@SP
+        MORE
+
+IND:    ; INDIRECT LOAD
+        GETBIG
+        ASL     R0
+        ADD     R0,@SP
+        MOV     @(SP)+,-(SP)
+        MORE
+
+IXA:    ; INDEX ARRAY
+        GETBIG  R1              ; GET # WORDS PER ELEMENT
+        MOV     (SP)+,R0        ; GRAB USER'S INDEX VALUE
+        BEQ     2$              ; IF ZERO, THEN DONE ALREADY!
+        CMP     R1,#1           ; CHECK IF 1 WORD ELS
+        BEQ     1$              ; IF SO THEN NO MULTIPLY
+        JSR     PC,MLI
+1$:     ASL     R0              ; NOW DOUBLE INDEX VALUE FOR WORDS
+        ADD     R0,@SP          ; NEW ADDRESS OFO ARRAY ELEMENT NOW
+2$:     MORE
+
+LAO:    ; LOAD GLOBAL ADDRESS
+        GETBIG
+        ASL     R0
+        .IIF    NE,MSDLTA,      ADD     #MSDLTA,R0
+        ADD     BASE,R0
+        MOV     R0,-(SP)
+        MORE
+
+LCA:    ; LOAD CONSTANT (STRING) ADDRESS
+        MOV     IPC,-(SP)
+        GETBYTE                 ; GRAB STRING LENGTH
+        ADD     R0,IPC          ; AND SKIP IPC PAST STRING
+        MORE
+
+LPA:    ; LOAD PACKED ARRAY OF CHAR ADDRESS
+        MOV     IPC,-(SP)
+        INC     @SP
+        GETBYTE
+        ADD     R0,IPC
+        MORE
+
+LDO:    ; LOAD GLOBAL
+        GETBIG
+        ASL     R0
+        .IIF    NE,MSDLTA,      ADD     #MSDLTA,R0
+        ADD     BASE,R0
+        MOV     @R0,-(SP)
+        MORE
+
+MOV:    ; MOVE WORDS
+        GETBIG  BK              ; GRAB # WORDS TO MOVE (ALWAYS > 0)
+        MOV     (SP)+,R0        ; SOURCE ADDRESS
+        MOV     (SP)+,R1        ; DESTINATION ADDRESS
+1$:     MOV     (R0)+,(R1)+     ; COPY EACH WORD
+        SOB     BK,1$
+        MOV     #BACK,BK
+        MORE
+
+MVB:    ; MOVE BYTES
+        TRAP    NOTIMP
+
+SAS:    ; STRING ASSIGNMENT
+        MOV     (SP)+,R0        ; GET SOURCE STRING ADDRESS
+        CMP     R0,#255.        ; CHECK IF ITS REALLY A CHAR
+        BHI     1$              ; IF NOT THEN SKIP TRICKYNESS
+        MOVB    R0,LITCHR+1     ; LIT CHAR...MAKE IT A STRING
+        MOV     #LITCHR,R0      ; NOW R0 HAS GOOD ADDRESS
+1$:     CMPB    @R0,(IPC)+      ; CHEOCK IF MAXLENG IS EXCEEDED BY SRC LENG
+        BHI     SASERR          ; BOMB OUT IF SO
+        MOV     (SP)+,R1        ; GRAB DESTINATION ADDRESS
+        CLR     BK              ; SET UP LOOP COUNTER WITH SOURCE LENGTH
+        BISB    @R0,BK          ; NOW BK HAS LENGTH COUNT OF SOURCE
+        INC     BK              ; INCLUDE LENGTH BYTE IN LOOP COUNT
+2$:     MOVB    (R0)+,(R1)+     ; COPY EACH BYTE
+        SOB     BK,2$           ; LOOP FOR CHARS+LENGTH BYTE
+        MOV     #BACK,BK        ; RESTORE
+        MORE
+LITCHR: .WORD   1               ; DUMMY STRING OF LENGTH 1
+SASERR: TRAP    S2LONG
+
+SRO:    ; STORE GLOBAL
+        GETBIG
+        ASL     R0
+        .IIF    NE,MSDLTA,      ADD     #MSDLTA,R0
+        ADD     BASE,R0
+        MOV     (SP)+,@R0
+        MORE
+
+XJP:    ; INDEX JUMP
+        WORDBOUND
+        MOV     (SP)+,R0        ; GRAB INDEX VALUE FROM TOS
+        MOV     (IPC)+,R1       ; GET MIN CASE INDEX FROM CODE
+        CMP     R0,R1           ; SEE IF INDEX IS TOO SMALL
+        BLT     MINERR          ; SKIP OUT IF NOT IN RANGE
+        CMP     R0,(IPC)+       ; CHECK IF LEQ MAX VALUE
+        BGT     MAXERR          ; SKIP OUT HERE TOO
+        TST     (IPC)+          ; SKIP OVER ELSE JUMP WORD
+        SUB     R1,R0           ; ADJUST INDEX TO 0..N
+        ASL     R0              ; DOUBLE INDEX FOR WORD STUFF
+        ADD     R0,IPC          ; POINT IPC AT PROPER JUMP TABLE INDEX
+        SUB     @IPC,IPC        ; NOW IPC POINTS AT STATEMENT SELECTED
+        MORE
+MINERR: TST     (IPC)+          ; SKIP IPC TO ELSE JUMP LOCATION
+MAXERR: MORE                    ; IPC POINTS AT ELSE JUMP...ONWARD
+
+COMPAR: ; COMPARE COMPLEX THINGS
+        ; RELOPS EQU, GRT, GEQ, LEQ, LES, & NEQ
+        GETNEXT R1              ; GRAB COMPARISON TYPE
+        MOV     CMPTBL(R1),PC   ; NOW TRANSFER TO PROPER CODE
+
+REALCMP:; COMPARE REAL
+        MOV     SBROPS(R0),1$
+        .IF     DF,FPI
+        FSUB    SP
+1$:     NOP
+        BR      2$
+        TST     (SP)+
+        MOV     #1,@SP
+        MORE
+2$:     TST     (SP)+
+        CLR     @SP
+        MORE
+        .IFF
+        JSR     R4,ENTFP
+        .WORD   $CMR,1$,XITFP
+1$:     NOP
+        BR      2$
+        MOV     #1,-(SP)
+        JMP     @(R4)+
+2$:     CLR     -(SP)
+        JMP     @(R4)+
+        .ENDC
+
+STRGCMP:; COMPARE STRINGS
+        MOV     UBROPS(R0),NOTEQL       ; SELF-MODIFY UNSIGNED BRANCH
+        MOV     2(SP),R0        ; GET LEFT OPERAND ADDRESS
+        CMP     R0,#255.        ; BUT IT MAY BE A CHAR!
+        BHI     1$              ; IF SO, THEN PUT IN LITCHR TRICK
+        MOVB    R0,LITCHR+1     ; TO GET A STRING OF 1 LENGTH
+        MOV     #LITCHR,R0      ; AND POINT REGISTER AT IT
+        MOV     R0,2(SP)        ; BE SURE TO FIX STACK TOO
+1$:     MOV     @SP,R1          ; GRAB RIGHT SIDE ADDRESS
+        CMP     R1,#255.        ; SAME LITCHR BUSINESS
+        BHI     2$              ; AS ABOVE
+        MOVB    R1,LITCHR+1
+        MOV     #LITCHR,R1
+        MOV     R1,@SP
+2$:     CLR     BK              ; NOW GET LENG = MIN(LENGTH(R0),LENGTH(R1))
+        CMPB    (R0)+,(R1)+     ; CHECK MIN LENG, POINT REGS AT TEXT
+        BHIS    3$              ; IF LENG(R0) < LENG(R1) THEN
+        BISB    -1(R0),BK       ; BK := LENGTH(R0)
+        BR      4$
+3$:     BISB    -1(R1),BK       ; ELSE BK := LENG(R1)
+4$:     BEQ     EQUALS          ; BR IF RUN OFF END OF STRINGS (BK = 0)
+        CMPB    (R0)+,(R1)+     ; COMPARE STRING CONTENTS
+        BNE     NOTEQL          ; ANY NEQ CHAR STOPS CMP
+        DEC     BK
+        BR      4$              ; LOOP UNTIL OFF END
+EQUALS: ; WELL, STRINGS = FOR MIN LENGTH...CMP LENGTHS
+        CMPB    @2(SP),@0(SP)   ; LONGER STRING IS GREATER!
+NOTEQL: NOP     ; CORRECT BR OP GOES HERE
+        BR      2$              ; JUMP TO FALSE CASE
+        MOV     #1,2(SP)        ; PLACE A TRUE IN STACK
+1$:     TST     (SP)+           ; FINALLY RETURN
+        MOV     #BACK,BK
+        MORE
+2$:     CLR     2(SP)           ; FALSE
+        BR      1$
+
+WORDCMP:; COMPARE WORDS
+        GETBIG  BK
+        ASL     BK
+        BR      CMP.IT
+BYTECMP:; COMPARE BYTE STRING
+        GETBIG  BK
+CMP.IT: MOV     UBROPS(R0),2$   ; PUT IN PROPER CMP OPERATOR
+        MOV     (SP)+,R1        ; RIGHT HAND EXPRESSION ADDR
+        MOV     (SP)+,R0        ; LEFT EXPRESSION
+1$:     CMPB    (R0)+,(R1)+     ; COMPARE BYTES
+        BNE     2$              ; ANY NEQ STOPS LOOP
+        SOB     BK,1$
+2$:     NOP
+        BR      4$
+        MOV     #1,-(SP)
+3$:     MOV     #BACK,BK
+        MORE
+4$:     CLR     -(SP)
+        BR      3$
+
+
+BOOLCMP:; COMPARE BOOLEAN OPERANDS
+        BIC     #177776,@SP
+        BIC     #177776,2(SP)
+        MOV     XFRTBL+40.(R0),PC       ; DO INTEGER COMPARE
+
+POWRCMP:; COMPARE SETS
+        JSR     PC,SETADJ       ; ENSURE SETS MAKE SENSE
+        MOV     -(R0),BK        ; GET LOWER SET SIZE
+        ADD     (R0)+,BK        ; DOUBLE FOR BYTE SIZE
+        ADD     R0,BK           ; NOW BK POINTS AT FINAL TOP OF STACK
+        MOV     BK,NEWSP
+        MOVB    -2(IPC),BK      ; GRAB ORIGINAL INSTRUCTION BYTE
+        ASL     BK              ; DOUBLE IT!! WORD INDEX IN XFRSET
+        MOV     XFRSET(BK),-(SP) ; STASH TRANSFER ADDRESS...
+        MOV     -2(R0),BK       ; ACTUAL OPS EXPECT BK=LOWER SET SIZE
+        MOV     (SP)+,PC        ; TRANSFER NOW TO PROPER COMPARE OP
+
+EQUS:   ; COMPARE SETS EQUAL
+        TST     R1              ; NUMBER OF WORDS IN TOP SERT
+        BEQ     CHKZER
+1$:     CMP     (SP)+,(R0)+
+        BNE     SFALSE
+        DEC     BK
+        SOB     R1,1$
+CHKZER: TST     BK
+        BEQ     STRUE
+1$:     TST     (R0)+
+        BNE     SFALSE
+        SOB     BK,1$
+        BR      STRUE
+
+LEQS:   ; LESS THAN OR EQUAL SET COMPARE
+        TST     R1
+        BEQ     CHKZER
+1$:     BIC     (SP)+,(R0)+
+        BNE     SFALSE
+        DEC     BK
+        SOB     R1,1$
+        BR      CHKZER
+
+GEQS:   ; GREATER OR EQUAL SET COMPARE
+        TST     R1
+        BEQ     STRUE
+1$:     BIC     (R0)+,(SP)+
+        BNE     SFALSE
+        SOB     R1,1$
+        BR      STRUE
+
+NEQS:   ; NOT EQUAL SET COMPARE
+        TST     R1
+        BEQ     2$
+1$:     CMP     (SP)+,(R0)+
+        BNE     STRUE
+        DEC     BK
+        SOB     R1,1$
+2$:     TST     BK
+        BEQ     SFALSE
+3$:     TST     (R0)+
+        BNE     STRUE
+        SOB     BK,3$
+SFALSE: MOV     NEWSP,SP
+        CLR     -(SP)
+XITPWR: MOV     #BACK,BK
+        MORE
+STRUE:  MOV     NEWSP,SP
+        MOV     #1,-(SP)
+        BR      XITPWR
+NEWSP:  .WORD
+
+LDA:    ; LOAD INTERMEDIATE ADDRESS
+        GETNEXT                 ; THE DELTA LEX LEVEL
+        MOV     MP,R1           ; POINT R1 AT STAT LINKS
+1$:     MOV     @R1,R1          ; LINK DOWN NOW UNTIL
+        SOB     R0,1$           ; DELTA LL = 0 (NEVER START AT 0)
+        GETBIG                  ; GET DISPLACMENT
+        ASL     R0              ; DOUBLE FOR WORD INDEXING
+        .IIF    NE,MSDLTA,      ADD     #MSDLTA,R0
+        ADD     R1,R0           ; NOW R0 HAS ADDRESS
+        MOV     R0,-(SP)        ; PUSH IT
+        MORE
+
+LDC:    ; LOAD MULTIWORD CONSTANT
+        GETNEXT                 ; NUMBER OF WORDS TO LOAD (ALWAYS > 0)
+        WORDBOUND
+1$:     MOV     (IPC)+,-(SP)
+        SOB     R0,1$
+        MORE
+
+LOD:    ; LOAD INTERMEDIATE VALUE
+        GETNEXT                 ; THE DELTA LEX LEVEL
+        MOV     MP,R1           ; POINT R1 AT STAT LINKS
+1$:     MOV     @R1,R1          ; LINK DOWN NOW UNTIL
+        SOB     R0,1$           ; DELTA LL = 0 (NEVER START AT 0)
+        GETBIG                  ; GET DISPLACMENT
+        ASL     R0              ; DOUBLE FOR WORD INDEXING
+        .IIF    NE,MSDLTA,      ADD     #MSDLTA,R0
+        ADD     R1,R0           ; NOW R0 HAS ADDRESS
+        MOV     @R0,-(SP)       ; COPY VALUE FROM STACK
+        MORE
+
+STR:    ; STORE INTERMEDIATE VALUE
+        GETNEXT                 ; THE DELTA LEX LEVEL
+        MOV     MP,R1           ; POINT R1 AT STAT LINKS
+1$:     MOV     @R1,R1          ; LINK DOWN NOW UNTIL
+        SOB     R0,1$           ; DELTA LL = 0 (NEVER START AT 0)
+        GETBIG                  ; GET DISPLACMENT
+        ASL     R0              ; DOUBLE FOR WORD INDEXING
+        .IIF    NE,MSDLTA,      ADD     #MSDLTA,R0
+        ADD     R1,R0           ; NOW R0 HAS ADDRESS
+        MOV     (SP)+,@R0       ; SAVE VALUE INTO STACK
+        MORE
+
+NOJUMP: INC     IPC             ; GO HERE IF A TRUE WAS ON STACK
+        MORE
+
+EFJ:    ; INTEGER = THEN FJP
+        SUB     (SP)+,(SP)+
+        BEQ     NOJUMP
+        BR      UJP
+
+NFJ:    ; INTEGER <> THEN FJP
+        SUB     (SP)+,(SP)+
+        BNE     NOJUMP
+        BR      UJP
+
+FJP:    ; BRANCH IF FALSE ON TOS
+        ROR     (SP)+
+        BCS     NOJUMP
+        ; NOW FALL INTO UJP
+
+UJP:    ; BRANCH UNCONDITIONAL
+        GETNEXT                 ; GET BRANCH PARAM
+        BMI     1$              ; IF < 0 THEN A LONG JUMP
+        ADD     R0,IPC          ; ELSE JUST A BYTE OFFSET FORWARD
+        MORE
+1$:     MOV     JTAB,IPC        ; POINT IPC AT JTAB ENTRY SO OFFSET
+        ADD     R0,IPC          ; IS GOOD...R0 IS < 0   REALLY A SUBTRACT
+        SUB     @IPC,IPC        ; POINT IPC AT NEW OBJECT CODE
+        MORE
+
+LDP:    ; LOAD PACKED FIELD
+        MOV     @4(SP),R0       ; GET WORD WHICH HAS FIELD IN IT INTO R0
+        MOV     (SP)+,R1        ; GET FIELD RIGHT-MOST BIT NUMBER
+        .IF     DF,EIS
+        NEG     R1
+        ASH     R1,R0
+        .IFF
+        BEQ     NOASR           ; IF ZERO THEN NO SHIFTS NEEDED
+1$:     ASR     R0              ; SHIFT R0 UNTIL FIELD IN LOW BITS
+        SOB     R1,1$
+NOASR:
+        .ENDC
+        MOV     (SP)+,R1        ; GRAB FIELD WIDTH FROM STACK
+        ASL     R1              ; DOUBLE IT FOR WORD INDEXING
+        BIC     CLRMSK(R1),R0   ; CLEAR SHIT BITS IN WORD
+        MOV     R0,@SP          ; NOW PUT FIELD ON STACK
+        MORE
+
+STP:    ; STORE PACKED FIELD
+        MOV     4(SP),R1        ; GRAB FIELD WIDTH
+        ASL     R1              ; DOUBLE FOR WORD INDEX
+        MOV     CLRMSK(R1),R1   ; NOW WE HAVE A CLEARING MASK IN R1
+        MOV     (SP)+,R0        ; GRAB INSERT VALUE FROM STACK
+        BIC     R1,R0           ; ZAP JUNK BITS IN INSERT VALUE
+        COM     R1              ; NOW R1 WILL ZAP THE FIELD ITSELF
+        MOV     (SP)+,BK        ; GET FIELD RIGHT-MOST BIT
+        .IF     DF,EIS
+        ASH     BK,R0
+        ASH     BK,R1
+        .IFF
+        BEQ     NOASL           ; IF IN RIGHT-MOST BIT THEN NO SHIFT
+1$:     ASL     R0              ; SHIFT INSERT VALUE BY ONE
+        ASL     R1              ; AND SHIFT CLEAR MASK
+        SOB     BK,1$           ; AND DO SO UNTIL LINED UP WITH FIELD
+NOASL:
+        .ENDC
+        TST     (SP)+           ; FORGET THE OLD FIELD WIDTH
+        MOV     (SP)+,BK        ; BK NOW HAS ADDRESS OF PACKED FIELD WORD
+        BIC     R1,@BK          ; SET FIELD IN WORD TO ZEROES
+        BIS     R0,@BK          ; NOW OR IN THE INSERT VALUE
+        MOV     #BACK,BK        ; RESTORE SCRATCH REG
+        MORE
+
+LDM:    ; LOAD MULTIPLE WORDS
+        MOV     (SP)+,R1        ; GET WORD LIST ADDRESS
+        GETBYTE                 ; AND GET WORD COUNT
+        BEQ     NOLOAD          ; MAY HAPPEN SOMEDAY
+        ADD     R0,R1           ; SKIP LIST ADDRESS TO UPPER END
+        ADD     R0,R1           ; R1 NOW POINTS ABOVE DATA BLOCK
+1$:     MOV     -(R1),-(SP)
+        SOB     R0,1$
+NOLOAD: MORE
+
+STM:    ; STORE MULTIPLE WORDS
+        GETBYTE                 ; GET NUMBER OF WORDS
+        BEQ     NOSTOR
+        MOV     SP,R1           ; POINT R1 AT DATA BLOCK ON STACK
+        ADD     R0,R1           ; SKIP R1 PAST THE DATA TO GET THE
+        ADD     R0,R1           ; STORE ADDRESS BELOW IT
+        MOV     @R1,R1          ; GET STORE ADDRESS NOW
+1$:     MOV     (SP)+,(R1)+
+        SOB     R0,1$
+NOSTOR: TST     (SP)+           ; CHUCK ADDRESS WORD
+        MORE
+
+LDB:    ; LOAD BYTE
+        MOV     (SP)+,R0
+        ADD     @SP,R0
+        CLR     @SP
+        BISB    @R0,@SP
+        MORE
+
+STB:    ; STORE BYTE
+        MOV     (SP)+,R0
+        ADD     (SP)+,@SP
+        MOVB    R0,@(SP)+
+        MORE
+
+IXP:    ; INDEX PACKED ARRAY
+        GETNEXT R1              ; GET # ELEMENTS PER WORD
+        MOV     (SP)+,R0        ; GET USER'S INDEX VALUE
+        JSR     PC,DIV          ; NOW DIVIDE OUT WORD INX AND BIT INX
+        ADD     R0,@SP          ; ADD WORD INDEX TO BASE ADDR ON TOS
+        ADD     R0,@SP          ; TO BUILD WORD ADDRESS FOR LDP
+        GETNEXT                 ; GET ELEMENT WIDTH
+        MOV     R0,-(SP)        ; NOW PUSH EL WIDTH FOR LDP STUFF
+        CLR     -(SP)           ; NOW THE RIGHT-MOST BIT
+1$:     ASR     R1              ; NOW A SHORT MULTIPLY FOR SMALL VALUES
+        BCC     2$              ; SKIP IF THE MULTIPLICAND BIT IS OFF
+        ADD     R0,@SP
+2$:     ASL     R0              ; DOUBLE ADDEND
+        TST     R1              ; ANY MULTIPLICATION AT ALL?
+        BNE     1$              ; IF SO THEN KEEP LOOPING
+        MORE
+
+EQUI:   ; INTEGER EQUAL COMPARE
+        SUB     (SP)+,@SP
+        BEQ     PSHTRU
+PSHFLS: CLR     @SP
+        MORE
+PSHTRU: MOV     #1,@SP
+        MORE
+
+GEQI:   ; INTEGER GREATER OR EQUAL COMPARE
+        SUB     (SP)+,@SP
+        BGE     PSHTRU
+        BR      PSHFLS
+
+GRTI:   ; INTEGER GREATER THAN COMPARE
+        SUB     (SP)+,@SP
+        BGT     PSHTRU
+        BR      PSHFLS
+
+LLA:    ; LOAD LOCAL ADDRESS
+        GETBIG
+        ASL     R0
+        .IIF    NE,MSDLTA,      ADD     #MSDLTA,R0
+        ADD     MP,R0
+        MOV     R0,-(SP)
+        MORE
+
+LDCI:   ; LOAD LONG INTEGER CONSTANT
+        MOVB    (IPC)+,-(SP)
+        MOVB    (IPC)+,1(SP)
+        MORE
+
+LEQI:   ; INTEGER LESS THAN OR EQUAL COMPARE
+        SUB     (SP)+,@SP
+        BLE     PSHTRU
+        BR      PSHFLS
+
+LESI:   ; INTEGER LESS THAN COMPARE
+        SUB     (SP)+,@SP
+        BLT     PSHTRU
+        BR      PSHFLS
+
+LDL:    ; LOAD LOCAL
+        GETBIG
+        ASL     R0
+        .IIF    NE,MSDLTA,      ADD     #MSDLTA,R0
+        ADD     MP,R0
+        MOV     @R0,-(SP)
+        MORE
+
+NEQI:   ; INTEGER NOT EQUAL COMPARE
+        SUB     (SP)+,@SP
+        BNE     PSHTRU
+        BR      PSHFLS
+
+STL:    ; STORE LOCAL
+        GETBIG
+        ASL     R0
+        .IIF    NE,MSDLTA,      ADD     #MSDLTA,R0
+        ADD     MP,R0
+        MOV     (SP)+,@R0
+        MORE
+
+IXB:    ; INDEX BYTE ARRAY
+        TRAP    NOTIMP
+
+BYT:    ; CONVERT WORD TO BYTE ADDR
+        TRAP    NOTIMP
+
+; EQUAL FJP AND NOT EQUAL FJP ARE AT FJP
+
+XIT:    ; EXIT SYSTEM
+        HALT
+        TRAP    SYSERR
+
+NOP:    ; NO OPERATION
+        MORE
+
+ENTFP:  ; THIS SUBROUTINE STARTS THE THREADED CODE
+        ; SEQUENCE A-LA FPMP $POLSH.  THE DIFFERENCE IS
+        ; WE SAVE IPC REGISTER (R4)
+        MOV     (SP)+,FPIPC     ; IPC MUST BE R4!!!
+        JMP     @(R4)+          ; THREAD IT
+
+FPIPC:  .WORD   ; SAVE R4 (IPC) REG HERE
+
+XITFP:  ; HERE IS WHERE WE EXIT FROM FPMP BUSINESS
+        MOV     LASTMP,MP
+        MOV     #BACK,BK
+        MOV     STKBAS,BASE
+        MOV     FPIPC,IPC
+        MORE
+
+SETADJ: ; THIS IS A SUBROUTINE CALLED BY SET OPERATIONS
+        ; TO MASSAGE SET SIZES AND REGISTERS...SEE THOSE OPS
+        MOV     (SP)+,RETADR    ; SAVE RETURN ADDRESS
+TRYAGN: MOV     (SP)+,R1        ; GRAB SET SIZE
+        MOV     SP,R0           ; NOW POINT R0 AT NEXT SET
+        ADD     R1,R0
+        ADD     R1,R0
+        CMP     (R0)+,R1        ; COMPARE FIRST SET SIZE WITH SECOND (TOP) SIZE
+        BGE     SETSOK          ; QUIT IF SIZES ARE OK
+        MOV     R1,-(SP)        ; ELSE EXPAND LOWER SET BY SHOVING IN 0-S
+        MOV     -(R0),BK        ; GET SMALLER SET SIZE
+        MOV     R1,@R0          ; CHANGE IT TO FINAL SIZE AFTER EXPAND
+        MOV     R1,R0           ; CALCULATE NUMBER OF EXTRA ZEROES NEEDED
+        SUB     BK,R0           ; R0 = TOPSIZE-LOWERSIZE
+        MOV     R0,ZEROES       ; STASH IT FOR LATER USE
+        ADD     BK,R1           ; NOW SET R1 TO TOTAL NUMBER OF WORDS TO COPY
+        ADD     #2,R1           ; BE SURE TO INCLUDE SIZE WORDS
+        MOV     SP,BK           ; POINT BK AT OLD TOS
+        ASL     R0              ; DOUBLE SIZE DIF TO BYTES
+        SUB     R0,SP           ; AND BUMP STACK TO MAKE ROOM
+        MOV     SP,R0           ; NOW R0 IS DEST POINTER FOR COPY
+1$:     MOV     (BK)+,(R0)+     ; COPY EACH WORD IN STACK
+        SOB     R1,1$           ; LOOP FOR TOTAL SET SIZES
+        MOV     ZEROES,R1       ; NOW COPY IN ZEROES BELOW SETS
+2$:     CLR     (R0)+
+        SOB     R1,2$
+        MOV     #BACK,BK        ; RESTORE REG
+        BR      TRYAGN          ; RESET REGISTERS AND EXIT
+ZEROES: .WORD   ; TEMP FOR ABOVE EXPAND
+SETSOK: TST     R1              ; LEAVE CC WITH R1 VALUE
+        JMP     @(PC)+          ; BACK TO CALLER...LEAVE CC ALONE
+RETADR: .WORD
+
+        .PAGE
+        .CSECT  TABLES
+        .GLOBL  XFRTBL
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                                                                   ;
+;                       OPERATOR TRANSFER TABLES                    ;
+;                                                                   ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+XFRTBL  = . + 400       ; USE NEGATIVE INDEXES TO GET TO OPS
+        .WORD   ABI
+        .WORD   ABR
+        .WORD   ADI
+        .WORD   ADR
+        .WORD   AND
+        .WORD   DIF
+        .WORD   DVI
+        .WORD   DVR
+        .WORD   CHK
+        .WORD   FLO
+        .WORD   FLT
+        .WORD   INN
+        .WORD   INT
+        .WORD   IOR
+        .WORD   MOD
+        .WORD   MPI
+        .WORD   MPR
+        .WORD   NGI
+        .WORD   NGR
+        .WORD   NOT
+        .WORD   SRS
+        .WORD   SBI
+        .WORD   SBR
+        .WORD   SGS
+        .WORD   SQI
+        .WORD   SQR
+        .WORD   STO
+        .WORD   IXS
+        .WORD   UNI
+        .WORD   S2P
+        .BLKW   1
+        .WORD   LDCN
+        .WORD   ADJ
+        .WORD   FJP
+        .WORD   INC
+        .WORD   IND
+        .WORD   IXA
+        .WORD   LAO
+        .WORD   LCA
+        .WORD   MVB
+        .WORD   MOV
+        .WORD   LDO
+        .WORD   SAS
+        .WORD   SRO
+        .WORD   XJP
+        .BLKW   2
+        .WORD   COMPAR
+        .WORD   COMPAR
+        .WORD   COMPAR
+        .WORD   LDA
+        .WORD   LDC
+        .WORD   COMPAR
+        .WORD   COMPAR
+        .WORD   LOD
+        .WORD   COMPAR
+        .WORD   STR
+        .WORD   UJP
+        .WORD   LDP
+        .WORD   STP
+        .WORD   LDM
+        .WORD   STM
+        .WORD   LDB
+        .WORD   STB
+        .WORD   IXP
+        .BLKW   2       ; CBP RNP
+        .WORD   EQUI
+        .WORD   GEQI
+        .WORD   GRTI
+        .WORD   LLA
+        .WORD   LDCI
+        .WORD   LEQI
+        .WORD   LESI
+        .WORD   LDL
+        .WORD   NEQI
+        .WORD   STL
+        .BLKW   3.
+        .WORD   LPA
+        .WORD   IXB
+        .WORD   BYT
+        .WORD   EFJ
+        .WORD   NFJ
+        .WORD   BPT
+        .WORD   XIT
+        .WORD   NOP
+        .LIST   ME
+        .IRP    N,<1,2,3,4,5,6,7,10,11,12,13,14,15,16,17,20>
+        .WORD   SLDLS+<6*<N-1>>
+        .ENDR
+        .IRP    N,<1,2,3,4,5,6,7,10,11,12,13,14,15,16,17,20>
+        .WORD   SLDOS+<6*<N-1>>
+        .ENDR
+        .IRP    N,<0,1,2,3,4,5,6,7>
+        .WORD   SINDS+<10*N>
+        .ENDR
+        .NLIST  ME
+
+        .BLKW   3*<MAXUNT+1>    ; UNIT TABLE IN IOTRAP
+
+CMPTBL: .WORD   0
+        .WORD   REALCMP
+        .WORD   STRGCMP
+        .WORD   BOOLCMP
+        .WORD   POWRCMP
+        .WORD   BYTECMP
+        .WORD   WORDCMP
+
+XFRSET  = . + 242
+        .WORD   EQUS
+        .WORD   GEQS
+        .WORD   0,0,0
+        .WORD   LEQS
+        .WORD   0,0
+        .WORD   NEQS
+
+SBROPS  = . + 242
+        BEQ     .+4
+        BGE     .+4
+        BGT     .+4
+        TRAP    SYSERR
+        TRAP    SYSERR
+        BLE     .+4
+        BLT     .+4
+        TRAP    SYSERR
+        BNE     .+4
+
+UBROPS  = . + 242
+        BEQ     .+4
+        BHIS    .+4
+        BHI     .+4
+        TRAP    SYSERR
+        TRAP    SYSERR
+        BLOS    .+4
+        BLO     .+4
+        TRAP    SYSERR
+        BNE     .+4
+
+        .RADIX  2.
+
+BITTER: 0000000000000001
+        0000000000000010
+        0000000000000100
+        0000000000001000
+        0000000000010000
+        0000000000100000
+        0000000001000000
+        0000000010000000
+        0000000100000000
+        0000001000000000
+        0000010000000000
+        0000100000000000
+        0001000000000000
+        0010000000000000
+        0100000000000000
+        1000000000000000
+
+CLRMSK: 1111111111111111
+        1111111111111110
+        1111111111111100
+        1111111111111000
+        1111111111110000
+        1111111111100000
+        1111111111000000
+        1111111110000000
+        1111111100000000
+        1111111000000000
+        1111110000000000
+        1111100000000000
+        1111000000000000
+        1110000000000000
+        1100000000000000
+        1000000000000000
+        0000000000000000
+
+        .END

@@ -1,0 +1,287 @@
+#
+# UCSD p-System Operating System
+# Copyright (C) 2006, 2010 Peter Miller
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+#   * Redistributions of source code must retain the above copyright notice,
+#     this list of conditions and the following disclaimer.
+#   * Redistributions in binary form must reproduce the above copyright
+#     notice, this list of conditions and the following disclaimer in the
+#     documentation and/or other materials provided with the distribution.
+#   * Neither the name of the ucsd-psystem-os project nor the names of its
+#     contributors may be used to endorse or promote products derived from
+#     this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+# BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+#
+# -----------------------------------------------------------------------------
+#
+# This file is turned into the opcodes.i5 binary file.
+#
+# There are two parts to the file: the opcode names and the opcode types.
+#
+# For the opcode names, each entry in the file is 8 bytes wide, and
+# space padded, indexed by opcode number.  Absent entries are set to all
+# spaces.  The first 52 opcodes do not appear in the table.
+#
+# For the opcode types, each entry in the table is 2 bytes wide.
+#
+  0 = short;
+  1 = short;
+  2 = short;
+  3 = short;
+  4 = short;
+  5 = short;
+  6 = short;
+  7 = short;
+  8 = short;
+  9 = short;
+ 10 = short;
+ 11 = short;
+ 12 = short;
+ 13 = short;
+ 14 = short;
+ 15 = short;
+ 16 = short;
+ 17 = short;
+ 18 = short;
+ 19 = short;
+ 20 = short;
+ 21 = short;
+ 22 = short;
+ 23 = short;
+ 24 = short;
+ 25 = short;
+ 26 = short;
+ 27 = short;
+ 28 = short;
+ 29 = short;
+ 30 = short;
+ 31 = short;
+ 32 = short;
+ 33 = short;
+ 34 = short;
+ 35 = short;
+ 36 = short;
+ 37 = short;
+ 38 = short;
+ 39 = short;
+ 40 = short;
+ 41 = short;
+ 42 = short;
+ 43 = short;
+ 44 = short;
+ 45 = short;
+ 46 = short;
+ 47 = short;
+ 48 = short;
+ 49 = short;
+ 50 = short;
+ 51 = short;
+ 52 = short,   "REAL";
+ 53 = short,   "STRING";
+ 54 = short,   "BOOLEAN";
+ 55 = short,   "POWER";
+ 56 = short,   "BYTE";
+ 57 = short,   "WORD";
+ 58 = short,   "EXEC-ERR";
+ 59 = short,   "INIT";
+ 60 = short,   "RESET";
+ 61 = short,   "OPEN";
+ 62 = short,   "CLOSE";
+ 63 = short,   "GET";
+ 64 = short,   "PUT";
+ 65 = short,   "SEEK";
+ 66 = short,   "EOF";
+ 67 = short,   "EOLN";
+ 68 = short,   "READINT";
+ 69 = short,   "WRITEINT";
+ 70 = short,   "READREAL";
+ 71 = short,   "WRITREAL";
+ 72 = short,   "READCHAR";
+ 73 = short,   "WRITCHAR";
+ 74 = short,   "READSTR";
+ 75 = short,   "WRITESTR";
+ 76 = short,   "WRITBYTS";
+ 77 = short,   "READLNN";
+ 78 = short,   "WRITELN";
+ 79 = short,   "CONCAT";
+ 80 = short,   "INSERT";
+ 81 = short,   "COPY";
+ 82 = short,   "DELETE";
+ 83 = short,   "POS";
+ 84 = short,   "BLOCKIO";
+ 85 = short,   "GOTOXY";
+ 86 = short,   "IOCHECK";
+ 87 = short,   "NEW";
+ 88 = short,   "MOVELEFT";
+ 89 = short,   "MOVERGHT";
+ 90 = short,   "EXIT";
+ 91 = short,   "UREAD";
+ 92 = short,   "UWRITE";
+ 93 = short,   "IDSEARCH";
+ 94 = short,   "TREESRCH";
+ 95 = short,   "TIME";
+ 96 = short,   "FILLCHAR";
+ 97 = short,   "SCAN";
+ 98 = short,   "DRAWLINE";
+ 99 = short,   "DRAWBLOC";
+109 = short,   "TRUNC";
+110 = short,   "ROUND";
+111 = short,   "SIN";
+112 = short,   "COS";
+113 = short,   "LOG";
+114 = short,   "ATAN";
+115 = short,   "LN";
+116 = short,   "EXP";
+117 = short,   "SQRT";
+118 = short,   "MARK";
+119 = short,   "RELEASE";
+120 = short,   "IORESULT";
+121 = short,   "UBUSY";
+122 = short,   "PWROFTEN";
+123 = short,   "UWAIT";
+124 = short,   "UCLEAR";
+125 = short,   "HALT";
+126 = short,   "MEMAVAL";
+127 = short,   "SLDC";
+128 = short,   "ABI";
+129 = short,   "ABR";
+130 = short,   "ADI";
+131 = short,   "ADR";
+132 = short,   "LAND";
+133 = short,   "DIF";
+134 = short,   "DVI";
+135 = short,   "DVR";
+136 = short,   "CHK";
+137 = short,   "FLO";
+138 = short,   "FLT";
+139 = short,   "INN";
+140 = short,   "INT";
+141 = short,   "LOR";
+142 = short,   "MODI";
+143 = short,   "MPI";
+144 = short,   "MPR";
+145 = short,   "NGI";
+146 = short,   "NGR";
+147 = short,   "LNOT";
+148 = short,   "SRS";
+149 = short,   "SBI";
+150 = short,   "SBR";
+151 = short,   "SGS";
+152 = short,   "SQI";
+153 = short,   "SQR";
+154 = short,   "STO";
+155 = short,   "IXS";
+156 = short,   "UNI";
+157 = lopt,    "LDE";
+158 = cmprss,  "CSP";
+159 = short,   "LDCN";
+160 = one,     "ADJ";
+161 = one,     "FJP";
+162 = opt,     "INC";
+163 = opt,     "IND";
+164 = opt,     "IXA";
+165 = opt,     "LAO";
+166 = chrs,    "LSA";
+167 = lopt,    "LAE";
+168 = opt,     "MOV";
+169 = opt,     "LDO";
+170 = one,     "SAS";
+171 = opt,     "SRO";
+172 = words,   "XJP";
+173 = one,     "RNP";
+174 = one,     "CIP";
+175 = cmprss2, "EQU";
+176 = cmprss2, "GEQ";
+177 = cmprss2, "GTR";
+178 = lopt,    "LDA";
+179 = blk,     "LDC";
+180 = cmprss2, "LEQ";
+181 = cmprss2, "LES";
+182 = lopt,    "LOD";
+183 = cmprss2, "NEQ";
+184 = lopt,    "STR";
+185 = one,     "UJP";
+186 = short,   "LDP";
+187 = short,   "STP";
+188 = one,     "LDM";
+189 = one,     "STM";
+190 = short,   "LDB";
+191 = short,   "STB";
+192 = two,     "IXP";
+193 = one,     "RBP";
+194 = one,     "CBP";
+195 = short,   "EQUI";
+196 = short,   "GEQI";
+197 = short,   "GTRI";
+198 = opt,     "LLA";
+199 = word,    "LDCI";
+200 = short,   "LEQI";
+201 = short,   "LESI";
+202 = opt,     "LDL";
+203 = short,   "NEQI";
+204 = opt,     "STL";
+205 = two,     "CXP";
+206 = one,     "CLP";
+207 = one,     "CGP";
+208 = chrs,    "LPA";
+209 = lopt,    "STE";
+210 = short,   "BYT";
+211 = one,     "EFJ";
+212 = one,     "NFJ";
+213 = opt,     "BPT";
+214 = short,   "XIT";
+215 = short,   "NOP";
+216 = short,   "SLDL";
+217 = short,   "SLDL";
+218 = short,   "SLDL";
+219 = short,   "SLDL";
+220 = short,   "SLDL";
+221 = short,   "SLDL";
+222 = short,   "SLDL";
+223 = short,   "SLDL";
+224 = short,   "SLDL";
+225 = short,   "SLDL";
+226 = short,   "SLDL";
+227 = short,   "SLDL";
+228 = short,   "SLDL";
+229 = short,   "SLDL";
+230 = short,   "SLDL";
+231 = short,   "SLDL";
+232 = short,   "SLDO";
+233 = short,   "SLDO";
+234 = short,   "SLDO";
+235 = short,   "SLDO";
+236 = short,   "SLDO";
+237 = short,   "SLDO";
+238 = short,   "SLDO";
+239 = short,   "SLDO";
+240 = short,   "SLDO";
+241 = short,   "SLDO";
+242 = short,   "SLDO";
+243 = short,   "SLDO";
+244 = short,   "SLDO";
+245 = short,   "SLDO";
+246 = short,   "SLDO";
+247 = short,   "SLDO";
+248 = short,   "SIND";
+249 = short,   "SIND";
+250 = short,   "SIND";
+251 = short,   "SIND";
+252 = short,   "SIND";
+253 = short,   "SIND";
+254 = short,   "SIND";
+255 = short,   "SIND";

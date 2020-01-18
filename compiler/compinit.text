@@ -1,0 +1,434 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+(*
+ * UCSD p-System Operating System
+ * Copyright (C) 2010 Peter Miller
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of the ucsd-psystem-os project nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *)
+
+SEGMENT PROCEDURE COMPINIT;
+
+  PROCEDURE ENTSTDTYPES;
+  BEGIN
+    NEW(INTPTR,SCALAR,STANDARD);
+    WITH INTPTR^ DO
+      BEGIN SIZE := INTSIZE; FORM := SCALAR; SCALKIND := STANDARD END;
+    NEW(REALPTR,SCALAR,STANDARD);
+    WITH REALPTR^ DO
+      BEGIN SIZE := REALSIZE; FORM := SCALAR; SCALKIND := STANDARD END;
+    NEW(LONGINTPTR,LONGINT);
+    WITH LONGINTPTR^ DO
+      BEGIN SIZE := DECSIZE((BITSPERWD-1)*100 DIV 332 + 1); FORM := LONGINT END;
+    NEW(CHARPTR,SCALAR,STANDARD);
+    WITH CHARPTR^ DO
+      BEGIN SIZE := CHARSIZE; FORM := SCALAR; SCALKIND := STANDARD END;
+    NEW(BOOLPTR,SCALAR,DECLARED);
+    WITH BOOLPTR^ DO
+      BEGIN SIZE := BOOLSIZE; FORM := SCALAR; SCALKIND := DECLARED END;
+    NEW(NILPTR,POINTER);
+    WITH NILPTR^ DO
+      BEGIN SIZE := PTRSIZE; FORM := POINTER; ELTYPE := NIL END;
+    NEW(TEXTPTR,FILES);
+    WITH TEXTPTR^ DO
+      BEGIN SIZE := FILESIZE+CHARSIZE; FORM := FILES; FILTYPE := CHARPTR END;
+    NEW(INTRACTVPTR,FILES);
+    WITH INTRACTVPTR^ DO
+      BEGIN SIZE := FILESIZE+CHARSIZE; FORM := FILES; FILTYPE := CHARPTR END;
+    NEW(STRGPTR,ARRAYS,TRUE,TRUE);
+    WITH STRGPTR^ DO
+      BEGIN FORM := ARRAYS; SIZE := (DEFSTRGLGTH + CHRSPERWD) DIV CHRSPERWD;
+        AISPACKD := TRUE; AISSTRNG := TRUE; INXTYPE := INTPTR;
+        ELWIDTH := BITSPERCHR; ELSPERWD := CHRSPERWD;
+        AELTYPE := CHARPTR; MAXLENG := DEFSTRGLGTH;
+      END
+  END (*ENTSTDTYPES*) ;
+
+  PROCEDURE ENTSTDNAMES;
+    VAR CP,CP1: CTP; I: INTEGER;
+  BEGIN
+    NEW(CP,TYPES);
+    WITH CP^ DO
+      BEGIN NAME := 'INTEGER '; IDTYPE := INTPTR; KLASS := TYPES END;
+    ENTERID(CP);
+    NEW(CP,TYPES);
+    WITH CP^ DO
+      BEGIN NAME := 'REAL    '; IDTYPE := REALPTR; KLASS := TYPES END;
+    ENTERID(CP);
+    NEW(CP,TYPES);
+    WITH CP^ DO
+      BEGIN NAME := 'CHAR    '; IDTYPE := CHARPTR; KLASS := TYPES END;
+    ENTERID(CP);
+    NEW(CP,TYPES);
+    WITH CP^ DO
+      BEGIN NAME := 'BOOLEAN '; IDTYPE := BOOLPTR; KLASS := TYPES END;
+    ENTERID(CP);
+    NEW(CP,TYPES);
+    WITH CP^ DO
+      BEGIN NAME := 'STRING  '; IDTYPE := STRGPTR; KLASS := TYPES END;
+    ENTERID(CP);
+    NEW(CP,TYPES);
+    WITH CP^ DO
+      BEGIN NAME := 'TEXT    '; IDTYPE := TEXTPTR; KLASS := TYPES END;
+    ENTERID(CP);
+    NEW(CP,TYPES);
+    WITH CP^ DO
+      BEGIN NAME := 'INTERACT'; IDTYPE := INTRACTVPTR; KLASS := TYPES END;
+    ENTERID(CP);
+    NEW(INPUTPTR,FORMALVARS,FALSE);
+    WITH INPUTPTR^ DO
+      BEGIN NAME := 'INPUT   '; IDTYPE := TEXTPTR; KLASS := FORMALVARS;
+        VLEV := 0; VADDR := 2
+      END;
+    ENTERID(INPUTPTR);
+    NEW(OUTPUTPTR,FORMALVARS,FALSE);
+    WITH OUTPUTPTR^ DO
+      BEGIN NAME := 'OUTPUT  '; IDTYPE := TEXTPTR; KLASS := FORMALVARS;
+        VLEV := 0; VADDR := 3
+      END;
+    ENTERID(OUTPUTPTR);
+    NEW(CP,FORMALVARS,FALSE);
+    WITH CP^ DO
+      BEGIN NAME := 'KEYBOARD'; IDTYPE := TEXTPTR; KLASS := FORMALVARS;
+        VLEV := 0; VADDR := 4
+      END;
+    ENTERID(CP);
+    CP1 := NIL;
+    FOR I := 0 TO 1 DO
+      BEGIN NEW(CP,KONST);
+        WITH CP^ DO
+          BEGIN IDTYPE := BOOLPTR;
+            IF I = 0 THEN NAME := 'FALSE   '
+            ELSE NAME := 'TRUE    ';
+            NEXT := CP1; VALUES.IVAL := I; KLASS := KONST
+          END;
+        ENTERID(CP); CP1 := CP
+      END;
+    BOOLPTR^.FCONST := CP;
+    NEW(CP,KONST);
+    WITH CP^ DO
+      BEGIN NAME := 'NIL     '; IDTYPE := NILPTR;
+        NEXT := NIL; VALUES.IVAL := 0; KLASS := KONST
+      END;
+    ENTERID(CP);
+    NEW(CP,KONST);
+    WITH CP^ DO
+      BEGIN
+        NAME := 'MAXINT  '; IDTYPE := INTPTR;
+        KLASS := KONST; VALUES.IVAL := MAXINT
+      END;
+    ENTERID(CP);
+  END (*ENTSTDNAMES*) ;
+
+  PROCEDURE ENTUNDECL;
+  BEGIN
+    NEW(UTYPPTR,TYPES);
+    WITH UTYPPTR^ DO
+      BEGIN NAME := '        '; IDTYPE := NIL; KLASS := TYPES END;
+    NEW(UCSTPTR,KONST);
+    WITH UCSTPTR^ DO
+      BEGIN NAME := '        '; IDTYPE := NIL; NEXT := NIL;
+        VALUES.IVAL := 0; KLASS := KONST
+      END;
+    NEW(UVARPTR,ACTUALVARS,FALSE);
+    WITH UVARPTR^ DO
+      BEGIN NAME := '        '; IDTYPE := NIL;
+        NEXT := NIL; VLEV := 0; VADDR := 0; KLASS := ACTUALVARS
+      END;
+    NEW(UFLDPTR,FIELD);
+    WITH UFLDPTR^ DO
+      BEGIN NAME := '        '; IDTYPE := NIL; NEXT := NIL;
+        FLDADDR := 0; KLASS := FIELD
+      END;
+    NEW(UPRCPTR,PROC,DECLARED,ACTUAL,FALSE);
+    WITH UPRCPTR^ DO
+      BEGIN NAME := '        '; IDTYPE := NIL; FORWDECL := FALSE;
+        NEXT := NIL; INSCOPE := FALSE; LOCALLC := 0; EXTURNAL := FALSE;
+        PFLEV := 0; PFNAME := 0; PFSEG := 0;
+        KLASS := PROC; PFDECKIND := DECLARED; PFKIND := ACTUAL
+      END;
+    NEW(UFCTPTR,FUNC,DECLARED,ACTUAL,FALSE);
+    WITH UFCTPTR^ DO
+      BEGIN NAME := '        '; IDTYPE := NIL; NEXT := NIL;
+        FORWDECL := FALSE; EXTURNAL := FALSE; INSCOPE := FALSE; LOCALLC := 0;
+        PFLEV := 0; PFNAME := 0; PFSEG := 0;
+        KLASS := FUNC; PFDECKIND := DECLARED; PFKIND := ACTUAL
+      END
+  END (*ENTUNDECL*) ;
+
+  PROCEDURE ENTSPCPROCS;
+    LABEL 1;
+    VAR LCP: CTP; I: INTEGER; ISFUNC: BOOLEAN;
+        NA: ARRAY [1..43] OF ALPHA;
+  BEGIN
+    NA[ 1] := 'READ    '; NA[ 2] := 'READLN  '; NA[ 3] := 'WRITE   ';
+    NA[ 4] := 'WRITELN '; NA[ 5] := 'EOF     '; NA[ 6] := 'EOLN    ';
+    NA[ 7] := 'PRED    '; NA[ 8] := 'SUCC    '; NA[ 9] := 'ORD     ';
+    NA[10] := 'SQR     '; NA[11] := 'ABS     '; NA[12] := 'NEW     ';
+    NA[13] := 'UNITREAD'; NA[14] := 'UNITWRIT'; NA[15] := 'CONCAT  ';
+    NA[16] := 'LENGTH  '; NA[17] := 'INSERT  '; NA[18] := 'DELETE  ';
+    NA[19] := 'COPY    '; NA[20] := 'POS     '; NA[21] := 'MOVELEFT';
+    NA[22] := 'MOVERIGH'; NA[23] := 'EXIT    '; NA[24] := 'IDSEARCH';
+    NA[25] := 'TREESEAR'; NA[26] := 'TIME    '; NA[27] := 'FILLCHAR';
+    NA[28] := 'OPENNEW '; NA[29] := 'OPENOLD '; NA[30] := 'REWRITE ';
+    NA[31] := 'CLOSE   '; NA[32] := 'SEEK    '; NA[33] := 'RESET   ';
+    NA[34] := 'GET     '; NA[35] := 'PUT     '; NA[36] := 'SCAN    ';
+    NA[37] := 'BLOCKREA'; NA[38] := 'BLOCKWRI'; NA[39] := 'TRUNC   ';
+    NA[40] := 'PAGE    '; NA[41] := 'SIZEOF  '; NA[42] := 'STR     ';
+    NA[43] := 'GOTOXY  ';
+    FOR I := 1 TO 43 DO
+      BEGIN
+        IF TINY THEN
+            IF I IN [2,7,8,10,13,17,18,19,20,32,34,35,40,42,43] THEN
+              GOTO 1;
+        ISFUNC := I IN [5,6,7,8,9,10,11,15,16,19,20,25,36,37,38,39,41];
+        IF ISFUNC THEN NEW(LCP,FUNC,SPECIAL)
+        ELSE NEW(LCP,PROC,SPECIAL);
+        WITH LCP^ DO
+          BEGIN NAME := NA[I]; NEXT := NIL; IDTYPE := NIL;
+            IF ISFUNC THEN KLASS := FUNC ELSE KLASS := PROC;
+            PFDECKIND := SPECIAL; KEY := I
+          END;
+        ENTERID(LCP);
+1:    END
+    END (*ENTSPCPROCS*) ;
+
+  PROCEDURE ENTSTDPROCS;
+    VAR LCP,PARAM: CTP; LSP,FTYPE: STP; I: INTEGER; ISPROC: BOOLEAN;
+        NA: ARRAY [1..19] OF ALPHA;
+  BEGIN
+    NA[ 1] := 'ODD     '; NA[ 2] := 'CHR     '; NA[ 3] := 'MEMAVAIL';
+    NA[ 4] := 'ROUND   '; NA[ 5] := 'SIN     '; NA[ 6] := 'COS     ';
+    NA[ 7] := 'LOG     '; NA[ 8] := 'ATAN    '; NA[ 9] := 'LN      ';
+    NA[10] := 'EXP     '; NA[11] := 'SQRT    '; NA[12] := 'MARK    ';
+    NA[13] := 'RELEASE '; NA[14] := 'IORESULT'; NA[15] := 'UNITBUSY';
+    NA[16] := 'PWROFTEN'; NA[17] := 'UNITWAIT'; NA[18] := 'UNITCLEA';
+    NA[19] := 'HALT    ';
+    FOR I := 1 TO 19 DO
+      BEGIN ISPROC := I IN [12,13,17,18,19];
+        CASE I OF
+          1:  BEGIN FTYPE := BOOLPTR; NEW(PARAM,ACTUALVARS,FALSE);
+                WITH PARAM^ DO
+                  BEGIN IDTYPE := INTPTR; KLASS := ACTUALVARS END
+              END;
+          2:  FTYPE := CHARPTR;
+          3:  BEGIN FTYPE := INTPTR; PARAM := NIL END;
+          4:  BEGIN FTYPE := INTPTR; NEW(PARAM,ACTUALVARS,FALSE);
+                WITH PARAM^ DO BEGIN IDTYPE := REALPTR; KLASS := ACTUALVARS END
+              END;
+          5:  FTYPE := REALPTR;
+         12:  BEGIN FTYPE := NIL; NEW(PARAM,FORMALVARS,FALSE); NEW(LSP,POINTER);
+                WITH LSP^ DO
+                  BEGIN SIZE := PTRSIZE; FORM := POINTER; ELTYPE := NIL END;
+                WITH PARAM^ DO BEGIN IDTYPE := LSP; KLASS := FORMALVARS END
+              END;
+         14:  BEGIN FTYPE := INTPTR; PARAM := NIL END;
+         15:  BEGIN FTYPE := BOOLPTR; NEW(PARAM,ACTUALVARS,FALSE);
+              WITH PARAM^ DO
+                BEGIN IDTYPE := INTPTR; KLASS := ACTUALVARS END;
+              END;
+         16:  FTYPE := REALPTR;
+         17:  FTYPE := NIL;
+         19:  BEGIN FTYPE := NIL; PARAM := NIL END
+        END (*PARAM AND TYPE CASES*) ;
+        IF ISPROC THEN NEW(LCP,PROC,STANDARD)
+        ELSE NEW(LCP,FUNC,STANDARD);
+        WITH LCP^ DO
+          BEGIN NAME := NA[I]; PFDECKIND := STANDARD; CSPNUM := I + 20;
+            IF ISPROC THEN KLASS := PROC ELSE KLASS := FUNC;
+            IF PARAM <> NIL THEN PARAM^.NEXT := NIL;
+            IDTYPE := FTYPE; NEXT := PARAM
+          END;
+        ENTERID(LCP)
+      END
+    END (*ENTSTDPROCS*) ;
+
+  PROCEDURE INITSCALARS;
+   VAR I: NONRESIDENT;
+  BEGIN
+    IF MEMAVAIL > 9950 (* EMPIRICAL VALUE FOR A 50K BYTE MACHINE *) THEN
+      NOSWAP := TRUE ELSE NOSWAP := FALSE;
+    FWPTR := NIL; MODPTR := NIL; GLOBTESTP := NIL;
+    LINESTART := 0; LINEINFO := LCAFTERMARKSTACK; LIST := FALSE;
+    SYMBLK := 2; SCREENDOTS := 0; STARTDOTS := 0;
+    FOR SEG := 0 TO MAXSEG DO
+      WITH SEGTABLE[SEG] DO
+        BEGIN
+          DISKADDR := 0;
+          CODELENG := 0;
+          SEGNAME := '        ';
+          SEGKIND := 0 (* LINKED *);
+          TEXTADDR := 0
+        END;
+    USINGLIST := NIL;
+    IF USERINFO.STUPID THEN SYSTEMLIB := '*SYSTEM.PASCAL'
+    ELSE SYSTEMLIB := '*SYSTEM.LIBRARY';
+    LC := LCAFTERMARKSTACK; IOCHECK := TRUE; DP := TRUE;
+    SEGINX := 0; NEXTJTAB := 1; NEXTPROC := 2; CURPROC := 1;
+    NEW(SCONST); NEW(SYMBUFP); NEW(CODEP);
+    CLINKERINFO := FALSE; DLINKERINFO := FALSE;
+    SEG := 1; NEXTSEG := 10; CURBLK := 1; CURBYTE := 0; LSEPPROC := FALSE;
+    STARTINGUP := TRUE; NOISY := NOT USERINFO.SLOWTERM; SEPPROC := FALSE;
+    DEBUGGING := FALSE; BPTONLINE := FALSE; INMODULE := FALSE;
+    GOTOOK := FALSE; RANGECHECK := TRUE; SYSCOMP := FALSE; TINY := FALSE;
+    CODEINSEG := FALSE; PRTERR := TRUE; INCLUDING := FALSE; USING := FALSE;
+    FOR I := SEEK TO DECOPS DO PFNUMOF[I] := 0;
+    COMMENT := NIL; LIBNOTOPEN := TRUE;
+    GETSTMTLEV := TRUE; BEGSTMTLEV := 0;
+    FLIPBYTES := FALSE
+  END (*INITSCALARS*) ;
+
+  PROCEDURE INITSETS;
+  BEGIN
+    CONSTBEGSYS := [ADDOP,INTCONST,REALCONST,STRINGCONST,IDENT];
+    SIMPTYPEBEGSYS := [LPARENT] + CONSTBEGSYS;
+    TYPEBEGSYS := [ARROW,PACKEDSY,ARRAYSY,RECORDSY,SETSY,FILESY]
+                  + SIMPTYPEBEGSYS;
+    TYPEDELS := [ARRAYSY,RECORDSY,SETSY,FILESY];
+    BLOCKBEGSYS := [USESSY,LABELSY,CONSTSY,TYPESY,VARSY,
+                    PROCSY,FUNCSY,PROGSY,BEGINSY];
+    SELECTSYS := [ARROW,PERIOD,LBRACK];
+    FACBEGSYS := [INTCONST,REALCONST,LONGCONST,STRINGCONST,IDENT,
+                  LPARENT,LBRACK,NOTSY];
+    STATBEGSYS := [BEGINSY,GOTOSY,IFSY,WHILESY,REPEATSY,FORSY,WITHSY,CASESY];
+    VARS := [FORMALVARS,ACTUALVARS]
+  END (*INITSETS*) ;
+
+  procedure anachronism;
+    (*
+     * anachronism: n., an artifact that belongs to another time, past
+     *              or future
+     *)
+  begin
+    (* See the vstamp.inc.text file for where these are defined. *)
+    writeln(output, project_url, ' version ', version_stamp);
+  end;
+
+BEGIN (*COMPINIT*)
+  INITSCALARS; INITSETS;
+  LEVEL := 0; TOP := 0;
+  IF NOISY THEN
+    BEGIN
+      FOR IC := 1 TO 7 DO WRITELN(OUTPUT);
+      anachronism;
+      WRITELN(OUTPUT,'PASCAL Compiler [II.0.A.1]');
+      WRITE(OUTPUT,'<   0>')
+    END;
+  WITH DISPLAY[0] DO
+    BEGIN FNAME := NIL; FFILE := NIL; FLABEL := NIL; OCCUR := BLCK END;
+  SMALLESTSPACE:=MEMAVAIL;
+  GETNEXTPAGE;
+  INSYMBOL;
+  ENTSTDTYPES;   ENTSTDNAMES;   ENTUNDECL;
+  ENTSPCPROCS;   ENTSTDPROCS;
+  IF SYSCOMP THEN
+    BEGIN OUTERBLOCK := NIL; SEG := 0; NEXTSEG := 1;
+      GLEV :=1; BLOCKBEGSYS := BLOCKBEGSYS + [UNITSY,SEPARATSY]
+    END
+  ELSE
+    BEGIN TOP := 1; LEVEL := 1;
+      WITH DISPLAY[1] DO
+        BEGIN FNAME := NIL; FFILE := NIL;
+          FLABEL := NIL; OCCUR := BLCK
+        END;
+      LC := LC+2; GLEV := 3; (*KEEP STACK STRAIGHT FOR NOW*)
+      NEW(OUTERBLOCK,PROC,DECLARED,ACTUAL,FALSE);
+      WITH OUTERBLOCK^ DO
+        BEGIN NEXT := NIL; LOCALLC := LC;
+          NAME := 'PROGRAM '; IDTYPE := NIL; KLASS := PROC;
+          PFDECKIND := DECLARED; PFLEV := 0; PFNAME := 1; PFSEG := SEG;
+          PFKIND := ACTUAL; FORWDECL := FALSE; EXTURNAL := FALSE;
+          INSCOPE := TRUE
+        END
+    END;
+  IF SY = PROGSY THEN
+    BEGIN INSYMBOL;
+      IF SY = IDENT THEN
+        BEGIN SEGTABLE[SEG].SEGNAME := ID;
+          IF OUTERBLOCK <> NIL THEN
+            BEGIN
+              OUTERBLOCK^.NAME := ID;
+              ENTERID(OUTERBLOCK) (*ALLOWS EXIT ON PROGRAM NAME*)
+            END
+        END
+      ELSE ERROR(2); INSYMBOL;
+      IF SY = LPARENT THEN
+        BEGIN
+          REPEAT INSYMBOL
+          UNTIL SY IN [RPARENT,SEMICOLON]+BLOCKBEGSYS;
+          IF SY = RPARENT THEN INSYMBOL ELSE ERROR(4)
+        END;
+      IF SY = SEMICOLON THEN INSYMBOL ELSE ERROR(14)
+    END;
+  MARK(MARKP);
+  NEW(TOS);
+  WITH TOS^ DO  (*MAKE LEXSTKREC FOR OUTERBLOCK*)
+    BEGIN
+      PREVLEXSTACKP:=NIL;
+      BFSY:=PERIOD;
+      DFPROCP:=OUTERBLOCK;
+      DLLC:=LC;
+      DOLDLEV:=LEVEL;
+      DOLDTOP:=TOP;
+      POLDPROC:=CURPROC;
+      ISSEGMENT:=FALSE;
+      DMARKP:=MARKP;
+    END;
+END (*COMPINIT*) ;

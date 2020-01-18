@@ -1,0 +1,539 @@
+;
+; UCSD PASCAL - Version I.5
+; Copyright (C) 1978, 1979 Regents of the University of California
+; All Rights Reserved
+;
+; Permission to use, copy, modify and distribute any part of UCSD
+; PASCAL solely authored by UC authors before June 1, 1979 for
+; educational, research and non-profit purposes, without fee, and
+; without a written agreement is hereby granted, provided that the
+; above copyright notice, this paragraph and the following three
+; paragraphs appear in all copies.
+;
+; Those desiring to incorporate UCSD PASCAL into commercial products or
+; use for commercial purposes should contact the Technology Transfer &
+; Intellectual Property Services, University of California, San Diego,
+; 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+; Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+;
+; IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+; FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+; INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+; THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+; DAMAGE.
+;
+; THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+; OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+; UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+; MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+; EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+; WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+; THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+; OTHER RIGHTS.
+;
+; Case Number: SD1991-807 (2006)
+; http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+;
+
+        ;.INCLUDE MACH.TYPE.TEXT
+
+        .PROC   DECOPS
+        ;
+        ; COPYRIGHT (C) 1978,   THE REGENTS OF THE UNIVERSITY OF CALIFORNIA
+        ;                       SAN DIEGO CAMPUS
+        ;
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                                                                   ;
+;                       DECIMAL OPERATORS                           ;
+;                                                                   ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+MP      .EQU    R5
+IPC     .EQU    R4
+BASE    .EQU    R3
+BK      .EQU    R2
+
+;.IF     SOBSXT=0
+.MACRO  SOB             ; NOTE: THIS MACRO VERSION OF SOB DOES
+      DEC     %1      ;    NOT(!) PRESERVE CONDITION CODES.
+      BNE     %2
+.ENDM
+
+.MACRO  SXT           ;  THIS SXT MACRO DOES SUPPORT ALL
+      BPL     $99     ;    ADDRESSING MODES.
+      MOV     #-1,%1  ; THERE MUST BE A NON-LOCAL LABEL BETWEEN
+      BR      $98     ;    ANY TWO SXTS IF LSI=0
+$99:  CLR     %1
+$98:
+.ENDM
+;.ENDC
+
+
+        ; TRAP PARAMETERS
+INTOVR  .EQU    5
+DIVZER  .EQU    6
+S2LONG  .EQU    15
+
+        .DEF    GDEC
+
+GDEC:   ; DECIMAL INSTRUCTION
+        MOV     (SP)+,EXTRTN    ; SAVE RETURN ADDRESS
+        MOV     MP,DECMP        ; SAVE REGISTERS
+        MOV     IPC,DECIPC
+        MOV     BASE,DECBAS
+        MOV     BK,DECBK
+        MOVB    (SP)+,R1        ; GRAB INSTRUCTION BYTE
+        MOV     DECTBL(R1),PC   ; AND GO EXECUTE
+
+BIGRTN: MOV     DECMP,MP        ; RESTORE REGISTERS
+        MOV     DECIPC,IPC
+        MOV     DECBAS,BASE
+        MOV     DECBK,BK
+        MOV     EXTRTN,PC       ; TRICKY RETURN TO CALLING ROUTINE
+
+DECMP:  .WORD   0
+DECIPC: .WORD   0
+DECBAS: .WORD   0
+DECBK:  .WORD   0
+EXTRTN: .WORD   0
+
+DECTBL: .WORD   DAJ
+        .WORD   DAD
+        .WORD   DSB
+        .WORD   DNG
+        .WORD   DMP
+        .WORD   DDV
+        .WORD   DSTR
+        .WORD   DCV
+        .WORD   DECCMP
+        .WORD   DCVT
+        .WORD   DTNC
+
+;.IF SMLI=1
+;MLI:    MUL     R5,R4
+;        RTS     PC
+;.ELSE
+                  ; SOFT MULTIPLY IF NO HARD MULTIPLY
+MLI:    ; SOFT MULTIPLY   (R4,R5):=R5 x R4
+        MOV     R0,SAV0         ; SAVE REGISTERS
+        MOV     R1,SAV1
+        CLR     -(SP)           ;  SIGN STORAGE
+        TST     R5              ; CHECK MULTIPLICAND
+        BGT     $1              ; SKIP FOLLOWING IF +
+        BEQ     ZEROM           ; ANSWER IS ZERO
+        INC     @SP             ; REMEMBER NEGATIVE
+        NEG     R5
+        BMI     SPECL1          ; SPECIAL  HANDLING FOR  -32768
+$1:     TST     R4              ; TEST MULTIPLIER
+        BGT     $2
+        BEQ     ZEROM
+        INC     @SP
+        NEG     R4
+        BMI     SPECL2
+$2:     MOV     #16.,-(SP)      ; SET UP ITERATION COUNT
+        CMP     R5,R4           ; MAKE SURE
+        BGE     MCLR            ; MULTIPLIER
+        MOV     R5,R0           ; IS
+        MOV     R4,R5           ; SMALLER
+        MOV     R0,R4
+MCLR:   CLR     R0              ; CLEAR PRODUCT
+        CLR     R1
+MMUL:   ROR     R4              ; GET MULTIPLIER BIT
+        BCC     $1              ;  = 0?
+        ADD     R5,R1           ; NO, ADD IN MULTIPLICAND
+        ADC     R0
+        CLC
+$1:     ROR     R0              ; ROTATE PRODUCT
+        ROR     R1
+        BCC     CYC
+        BIS     #100000,R0
+CYC:    DEC     @SP
+        BGT     MMUL
+        TST     (SP)+           ; GET RID OF COUNTER
+        MOV     R0,R5           ; PUT RESULT IN OUTPUT REGISTERS
+        MOV     R1,R4           ; NOTE REVERSAL OF REGISTERS
+        ROR     (SP)+           ; DETERMINE SIGN
+        BCC     OUTM            ; OF PRODUCT
+        COM     R4
+        NEG     R5
+        BCS     $1
+        INC     R4
+$1:     BR      OUTM
+SPECL2: MOV     R5,R4           ; R4 WAS -32768
+                                ; ELSE R5 WAS -32768
+SPECL1: CLR     R5
+        ASR     (SP)+           ; WAS R5 NEGATED ALREADY?
+        BNE     $1              ; YES
+        NEG     R4              ; NO  NEGATE NOW
+$1:     ASR     R4              ; DIVIDE BY 2
+        BCC     OUTM
+        ROR     R5
+        TST     R4              ; FIX FOR NEGATIVE
+        BPL     OUTM            ; ODD NUMBERS
+        INC     R4
+OUTM:   MOV     SAV0,R0          ; RESTORE REGISTERS
+        MOV     SAV1,R1
+        RTS     PC
+ZEROM:  CLR     R4
+        CLR     R5
+        TST     (SP)+
+        BR      OUTM
+SAV0:   .WORD
+SAV1:   .WORD
+;.ENDC
+
+DAJ:    ; DECIMAL ADJUST
+        MOVB    (SP)+,R0        ; GET DESIRED LENGTH
+        SUB     (SP)+,R0        ; TOSS OPERAND LEN; R0 = DIFF
+        BEQ     DAJDNE
+        BLT     SHRINK
+        TST     @SP
+        SXT     R1              ; SIGN EXTENSION
+XPAND:  MOV     R1,-(SP)
+        SOB     R0,XPAND
+        BR      DAJDNE
+SHRINK: NEG     R0
+DLOOP:  TST     (SP)
+        BEQ     DPOS
+        INC     (SP)+
+        BEQ     DNEG
+HOLE:   JMP     DOVR            ; OVERFLOW
+DNEG:   TST     (SP)
+        BPL     HOLE            ; OVFL OCCURRED
+        SOB     R0,DLOOP
+        BR      DAJDNE
+DPOS:   TST     (SP)+           ; KNOCK SP
+        TST     (SP)
+        BMI     HOLE
+        SOB     R0,DLOOP
+DAJDNE: JMP     @#BIGRTN        ; EXIT DECOPS
+
+DCVT:   MOV     #1,-(SP)        ; PUSH LENGTH WORD OF 1
+        JMP     @#BIGRTN
+
+DTNC:   MOV     #1,-(SP)        ; PUSH DESIRED LENGTH OF 1
+        BR      DAJ
+
+DNG:    ; DECIMAL NEGATE
+        MOV     SP,R1
+        JSR     PC,DODNG
+        JMP     @#BIGRTN          ; EXIT DECOPS
+
+
+DODNG:  ; NEGATE SUBROUTINE.. BK IS DESTROYED
+        MOV     (R1),BK         ; R1 POINTS TO LENGTH UPON ENTRY
+        ASL     BK
+        ADD     R1,BK           ; BK POINTS TO LSB
+        MOV     (R1),R1         ; NOW R1 HAS LENGTH
+        TST     (BK)+
+        SEC
+$1:     BCC     CRYCLR
+        COM     -(BK)
+        ADD     #1,(BK)
+        SOB     R1,$1
+        BVC     DNGEND
+        TST     -(BK)
+        TST     -(SP)           ; INSERT EXTRA WORD
+        MOV     SP,R1
+$2:     MOV     2(R1),(R1)+
+        CMP     R1,BK
+        BLO     $2
+        TST     2(BK)
+        SXT     (BK)
+        BR      DNGEND
+CRYCLR: COM     -(BK)
+        SOB     R1,CRYCLR
+DNGEND: MOV     BK,R1
+        TST     -(R1)           ; RESTORE R1 TO ORIG. VALUE
+        RTS     PC
+
+DSB:    ; DECIMAL SUBTRACT
+        MOV     SP,SUBFLAG      ; NONZERO VALUE INDICATES SUBTRACT
+        JSR     PC,ADDSUB
+        BR      DCH
+
+DAD:    ; DECIMAL ADD
+        CLR     SUBFLAG         ; ZERO INDICATOR FOR ADD
+        JSR     PC,ADDSUB
+        BR      DCH
+
+ADDSUB: MOV     (SP)+,ASRET     ; SAVE RETURN ADDR
+        MOV     (SP),R0         ; GET LENGTH
+        ASL     R0              ; FOR BYTES
+        ADD     SP,R0
+        TST     (R0)+           ; POINT R0 TO 2ND OP LEN
+        CMP     @R0,@SP         ; COMPARE LENGTHS
+        BEQ     GOADD           ; EQUAL - O.K.
+        JSR     PC,DECADJ       ; GO MAKE EQUAL
+GOADD:  MOV     (R0),BK         ; BK HAS LENGTH (WORDS)
+        ASL     (R0)            ; RO POINTS TO LENGTH (BYTES)
+        MOV     R0,R1           ; R1 POINTS TO OP 1 LSB + 1 WORD
+        ADD     (R0),R0         ; R0 POINTS TO OP 2 LSB
+        TST     SUBFLAG         ; ADD OR SUBTRACT?
+        BEQ     ADLOOP
+        BR      SUBBER
+SBLOOP: SBC     -(R0)           ; CARRY
+        BCC     $1
+        SUB     -(R1),(R0)      ; IF HERE, MUST PASS ON CARRY
+        SEC
+        BR      SUB2
+$1:     BVC     SUBBER          ; KEEP TRACK OF OVERFLOW
+        SUB     -(R1),(R0)
+        BR      SUB3
+SUBBER: SUB     -(R1),(R0)      ; PERFORM SUBTRACTION
+        BVC     SUB2            ; SEPARATE LOOP-END FOR OVFL
+SUB3:   SOB     BK,SBLOOP
+        BCC     NWORD
+        BR      ZWORD
+SUB2:   SOB     BK,SBLOOP
+        BR      NOXTRA          ; FINISHED SUBTRACTION W/O OVERFLOW
+DAD1:   ADC     -(R0)           ; ADD CARRY BIT IN
+        BCC     $1              ; IF ADDEND WAS -1 THEN RESULT IS 0 WITH
+        MOV     -(R1),(R0)      ; CARRY, SO JUST MOVE 2ND ADDEND
+        SOB     BK,DAD1         ; AND KEEP CARRY.
+        BR      NOXTRA
+$1:     BVC     ADLOOP          ; IF OVERFLOW THEN
+        ADD     -(R1),(R0)      ; KEEP TRACK OF IT
+        BR      OLOOP
+ADLOOP: ADD     -(R1),(R0)      ; MOVE R1 AND ADD
+        BVS     OLOOP           ; SEPARATE LOOP-END FOR OVFL
+        SOB     BK,DAD1         ; FOR EACH WORD PAIR
+        BR      NOXTRA          ; EXTRA WORD NOT NEEDED
+OLOOP:  SOB     BK,DAD1
+        BCC     ZWORD           ; RESULT POSITIVE
+NWORD:  MOV     #-1,-(R0)       ; RESULT NEGATIVE
+        BR      PUTLEN
+ZWORD:  CLR     -(R0)           ; PUT SIGN EXTENSION IN
+PUTLEN: ADD     #1,(SP)         ; INCREASE LENGTH BY ONE
+NOXTRA: MOV     (SP),-(R0)      ; PUT LENGTH IN RESULT
+        MOV     R0,SP           ; ADJUST SP
+        JMP     @(PC)+          ; RETURN
+ASRET:  .WORD
+SUBFLAG:.WORD                   ; ADD/SUBTRACT INDICATOR
+
+DECADJ: ; THIS ROUTINE MAKES 2 DECIMALS,
+        ; (TOS) AND (TOS-1), OF EQUAL LENGTH.
+        ; (SP)=UPPER LENGTH (WORDS)
+        ; (R0)=LOWER LENGTH (WORDS)
+        ; SAME CONDITIONS ON OUTPUT
+        ; REGISTERS BK,R1 ARE DESTROYED
+        MOV     (SP)+,DRET      ; SAVE RETURN ADDR
+        MOV     BASE,BASSAV     ; SAVE REG
+        MOV     @SP,R1
+        SUB     @R0,R1          ; R1=LEN DIFF (WORDS) <> 0
+        ASL     R1              ; CHANGE TO BYTES
+        BLT     TOP             ; GO EXPAND TOP DECIMAL
+        MOV     SP,BK           ; SAVE OLD TOS
+        SUB     R1,SP           ; MAKE ROOM FOR EXPANSION
+        MOV     SP,BASE         ; POINTS TO NEW TOS
+SHIFT1: MOV     (BK)+,(BASE)+   ; SHIFT WORDS
+        CMP     BK,R0           ; UNTIL ENTIRE TOP
+        BLT     SHIFT1          ; OPERAND SHIFTED
+        MOV     BASE,R0         ; POINT R0 AT BOTTOM LENGTH (FUTURE)
+        MOV     (SP),(R0)       ; PUT IN BOTTOM LENGTH
+        BR      FILL
+TOP:    NEG     R1
+        MOV     SP,BK           ; SAVE OLD TOS
+        SUB     R1,SP           ; UPDATE SP
+        MOV     (R0),(SP)       ; SET LENGTHS EQUAL
+FILL:   TST     2(BK)           ; FILL WITH ZEROES OR ONES?
+        SXT     BASE            ; SIGN EXTENSION
+        ASR     R1              ; BACK TO WORDS
+$1:     MOV     BASE,(BK)       ; MOVE FILLER
+        TST     -(BK)           ; DECREMENT BY 2
+        SOB     R1,$1           ; UNTIL FULL
+        MOV     BASSAV,BASE     ; RESTORE REG
+        JMP     @(PC)+          ; RETURN
+DRET:   .WORD
+BASSAV: .WORD
+
+DCH:    ; CHECK DECIMAL LENGTH
+        CMP     #10.,(SP)       ; CHECK LENGTH  (WORST CASE)
+        BLT     DOVR            ; OVERFLOW IF TOO LONG
+        JMP     @#BIGRTN
+
+DOVR:   TRAP    INTOVR          ; OVERLFOW
+
+
+DMP:    ; DECIMAL MULTIPLY
+        JSR     PC,DMUL
+        BR      DCH             ; CHECK FINAL LENGTH AND LEAVE
+
+IPCSAV: .WORD
+
+DMUL:   MOV     (SP)+,DMPRET    ; SAVE RETURN ADDR
+        MOV     IPC,IPCSAV      ; R0-R5 USED
+        CLR     NEG1            ; NEGATIVE REMEMBERER
+        MOV     (SP)+,R0        ; POP OFF MULTIPLIER LENGTH
+        TST     (SP)            ; CHECK FOR NEG SIGN
+        BPL     $1
+        MOV     R0,-(SP)        ; SETUP FOR CALL
+        MOV     SP,R1
+        JSR     PC,DODNG        ; ABS VALUE RETURNED
+        INC     NEG1            ; REMEMBER
+        MOV     (SP)+,R0        ; REPEAT OF ABOVE SETUP
+$1:     TST     (SP)            ; GET RID OF LEADING ZEROES
+        BNE     DGET
+        TST     (SP)+           ; INCREMENT TO NEXT LEADING DIGIT
+        SOB     R0,$1
+        ; IF HERE THEN PRODUCT IS ZERO
+        ; FILL MULTIPLICAND WITH ZEROES AND EXIT
+ZPROD:  MOV     (SP),R0         ; PUT LENGTH IN R0
+        MOV     SP,R1
+        TST     (R1)+           ; INCREMENT R1 TO MSB
+$1:     CLR     (R1)+
+        SOB     R0,$1           ; CLEAR ALL WORDS
+        JMP     DMPEND
+DGET:   MOV     R0,R1           ; HERE GET RID OF MULTIPLICAND ZEROES
+        ASL     R1              ; FIRST LOCATE LENGTH
+        ADD     SP,R1           ; AND PUT IN R1
+        MOV     (R1)+,R2        ; NOW R2 HAS LENGTH AND R1 POINTS TO MSB
+        TST     (R1)            ; CHECK NEG.
+        BPL     $1
+        TST     -(R1)           ; DECREMENT TO POINT TO LENGTH
+        JSR     PC,DODNG        ; FOR CALL TO ABS VALUE GETTER
+        DEC     NEG1            ; IF BOTH OPS NEG THEN ZERO RESULTS
+        MOV     (R1)+,R2        ; REPEAT OF ABOVE STMT
+$1:     TST     (R1)            ; SAME LEADING ZERO PROCESSING
+        BNE     DSETUP
+        TST     (R1)+
+        SOB     R2,$1
+        ASL     R0              ; OOPS IT WAS ALL ZEROES
+        ADD     R0,SP           ; ADJUST SP AND LEAVE
+        JMP     DMPEND          ;
+DSETUP: MOV     SP,R3           ; SP POINTS TO M'PLIER MSB..NEEDED LATER
+        MOV     R2,R4           ; CONSTRUCT PRODUCT LENGTH NOW
+        ADD     R0,R4           ; EQUALS SUM OF OPR. LENGTHS
+        MOV     R4,LENSAV
+$1:     CLR     -(SP)           ; CLEARING AREA FOR PRODUCT ON TOP OF STACK
+        SOB     R4,$1
+        MOV     R2,L2SAV        ; MULTIPLICAND LENGTH
+        CLR     POSSAV          ; POSSAV=LEADING CURRENT POSITION IN PRODUCT
+        MOV     R0,COUNT        ; MULTIPLIER LENGTH
+        MOV     SP,R0           ; R0 WILL BE CURRENT PRODUCT WORD
+        BR      DMULT
+HILOOP: MOV     R4,COUNT        ; RE-SAVE COUNT OF M'PLIER WORDS
+        MOV     POSSAV,R0       ; INCREMENT TO NEXT PRODUCT POSITION
+        TST     (R0)+
+        MOV     R0,POSSAV
+        ADD     SP,R0           ; SET UP R0 TO POINT TO IT
+        MOV     L2SAV,R2        ; REINIT LOOP COUNT
+        SUB     R2,R1
+        SUB     R2,R1           ; BACK TO BEGINNING OF M'CAND
+        TST     (R3)+           ; KICK M'PLIER INDEX
+DMULT:  MOV     (R3),R4         ; MULTIPLIER WORD
+        MOV     (R1),R5         ; M'CAND WORD
+        TST     R4              ; PERFORM TWO'S COMPLEMENT ADJUSTMENTS FIRST
+        BPL     $1
+        TST     R5
+        BPL     $2
+        ADD     R5,R4           ; BOTH NEG. - IGNORE OVERFLOW HERE
+        BR      $3
+$1:     CLR     ADJSAV          ; ENSURE CLEAR FOR NO ADJUSTMENT
+        TST     R5
+        BPL     DOOIT           ; BOTH POS.
+        BR      $3              ; R5 NEG., ADD R4
+$2:     MOV     R5,R4           ; R4 NEG., ADD R3
+$3:     MOV     R4,ADJSAV       ; ADJUSTMENT FOR HI ORDER HALF OF PRODUCT
+        MOV     (R3),R4
+DOOIT:  MOV     (R1)+,R5
+        JSR     PC,MLI          ; TIMES M'CAND WORD
+        ADD     ADJSAV,R4       ; STICK IN ADJUSTMENT - IGNORE CARRY
+        ADD     R4,(R0)+        ; HI-ORDER PROD
+        BCC     $1
+        DEC     R0              ; RE-ALIGN R0
+        DEC     R0
+        JSR     PC,PROPGT       ; CARRY PROPAGATION
+        TST     (R0)+           ; PUT IT BACK
+$1:     ADD     R5,(R0)         ; LO-ORDER PRODUCT
+        BCC     $2
+        JSR     PC,PROPGT
+$2:     SOB     R2,DMULT        ; LOOP FOR ALL WORDS OF M'CAND
+        MOV     COUNT,R4
+        SOB     R4,HILOOP       ; LOOP FOR ALL M'PLIER WORDS
+        ; DONE; CRUNCH STACK AND PUSH LENGTH
+        ; NOTE R1 NOW POINTS ABOVE DEST LSB
+        ADD     #2,R0           ; R0 POINTS ABOVE PRODUCT LSB
+        MOV     LENSAV,R2
+$3:     MOV     -(R0),-(R1)
+        SOB     R2,$3
+        MOV     R1,SP
+$5:     TST     (SP)            ; IF SIGN BIT USED THEN
+        BGT     $4              ; MUST LENGTHEN BY ONE WORD
+        BLT     $6              ; ELSE IF LEADING ZERO WORDS,
+        TST     (SP)+           ; GET RID OF THEM
+        DEC     LENSAV
+        BR      $5
+$6:     CLR     -(SP)
+        INC     LENSAV
+$4:     MOV     LENSAV,-(SP)    ; PUT ON LEN
+        TST     NEG1            ; IF NEG PRODUCT REVERSE SIGN NOW
+        BEQ     DMPEND
+        MOV     SP,R1           ; FOR DODNG
+        JSR     PC,DODNG
+DMPEND: MOV     IPCSAV,IPC
+        JMP     @(PC)+          ; RETURN
+DMPRET: .WORD
+PROPGT: MOV     R0,R4
+$1:     ADC     -(R4)           ; PROPAGATE CARRY
+        BCS     $1              ; MUST END BEFORE OVERFLOWING
+        RTS     PC
+LENSAV: .WORD
+L2SAV:  .WORD
+POSSAV: .WORD
+NEG1:   .WORD
+ADJSAV: .WORD
+COUNT:  .WORD
+
+DDV:    ; DIVIDES (TOS-1) NUMBER OF LENGTH N WORDS BY (TOS) NUMBER OF
+        ; LENGTH M WORDS.  RESULT IS N WORDS LONG NUMBER ON
+        ; TOP OF STACK
+        MOV     IPC,DVIPC
+        MOV     (SP),R5
+        MOV     R5,MMM          ; SAVE M(=LENGTH OF B IN WORDS)
+        TST     2(SP)
+        SXT     BSIGN           ; SAVE SIGN OF B (DIVISOR)
+        ASL     R5              ; CALC NUMBER OF BYTES
+        ADD     SP,R5
+        MOV     R5,AADD         ; SAVE ADDRESS OF LSW OF B.
+        TST     (R5)+
+        MOV     (R5),NNN        ; SAVE N(=LENGTH OF A IN WORDS)
+SEPSXT: TST     2(R5)
+        SXT     ASIGN           ; SAVE SIGN OF A (DIVIDEND)
+        MOV     (R5),R4
+        ASL     R4
+        MOV     R4,TWON         ; SAVE NUMBER OF BYTES IN A.
+        ADD     R5,R4           ; CALC ADDRESS OF LSW OF A.
+        MOV     R4,CADD         ; SAVE ADDRESS OF LSW OF A.
+        MOV     AADD,R0         ; GET ADDR OF LSW OF B.
+        MOV     MMM,R1          ; GET LENGTH OF B IN WORDS.
+ZTEST:  TST     (R0)            ; TEST EACH WORD FOR ZERO DIVISOR.
+        BNE     NONZER
+        TST     -(R0)           ; (THIS IS A WORD DECREMENT)
+        SOB     R1,ZTEST        ; END OF ZERO DIVISOR CHECK LOOP.
+        TRAP    DIVZER          ; TRAP DIVZER(TRICKY)
+NONZER: CMP     NNN,MMM         ; IF B IS LONGER THAN A THEN RESULT IS LESS
+        BGE     $1              ; THEN ONE SO DO SOMETHING SPECIAL.
+        JMP     BOMB
+$1:     MOV     AADD,R1
+        SUB     TWON,R1         ; ADDRESS OF SIGN EXTEND WORDS OF A
+        TST     (R1)+
+        MOV     R1,SP           ; ADJUST STACK POINTER.
+        MOV     NNN,R3
+$2:     MOV     ASIGN,-(SP)
+        SOB     R3,$2           ; EXTEND SIGN OF A BY N WORDS.
+        MOV     SP,BADD         ; SAVE NEW ADDRESS OF B.
+        DEC     BADD            ; ADJUST B ADDRESS.
+        DEC     BADD
+        MOV     NNN,R3
+$3:     CLR     -(SP)
+        SOB     R3,$3           ; MAKE N WORDS OF ZEROS FOR B.
+        MOV     AADD,R4
+        MOV     MMM,R5
+        TST     (R4)+
+$4:     MOV     -(R4),-(SP)
+        SOB     R5,$4           ; MOVE M WORDS FROM AADD TO TOP OF STACK
+
+
+        .INCLUDE  DECOP.B.TEXT

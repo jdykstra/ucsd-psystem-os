@@ -1,0 +1,539 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+(*
+ * UCSD p-System Operating System
+ * Copyright (C) 2010 Peter Miller
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of the ucsd-psystem-os project nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *)
+
+(* This is an unpublished work copyright by the Regents of
+   the University of California. This item is the property of SofTech
+   Microsystems Inc., and it may be used, copied or distributed only
+   as permitted in a written license from that company. *)
+
+(************************************************************************)
+
+(* Throughout the real tests, no imbedded floating point constants are used.
+   This is because floating point constants must be compiled in with an
+   interpreter which uses the same floating point format as the processor
+   on which it is to be executed.  If no such interpreter exists then it is
+   not possible to generate a correct test code file to test the floating
+   point until the floating point already works. *)
+
+PROCEDURE EQUREALNEQREAL;
+  (* It is not possible to test FLO and FLT by themselves so they are
+     tested at the same time the compares are. *)
+  PROCEDURE CHKEQUNEQREAL(I1,I2:INTEGER);
+  VAR DESCRIP,INT1STRING,INT2STRING:STRING;
+      R1,R2:REAL;
+  BEGIN
+    CHK(INIT);
+
+    DESCRIP:='EQU REAL  ';
+    PRINTINT(I1,INT1STRING);
+    PRINTINT(I2,INT2STRING);
+    MYCONCAT(DESCRIP,INT1STRING);
+    MYCONCAT(DESCRIP,'=');
+    MYCONCAT(DESCRIP,INT2STRING);
+    DESCRIPTION(DESCRIP);
+
+    R1:=I1;
+    R2:=I2;
+
+    CHK((I1=I2)=(R1=R2));
+
+    DESCRIP:='NEQ REAL  ';
+    MYCONCAT(DESCRIP,INT1STRING);
+    MYCONCAT(DESCRIP,'<>');
+    MYCONCAT(DESCRIP,INT2STRING);
+    DESCRIPTION(DESCRIP);
+    CHK((I1<>I2)=(R1<>R2));
+  END;
+
+BEGIN
+  CHKEQUNEQREAL(0,0);
+  CHKEQUNEQREAL(0,1);
+  CHKEQUNEQREAL(4,0);
+  CHKEQUNEQREAL(45,45);
+  CHKEQUNEQREAL(-4096,4096);
+  CHKEQUNEQREAL(1024,1024);
+  CHKEQUNEQREAL(32767,32766);
+  CHKEQUNEQREAL(-18123,-18123);
+  CHKEQUNEQREAL(1234,-1234);
+END;
+
+(************************************************************************)
+
+PROCEDURE GEQREALLEQREAL;
+
+  PROCEDURE CHKGEQLEQREAL(I1,I2:INTEGER);
+  VAR DESCRIP,INT1STRING,INT2STRING:STRING;
+      R1,R2:REAL;
+  BEGIN
+    CHK(INIT);
+
+    DESCRIP:='GEQ REAL  ';
+    PRINTINT(I1,INT1STRING);
+    PRINTINT(I2,INT2STRING);
+    MYCONCAT(DESCRIP,INT1STRING);
+    MYCONCAT(DESCRIP,'>=');
+    MYCONCAT(DESCRIP,INT2STRING);
+    DESCRIPTION(DESCRIP);
+
+    R1:=I1;
+    R2:=I2;
+
+    CHK((I1>=I2)=(R1>=R2));
+
+    DESCRIP:='LEQ REAL  ';
+    MYCONCAT(DESCRIP,INT1STRING);
+    MYCONCAT(DESCRIP,'<=');
+    MYCONCAT(DESCRIP,INT2STRING);
+    DESCRIPTION(DESCRIP);
+    CHK((I1<=I2)=(R1<=R2));
+  END;
+
+BEGIN
+  CHKGEQLEQREAL(0,0);
+  CHKGEQLEQREAL(0,1);
+  CHKGEQLEQREAL(4,0);
+  CHKGEQLEQREAL(45,45);
+  CHKGEQLEQREAL(-4096,4096);
+  CHKGEQLEQREAL(1024,1024);
+  CHKGEQLEQREAL(12345,-12345);
+  CHKGEQLEQREAL(32767,32766);
+  CHKGEQLEQREAL(-1234,-2534);
+  CHKGEQLEQREAL(-18123,-18123);
+END;
+
+(************************************************************************)
+
+PROCEDURE GTRREALLESREAL;
+
+  PROCEDURE CHKGTRLESREAL(I1,I2:INTEGER);
+  VAR DESCRIP,INT1STRING,INT2STRING:STRING;
+      R1,R2:REAL;
+  BEGIN
+    CHK(INIT);
+
+    DESCRIP:='GTR REAL  ';
+    PRINTINT(I1,INT1STRING);
+    PRINTINT(I2,INT2STRING);
+    MYCONCAT(DESCRIP,INT1STRING);
+    MYCONCAT(DESCRIP,'>');
+    MYCONCAT(DESCRIP,INT2STRING);
+    DESCRIPTION(DESCRIP);
+
+    R1:=I1;
+    R2:=I2;
+
+    CHK((I1>I2)=(R1>R2));
+
+    DESCRIP:='LES REAL  ';
+    MYCONCAT(DESCRIP,INT1STRING);
+    MYCONCAT(DESCRIP,'<');
+    MYCONCAT(DESCRIP,INT2STRING);
+    DESCRIPTION(DESCRIP);
+    CHK((I1<I2)=(R1<R2));
+  END;
+
+BEGIN
+  CHKGTRLESREAL(0,0);
+  CHKGTRLESREAL(0,1);
+  CHKGTRLESREAL(4,0);
+  CHKGTRLESREAL(45,45);
+  CHKGTRLESREAL(-4096,4096);
+  CHKGTRLESREAL(1024,1024);
+  CHKGTRLESREAL(12345,-12345);
+  CHKGTRLESREAL(32767,32766);
+  CHKGTRLESREAL(-1234,-2534);
+  CHKGTRLESREAL(-18123,-18123);
+END;
+
+(************************************************************************)
+
+PROCEDURE ABRNGR;
+
+  PROCEDURE CHKABRNGRREAL(I:INTEGER);
+  VAR DESCRIP,INTSTRING:STRING;
+      R:REAL;
+  BEGIN
+    CHK(INIT);
+
+    DESCRIP:='ABR   ';
+    PRINTINT(I,INTSTRING);
+    MYCONCAT(DESCRIP,INTSTRING);
+    DESCRIPTION(DESCRIP);
+
+    R:=I;
+
+    CHK(ABS(I)=ABS(R));
+
+    DESCRIP:='NGR   ';
+    PRINTINT(I,INTSTRING);
+    MYCONCAT(DESCRIP,INTSTRING);
+    DESCRIPTION(DESCRIP);
+    CHK((-I)=(-R));
+  END;
+
+BEGIN
+  CHKABRNGR(0);
+  CHKABRNGR(-5);
+  CHKABRNGR(45);
+  CHKABRNGR(-4096);
+  CHKABRNGR(1234);
+  CHKABRNGR(12345);
+  CHKABRNGR(-16384);
+
+  CHK(INIT);
+  DESCRIPTION('ABR  ABS(32767+1)  just chking that it doesn''t hang');
+  CHK(TRUE OR (ABS(32767+1)=0));
+
+  CHK(INIT);
+  DESCRIPTION('NGR  -(32767+1)  just chking that it doesn''t hang');
+  CHK(TRUE OR (-(32767+1)=0));
+END;
+
+(************************************************************************)
+
+PROCEDURE ADRSBR;
+
+  PROCEDURE CHKADRSBRREAL(I1,I2:INTEGER);
+  VAR DESCRIP,INT1STRING,INT2STRING:STRING;
+      R1,R2:REAL;
+  BEGIN
+    CHK(INIT);
+
+    DESCRIP:='ADR   ';
+    PRINTINT(I1,INT1STRING);
+    PRINTINT(I2,INT2STRING);
+    MYCONCAT(DESCRIP,INT1STRING);
+    MYCONCAT(DESCRIP,'+');
+    MYCONCAT(DESCRIP,INT2STRING);
+    DESCRIPTION(DESCRIP);
+
+    R1:=I1;
+    R2:=I2;
+
+    CHK((I1+I2)=(R1+R2));
+
+    DESCRIP:='SBR   ';
+    MYCONCAT(DESCRIP,INT1STRING);
+    MYCONCAT(DESCRIP,'-');
+    MYCONCAT(DESCRIP,INT2STRING);
+    DESCRIPTION(DESCRIP);
+    CHK((I1-I2)=(R1-R2));
+  END;
+
+BEGIN
+  CHKADRSBR(0,0);
+  CHKADRSBR(0,1);
+  CHKADRSBR(4,0);
+  CHKADRSBR(45,54);
+  CHKADRSBR(-4096,4096);
+  CHKADRSBR(12345,-12345);
+  CHKADRSBR(-1234,-2534);
+  CHKADRSBR(16384,11);
+  CHKADRSBR(-2,30000);
+  CHKADRSBR(13,31000);
+  CHKADRSBR(-28123,10);
+END;
+
+(************************************************************************)
+
+PROCEDURE MPRSQR;
+
+  PROCEDURE CHKMPR(I1,I2:INTEGER);
+  VAR DESCRIP,INT1STRING,INT2STRING:STRING;
+      R1,R2:REAL;
+  BEGIN
+    CHK(INIT);
+
+    DESCRIP:='MPR   ';
+    PRINTINT(I1,INT1STRING);
+    PRINTINT(I2,INT2STRING);
+    MYCONCAT(DESCRIP,INT1STRING);
+    MYCONCAT(DESCRIP,'*');
+    MYCONCAT(DESCRIP,INT2STRING);
+    DESCRIPTION(DESCRIP);
+
+    R1:=I1;
+    R2:=I2;
+
+    CHK((I1*I2)=(R1*R2));
+  END;
+
+  PROCEDURE CHKSQR(I:INTEGER);
+  VAR DESCRIP,INTSTRING:STRING;
+      R:REAL;
+  BEGIN
+    CHK(INIT);
+
+    DESCRIP:='SQR   ';
+    PRINTINT(I,INTSTRING);
+    MYCONCAT(DESCRIP,INTSTRING);
+    DESCRIPTION(DESCRIP);
+
+    R:=I;
+
+    CHK((I*I)=SQR(R));
+  END;
+
+BEGIN
+  CHKMPR(0,0);
+  CHKMPR(0,1);
+  CHKMPR(1,0);
+  CHKMPR(1,1);
+  CHKMPR(1,4);
+  CHKMPR(-1,-1);
+  CHKMPR(1,2345);
+  CHKMPR(1,-532);
+  CHKMPR(0,-23);
+  CHKMPR(3,8);
+  CHKMPR(2,53);
+  CHKMPR(9,8);
+  CHKMPR(1000,10);
+  CHKMPR(512,8);
+  CHKMPR(243,65);
+  CHKMPR(243,-65);
+  CHKMPR(-243,65);
+  CHKMPR(-243,-65);
+
+  CHKSQR(0);
+  CHKSQR(125);
+  CHKSQR(-35);
+END;
+
+(************************************************************************)
+
+PROCEDURE DVR;
+
+  PROCEDURE CHKDVR(I1,I2:INTEGER);
+  VAR DESCRIP,INT1STRING,INT2STRING:STRING;
+      I1NEG,I2NEG:BOOLEAN;
+      R1,R2:REAL;
+  BEGIN
+    CHK(INIT);
+
+    DESCRIP:='DVR   ';
+    PRINTINT(I1,INT1STRING);
+    PRINTINT(I2,INT2STRING);
+    MYCONCAT(DESCRIP,INT1STRING);
+    MYCONCAT(DESCRIP,'/');
+    MYCONCAT(DESCRIP,INT2STRING);
+
+    R1:=I1;
+    R2:=I2;
+
+    DESCRIPTION(DESCRIP);
+
+    (* DIV is not defined for negative numbers so the absolute value of
+       I1 and I2 are used in the DIV operations. if the original signs
+       were different which will give a negative answers for the DVR, the
+       answer to the DIV is negated after the operation. *)
+
+    I1NEG:=I1<0;
+    I2NEG:=I2<0;
+    I1:=ABS(I1);
+    I2:=ABS(I2);
+
+    IF I1NEG<>I2NEG THEN
+      CHK((-(I1 DIV I2))=(R1/R2)) ELSE
+      CHK((I1 DIV I2)=(R1/R2));
+  END;
+
+BEGIN
+  CHKDVR(1,1);
+  CHKDVR(0,1);
+  CHKDVR(4,1);
+  CHKDVR(8,2);
+  CHKDVR(8,4);
+  CHKDVR(0,234);
+  CHKDVR(99,33);
+  CHKDVR(72,8);
+  CHKDVR(256,16);
+  CHKDVR(4096,2);
+  CHKDVR(22654,94);
+  CHKDVR(22654,-94);
+  CHKDVR(-22654,94);
+  CHKDVR(-22654,-94);
+  CHKDVR(550,11);
+  CHKDVR(34,2)
+END;
+
+(************************************************************************)
+
+PROCEDURE RNDTNC;
+
+  procedure rnd(a, b, expect: integer);
+  begin
+    chk(round(a / b) = expect);
+  end;
+
+  procedure tnc(a, b, expect: integer);
+  begin
+    chk(trunc(a / b) = expect);
+  end;
+
+BEGIN
+  CHK(INIT);
+
+  DESCRIPTION('RND  0');
+  rnd(0, 1, 0);
+
+  DESCRIPTION('TNC  (1/4)');
+  tnc(1, 4, 0);
+
+  DESCRIPTION('RND  (1/2)');
+  rnd(1, 2, 1);
+
+  DESCRIPTION('RND  (3/4)');
+  rnd(3, 4, 1);
+
+  DESCRIPTION('RND  (5/2)');
+  rnd(5, 2, 3);
+
+  DESCRIPTION('RND  (7/2)');
+  rnd(7, 2, 4);
+
+  DESCRIPTION('RND  (9999/1000)');
+  rnd(9999, 1000, 10);
+
+  DESCRIPTION('TNC  (9999/1000)');
+  tnc(9999, 1000, 9);
+
+  DESCRIPTION('RND  (-1/4)');
+  rnd(-1, 4, 0);
+
+  DESCRIPTION('TNC  (-1/4)');
+  tnc(-1, 4, 0);
+
+  DESCRIPTION('TNC  (-3/4)');
+  tnc(-3, 4, 0);
+
+  DESCRIPTION('RND  (-3/4)');
+  rnd(-3, 4, -1);
+
+  DESCRIPTION('RND  (-198/100)');
+  rnd(-198, 100, -2);
+END;
+
+(************************************************************************)
+
+PROCEDURE POT;
+VAR BASEPWR,PWR:INTEGER;
+    ALLOKSOFAR:BOOLEAN;
+    OUTSTRING,INTSTRING:STRING;
+BEGIN
+  CHK(INIT);
+
+  (*POT 0 thru 4  should can be 16 bit integers so they are tested directly*)
+  DESCRIPTION('POT 0');
+  CHK(PWROFTEN(0)=1);
+
+  DESCRIPTION('POT 1');
+  CHK(PWROFTEN(1)=10);
+
+  DESCRIPTION('POT 2');
+  CHK(PWROFTEN(2)=100);
+
+  DESCRIPTION('POT 3');
+  CHK(PWROFTEN(3)=1000);
+
+  DESCRIPTION('POT 4');
+  CHK(PWROFTEN(4)=10000);
+
+  (*POT 5 thru 38 do not fit into 16 bit integers so they are tested by seeing
+    if the ratio of the questioned POT to a known correct POT is within limits.
+    Since the generation of real constants requires POT to already be working
+    correctly, the ratio must be enumerable in a 16 bit integer. In order to
+    minimize the error in taking successive ratios, 10000 is used as the ratio
+    so the POTs are tested in 4 sets of ratios.  for example:
+      10000*POT(1)=POT(5), 10000*POT(5)=POT(9)...
+      10000*POT(2)=POT(6), 10000*POT(6)=POT(10)...
+      10000*POT(3)=POT(7),...
+      10000*POT(4)=POT(8),...
+    is used instead of
+      10*POT(4)=POT(5), 10*POT(5)=POT(6), 10*POT(6)=POT(7),...
+    to avoid compounding errors. In case one of the POT's is incorrect, no
+    POT's farther down that chain are checked because the answers generated
+    would be checked against what is known to be an incorrect answer. *)
+
+  FOR BASEPWR:=1 TO 4 DO
+  BEGIN
+    PWR:=0;
+    ALLOKSOFAR:=TRUE;
+    WHILE (BASEPWR+PWR+4<=37 (*should be 38 but 11 doesnt*)) AND ALLOKSOFAR DO
+    BEGIN
+      OUTSTRING:='POT ';
+      PRINTINT(BASEPWR+PWR+4,INTSTRING);
+      MYCONCAT(OUTSTRING,INTSTRING);
+      DESCRIPTION(OUTSTRING);
+
+      (*ROUND is best check available since I can't use non integer constants*)
+      ALLOKSOFAR:=ROUND(PWROFTEN(BASEPWR+PWR+4)/PWROFTEN(BASEPWR+PWR))=10000;
+      CHK(ALLOKSOFAR);
+      PWR:=PWR+4;
+    END;
+  END;
+END;
+
+(************************************************************************)

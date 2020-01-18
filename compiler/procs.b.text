@@ -1,0 +1,340 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+  PROCEDURE SEARCHSECTION(*FCP: CTP; VAR FCP1: CTP*);
+  BEGIN
+    IF FCP <> NIL THEN
+      IF TREESEARCH(FCP,FCP1,ID) = 0 THEN (*NADA*)
+      ELSE FCP1 := NIL
+    ELSE FCP1 := NIL
+  END (*SEARCHSECTION*) ;
+
+  PROCEDURE SEARCHID(*FIDCLS: SETOFIDS; VAR FCP: CTP*);
+    LABEL 1; VAR LCP: CTP;
+  BEGIN
+    FOR DISX := TOP DOWNTO 0 DO
+      BEGIN LCP := DISPLAY[DISX].FNAME;
+        IF LCP <> NIL THEN
+          IF TREESEARCH(LCP,LCP,ID) = 0 THEN
+            IF LCP^.KLASS IN FIDCLS THEN GOTO 1
+            ELSE
+              IF PRTERR THEN ERROR(103)
+              ELSE LCP := NIL
+          ELSE LCP := NIL
+      END;
+    IF PRTERR THEN
+      BEGIN ERROR(104);
+        IF TYPES IN FIDCLS THEN LCP := UTYPPTR
+        ELSE
+          IF ACTUALVARS IN FIDCLS THEN LCP := UVARPTR
+          ELSE
+            IF FIELD IN FIDCLS THEN LCP := UFLDPTR
+            ELSE
+              IF KONST IN FIDCLS THEN LCP := UCSTPTR
+              ELSE
+                IF PROC IN FIDCLS THEN LCP := UPRCPTR
+                ELSE LCP := UFCTPTR
+      END;
+1:  FCP := LCP
+  END (*SEARCHID*) ;
+
+  PROCEDURE GETBOUNDS(*FSP: STP; VAR FMIN,FMAX: INTEGER*);
+  BEGIN
+    WITH FSP^ DO
+      IF FORM = SUBRANGE THEN
+        BEGIN FMIN := MIN.IVAL; FMAX := MAX.IVAL END
+      ELSE
+        BEGIN FMIN := 0;
+          IF FSP = CHARPTR THEN FMAX := 255
+          ELSE
+            IF FSP^.FCONST <> NIL THEN
+              FMAX := FSP^.FCONST^.VALUES.IVAL
+            ELSE FMAX := 0
+        END
+  END (*GETBOUNDS*) ;
+
+  PROCEDURE SKIP(*FSYS: SETOFSYS*);
+  BEGIN WHILE NOT(SY IN FSYS) DO INSYMBOL
+  END (* SKIP *) ;
+
+  FUNCTION PAOFCHAR(*FSP: STP): BOOLEAN*);
+  BEGIN PAOFCHAR := FALSE;
+    IF FSP <> NIL THEN
+      IF FSP^.FORM = ARRAYS THEN
+        PAOFCHAR := FSP^.AISPACKD AND (FSP^.AELTYPE = CHARPTR)
+  END (*PAOFCHAR*) ;
+
+  FUNCTION STRGTYPE(*FSP: STP) : BOOLEAN*);
+  BEGIN STRGTYPE := FALSE;
+    IF PAOFCHAR(FSP) THEN STRGTYPE := FSP^.AISSTRNG
+  END (*STRGTYPE*) ;
+
+  FUNCTION DECSIZE(*I: INTEGER): INTEGER*);
+  BEGIN DECSIZE := (I + 3) DIV 4 + 1 (*GROSS..MAXIMUM NEEDED SPACE*)
+  (* BINARY FN. SHOULD BE ((I*332) DIV 100 + 1 + BITSPERWD) DIV BITSPERWD *)
+  END (*DECSIZE*) ;
+
+  PROCEDURE CONSTANT(*FSYS: SETOFSYS; VAR FSP: STP; VAR FVALU: VALU*);
+    VAR LSP: STP; LCP: CTP; SIGN: (NONE,POS,NEG);
+        LVP: CSP;
+  BEGIN LSP := NIL; FVALU.IVAL := 0;
+    IF NOT(SY IN CONSTBEGSYS) THEN
+      BEGIN ERROR(50); SKIP(FSYS+CONSTBEGSYS) END;
+    IF SY IN CONSTBEGSYS THEN
+      BEGIN
+        IF SY = STRINGCONSTSY THEN
+          BEGIN
+            IF LGTH = 1 THEN LSP := CHARPTR
+            ELSE
+              BEGIN
+                NEW(LSP,ARRAYS,TRUE,TRUE);
+                LSP^ := STRGPTR^;
+                LSP^.MAXLENG := LGTH;
+                LSP^.INXTYPE := NIL;
+                NEW(LVP);
+                LVP^ := VAL.VALP^;
+                VAL.VALP := LVP
+              END;
+            FVALU := VAL; INSYMBOL
+          END
+        ELSE
+          BEGIN
+            SIGN := NONE;
+            IF (SY = ADDOP) AND (OP IN [PLUS,MINUS]) THEN
+              BEGIN IF OP = PLUS THEN SIGN := POS ELSE SIGN := NEG;
+                INSYMBOL
+              END;
+            IF SY = IDENT THEN
+              BEGIN SEARCHID([KONST],LCP);
+                WITH LCP^ DO
+                  BEGIN LSP := IDTYPE; FVALU := VALUES END;
+                IF SIGN <> NONE THEN
+                  IF LSP = INTPTR THEN
+                    BEGIN IF SIGN = NEG THEN
+                      FVALU.IVAL := -FVALU.IVAL END
+                  ELSE
+                    IF LSP = REALPTR THEN
+                      BEGIN
+                        IF SIGN = NEG THEN
+                          BEGIN NEW(LVP,REEL);
+                            LVP^.CCLASS := REEL;
+                            LVP^.RVAL := -FVALU.VALP^.RVAL;
+                            FVALU.VALP := LVP;
+                          END
+                      END
+                    ELSE
+                      IF COMPTYPES(LSP,LONGINTPTR) THEN
+                        BEGIN
+                          IF SIGN = NEG THEN
+                            BEGIN NEW(LVP,LONG);
+                              LVP^.CCLASS := LONG;
+                              LVP^.LONGVAL[1] := - FVALU.VALP^.LONGVAL[1];
+                              FVALU.VALP := LVP
+                            END
+                        END
+                      ELSE ERROR(105);
+                INSYMBOL;
+              END
+            ELSE
+              IF SY = INTCONST THEN
+                BEGIN IF SIGN = NEG THEN VAL.IVAL := -VAL.IVAL;
+                  LSP := INTPTR; FVALU := VAL; INSYMBOL
+                END
+              ELSE
+                IF SY = REALCONST THEN
+                  BEGIN IF SIGN = NEG THEN
+                          VAL.VALP^.RVAL := -VAL.VALP^.RVAL;
+                    LSP := REALPTR; FVALU := VAL; INSYMBOL
+                  END
+                ELSE
+                  IF SY = LONGCONST THEN
+                    BEGIN
+                      IF SIGN = NEG THEN
+                        BEGIN VAL.VALP^.LONGVAL[1] := - VAL.VALP^.LONGVAL[1];
+                          NEW(LSP,LONGINT);
+                          LSP^.SIZE := DECSIZE(LGTH);
+                          LSP^.FORM := LONGINT;
+                          FVALU := VAL;
+                          INSYMBOL
+                        END
+                    END
+                  ELSE
+                    BEGIN ERROR(106); SKIP(FSYS) END
+          END;
+        IF NOT (SY IN FSYS) THEN
+          BEGIN ERROR(6); SKIP(FSYS) END
+        END;
+    FSP := LSP
+  END (*CONSTANT*) ;
+
+  FUNCTION COMPTYPES(*FSP1,FSP2: STP) : BOOLEAN*);
+    VAR NXT1,NXT2: CTP; COMP: BOOLEAN;
+      LTESTP1,LTESTP2 : TESTP;
+  BEGIN
+    IF FSP1 = FSP2 THEN COMPTYPES := TRUE
+    ELSE
+      IF (FSP1 = NIL) OR (FSP2 = NIL) THEN COMPTYPES := TRUE
+      ELSE
+        IF FSP1^.FORM = FSP2^.FORM THEN
+          CASE FSP1^.FORM OF
+            SCALAR:
+              COMPTYPES := FALSE;
+            SUBRANGE:
+              COMPTYPES := COMPTYPES(FSP1^.RANGETYPE,
+                                       FSP2^.RANGETYPE);
+            POINTER:
+                BEGIN
+                  COMP := FALSE; LTESTP1 := GLOBTESTP;
+                  LTESTP2 := GLOBTESTP;
+                  WHILE LTESTP1 <> NIL DO
+                    WITH LTESTP1^ DO
+                      BEGIN
+                        IF (ELT1 = FSP1^.ELTYPE) AND
+                          (ELT2 = FSP2^.ELTYPE) THEN COMP := TRUE;
+                        LTESTP1 := LASTTESTP
+                      END;
+                  IF NOT COMP THEN
+                    BEGIN NEW(LTESTP1);
+                      WITH LTESTP1^ DO
+                        BEGIN ELT1 := FSP1^.ELTYPE;
+                          ELT2 := FSP2^.ELTYPE;
+                          LASTTESTP := GLOBTESTP
+                        END;
+                      GLOBTESTP := LTESTP1;
+                      COMP := COMPTYPES(FSP1^.ELTYPE,FSP2^.ELTYPE)
+                    END;
+                  COMPTYPES := COMP; GLOBTESTP := LTESTP2
+                END;
+            LONGINT: COMPTYPES := TRUE;
+            POWER:
+              COMPTYPES := COMPTYPES(FSP1^.ELSET,FSP2^.ELSET);
+            ARRAYS:
+              BEGIN
+                COMP := COMPTYPES(FSP1^.AELTYPE,FSP2^.AELTYPE)
+                        AND (FSP1^.AISPACKD = FSP2^.AISPACKD);
+                IF COMP AND FSP1^.AISPACKD THEN
+                    COMP := (FSP1^.ELSPERWD = FSP2^.ELSPERWD)
+                            AND (FSP1^.ELWIDTH = FSP2^.ELWIDTH)
+                            AND (FSP1^.AISSTRNG = FSP2^.AISSTRNG);
+                IF COMP AND NOT STRGTYPE(FSP1) THEN
+                  COMP := (FSP1^.SIZE = FSP2^.SIZE);
+                COMPTYPES := COMP;
+              END;
+            RECORDS:
+              BEGIN NXT1 := FSP1^.FSTFLD; NXT2 := FSP2^.FSTFLD;
+                COMP := TRUE;
+                WHILE (NXT1 <> NIL) AND (NXT2 <> NIL) AND COMP DO
+                  BEGIN COMP:=COMPTYPES(NXT1^.IDTYPE,NXT2^.IDTYPE);
+                    NXT1 := NXT1^.NEXT; NXT2 := NXT2^.NEXT
+                  END;
+                COMPTYPES := COMP AND (NXT1 = NIL) AND (NXT2 = NIL)
+                            AND (FSP1^.RECVAR = NIL)
+                            AND (FSP2^.RECVAR = NIL)
+              END;
+            FILES:
+              COMPTYPES := COMPTYPES(FSP1^.FILTYPE,FSP2^.FILTYPE)
+          END (*CASE*)
+        ELSE (*FSP1^.FORM <> FSP2^.FORM*)
+          IF FSP1^.FORM = SUBRANGE THEN
+            COMPTYPES := COMPTYPES(FSP1^.RANGETYPE,FSP2)
+          ELSE
+            IF FSP2^.FORM = SUBRANGE THEN
+              COMPTYPES := COMPTYPES(FSP1,FSP2^.RANGETYPE)
+            ELSE COMPTYPES := FALSE
+  END (*COMPTYPES*) ;
+
+
+  PROCEDURE GENBYTE(*FBYTE: INTEGER*);
+  BEGIN
+    CODEP^[IC] := CHR(FBYTE); IC := IC+1
+  END (*GENBYTE*) ;
+
+  PROCEDURE GENWORD(*FWORD: INTEGER*);
+   VAR TEMP: CHAR;
+  BEGIN
+    IF ODD(IC) THEN IC := IC + 1;
+    MOVELEFT(FWORD,CODEP^[IC],2);
+    IF FLIPBYTES THEN
+      BEGIN
+        TEMP := CODEP^[IC];
+        CODEP^[IC] := CODEP^[IC+1];
+        CODEP^[IC+1] := TEMP
+      END;
+    IC := IC + 2
+  END (*GENWORD*) ;
+
+PROCEDURE WRITETEXT;
+  BEGIN
+    MOVELEFT(SYMBUFP^[SYMCURSOR],CODEP^[0],1024);
+    IF USERINFO.ERRNUM = 0 THEN
+      IF BLOCKWRITE(USERINFO.WORKCODE^,CODEP^[0],2,CURBLK) <> 2 THEN
+        ERROR(402);
+    CURBLK := CURBLK + 2
+  END (*WRITETEXT*) ;
+
+  PROCEDURE WRITECODE(*FORCEBUF: BOOLEAN*);
+    VAR CODEINX,LIC,I: INTEGER;
+  BEGIN CODEINX := 0; LIC := IC;
+    REPEAT
+      I := 512-CURBYTE;
+      IF I > LIC THEN I := LIC;
+      MOVELEFT(CODEP^[CODEINX],DISKBUF[CURBYTE],I);
+      CODEINX := CODEINX+I;
+      CURBYTE := CURBYTE+I;
+      IF (CURBYTE = 512) OR FORCEBUF THEN
+        BEGIN
+          IF USERINFO.ERRNUM = 0 THEN
+            IF BLOCKWRITE(USERINFO.WORKCODE^,DISKBUF,1,CURBLK) <> 1 THEN
+              ERROR(402);
+          CURBLK := CURBLK+1; CURBYTE := 0
+        END;
+      LIC := LIC-I
+    UNTIL LIC = 0;
+  END (*WRITECODE*) ;
+
+  PROCEDURE FINISHSEG;
+    VAR I: INTEGER;
+  BEGIN IC := 0;
+    FOR I := NEXTPROC-1 DOWNTO 1 DO
+      IF PROCTABLE[I] = 0 THEN
+        GENWORD(0)
+      ELSE
+        GENWORD(SEGINX+IC-PROCTABLE[I]);
+    GENBYTE(SEG); GENBYTE(NEXTPROC-1);
+    SEGTABLE[SEG].CODELENG := SEGINX+IC;
+    WRITECODE(TRUE); SEGINX := 0; CODEINSEG := FALSE
+  END (*FINISHSEG*) ;

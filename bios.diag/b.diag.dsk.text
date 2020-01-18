@@ -1,0 +1,355 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+  {This is an unpublished work copyright by the Regents of
+   the University of California. This item is the property of SofTech
+   Microsystems Inc., and it may be used, copied or distributed only
+   as permitted in a written license from that company.}
+   PROCEDURE disk_tester(level: INTEGER);
+  {
+        This routine will test the various disk drives.
+  }
+  TYPE
+    drive_range = drive_1..drive_6;
+  VAR
+    answer: CHAR;
+    drives_on_line, dot_count: INTEGER;
+    drive: drive_range;
+    drive_table: ARRAY [drive_range] OF RECORD
+                    CASE on_line: BOOLEAN OF
+                      TRUE: (status: RECORD
+                                        unused: INTEGER;
+                                        bytes_per_sector: INTEGER;
+                                        sectors_per_track: INTEGER;
+                                        tracks_per_disk: INTEGER;
+                                        last_block: INTEGER;
+                                        first_interleaved_track: INTEGER;
+                                        reserved: ARRAY [6..29] OF INTEGER;
+                                      END);
+                    END;
+
+    FUNCTION read_write(level: INTEGER; drive: drive_range;
+                        byte_count: INTEGER; block: INTEGER;
+                        name, proc_name: STRING              ): BOOLEAN;
+    {
+        This routine reads the block into 'buffer_1', writes it
+      back to the block, reads it back into 'buffer_2' and then
+      compares the two to make sure they are the same.
+        Any error will cause the routine to return FALSE.
+    }
+    VAR
+      sblock: STRING;
+    BEGIN
+      read_write := FALSE;
+      level := level + 1;
+      intstr(block,sblock);
+      IF dot_count MOD (70-level) = 0 THEN
+        BEGIN
+          IF dot_count <> 0 THEN
+            squawk(0,none,''); {Get a CR}
+          squawk(level,dots,'.');
+          dot_count := 0;
+        END
+      ELSE squawk(0,dots,'.');
+      dot_count := dot_count + 1;
+      FILLCHAR(buffer_1,SIZEOF(buffer_1),0);
+      FILLCHAR(buffer_2,SIZEOF(buffer_2),255);
+      IF NOT do_read(drive,buffer_1,byte_count,block,0) THEN
+        squawk(level,error,CONCAT(name,' - 1st ',proc_name,
+               ' read (block ',sblock,') failed'))
+      ELSE IF NOT do_write(drive,buffer_1,byte_count,block,0) THEN
+        squawk(level,error,CONCAT(name,' - ',proc_name,
+               ' write (block ',sblock,') failed'))
+      ELSE IF NOT do_read(drive,buffer_2,byte_count,block,0) THEN
+        squawk(level,error,CONCAT(name,' - 2nd ',proc_name,
+               ' read (block ',sblock,') failed'))
+      ELSE IF buffer_difference <> byte_count THEN
+        squawk(level,error,CONCAT(name,' - ',proc_name,' Read/Write (block ',
+               sblock,') failed'))
+      ELSE read_write := TRUE;
+    END {of read_write};
+
+    PROCEDURE bytes_right(level: INTEGER; drive: drive_range);
+    {
+        Test to be sure bytes/sector is right
+    }
+    VAR
+      s_diff: STRING;
+    BEGIN
+      level := level + 1;
+      test_name := CONCAT(name,' - Bytes right');
+      squawk(level,test_start,test_name);
+      FILLCHAR(buffer_1,SIZEOF(buffer_1),0);
+      FILLCHAR(buffer_2,SIZEOF(buffer_2),255);
+      IF NOT do_read(drive,buffer_1,0,0,physsect) THEN
+        squawk(level+1,error,CONCAT(name,' - 1st bytes/sector read failed'))
+      ELSE IF NOT do_read(drive,buffer_2,0,0,physsect) THEN
+        squawk(level+1,error,CONCAT(name,' - 2nd bytes/sector read failed'))
+      ELSE
+        IF buffer_difference <> drive_table[drive].status.bytes_per_sector THEN
+         BEGIN
+           intstr(buffer_difference,s_diff);
+           squawk(level+1,error,CONCAT(name,' - Bytes/sector mismatch (',
+                  s_diff,' bytes'));
+         END;
+      squawk(level,test_end,test_name);
+    END {of bytes_right};
+
+    PROCEDURE bad_block(level: INTEGER; drive: drive_range);
+    {
+        Test for Bad Block Number
+    }
+    BEGIN
+      level := level + 1;
+      test_name := CONCAT(name,' - Bad block');
+      squawk(level,test_start,test_name);
+      UNITREAD(drive,buffer_1,512,drive_table[drive].status.last_block+100);
+      IF IORESULT <> 17 THEN
+        squawk(level+1,error,CONCAT(name,
+              ' - Didn''t report bad block number'));
+      UNITCLEAR(drive);
+      IF IORESULT <> 0 THEN
+        squawk(level+1,error,
+               CONCAT(name,' - Didn''t clear after bad block test'));
+      squawk(level,test_end,test_name);
+    END {of bad_block};
+
+    PROCEDURE end_to_end(level: INTEGER; drive: drive_range);
+    {
+        Read/Write from the middle of the disk out to the ends, one track
+      at a time.
+    }
+    VAR
+      size, middle, track_offset: INTEGER;
+      failed: BOOLEAN;
+    BEGIN
+      level := level + 1;
+      test_name := 'End-to-end';
+      doing_dots := TRUE;
+      dot_count := 0;
+      squawk(level,test_start,CONCAT(name,' - ',test_name));
+      WITH drive_table[drive].status DO
+        BEGIN
+          middle := last_block DIV 2;
+          size := bytes_per_sector;
+        END;
+      track_offset := 1;
+      REPEAT
+        failed := NOT read_write(level,drive,size,middle+track_offset,
+                                 name,CONCAT(test_name,' step out'));
+        IF NOT failed THEN
+          failed := NOT read_write(level,drive,size,middle-track_offset,
+                                   name,CONCAT(test_name,' step in'));
+        track_offset := track_offset + 1;
+      UNTIL (track_offset = middle) OR failed;
+      squawk(0,none,''); {CR for dots}
+      doing_dots := FALSE;
+      squawk(level,test_end,CONCAT(name,' - ',test_name));
+    END {of end_to_end};
+
+    PROCEDURE partial(level: INTEGER; drive: drive_range);
+    {
+        This routine will do various partial reads and writes
+      to the disk.
+    }
+    VAR
+      count, size: INTEGER;
+      failed: BOOLEAN;
+      size_string: STRING;
+    BEGIN
+      level := level + 1;
+      test_name := CONCAT(name,' - Partial Read/Write');
+      doing_dots := TRUE;
+      dot_count := 0;
+      squawk(level,test_start,test_name);
+      count := 1;
+      REPEAT
+        size := (count*buffer_size) DIV 25;
+        intstr(size,size_string);
+        failed := NOT read_write(level,drive,size,0,name,
+                                 CONCAT('Partial (',size_string,' bytes)'));
+        count := count + 1;
+      UNTIL (count = 25) OR failed;
+      squawk(0,none,''); {CR for dots}
+      doing_dots := FALSE;
+      squawk(level,test_end,test_name);
+    END {of partial};
+
+    PROCEDURE all_drives(level: INTEGER);
+    {
+        This routine will do an end-to-end of all the drives
+      currently on-line.
+    }
+    VAR
+      l, size, middle, one_in, one_out, track_offset: INTEGER;
+      disk, d: drive_range;
+      failed: BOOLEAN;
+      disk_name, d_name: name_string;
+      in_title, out_title: STRING;
+    BEGIN
+      test_name := 'All Drives';
+      level := level + 1;
+      squawk(level,test_start,test_name);
+      l := level + 1;
+      FOR disk:=drive_1 TO drive_6 DO
+        IF drive_table[disk].on_line THEN
+          BEGIN
+            disk_name := unit_names[disk];
+            doing_dots := TRUE;
+            dot_count := 0;
+            squawk(l,test_start,CONCAT(disk_name,' - ',test_name));
+            FOR d:=drive_1 TO drive_6 DO
+              IF (drive_table[d].on_line) AND (d <> disk) THEN
+                BEGIN
+                  d_name := unit_names[d];
+                  track_offset := 1;
+                  IF drive_table[disk].status.last_block <
+                     drive_table[d].status.last_block
+                    THEN WITH drive_table[disk].status DO
+                           BEGIN
+                             middle := last_block DIV 2;
+                             size := bytes_per_sector;
+                           END
+                    ELSE WITH drive_table[d].status DO
+                           BEGIN
+                             middle := last_block DIV 2;
+                             size := bytes_per_sector;
+                           END;
+                  in_title := CONCAT('Step in ',disk_name,':',d_name);
+                  out_title := CONCAT('Step out ',disk_name,':',d_name);
+                  REPEAT
+                    one_in := middle - track_offset;
+                    one_out := middle + track_offset;
+                    failed := TRUE;
+                    IF read_write(l,disk,size,one_in,disk_name,in_title) THEN
+                    IF read_write(l,d,size,one_out,d_name,out_title) THEN
+                    IF read_write(l,disk,size,one_out,disk_name,out_title) THEN
+                    IF read_write(l,d,size,one_in,d_name,in_title) THEN
+                      failed := FALSE;
+                    track_offset := track_offset + 1;
+                  UNTIL (track_offset = middle) OR failed;
+                END;
+            squawk(0,none,''); {CR for dots}
+            doing_dots := FALSE;
+            squawk(level+1,test_end,CONCAT(disk_name,' - ',test_name));
+          END;
+      squawk(level,test_end,test_name);
+    END {of all_drives};
+
+  BEGIN {disk_tester}
+    disk_used := TRUE;
+    level := level + 1;
+    squawk(level,enter,'Disk Tester');
+    test_errors := 0;
+    drives_on_line := 0;
+    level := level + 1;
+    FOR drive:=drive_1 TO drive_6 DO
+      WITH drive_table[drive] DO
+        BEGIN
+          on_line := FALSE;
+          IF drive IN [drive_1,drive_2,drive_3,drive_4,drive_5,drive_6] THEN
+            BEGIN
+              name := unit_names[drive];
+              WRITE('':level,'Should ',name,' be tested (Y/N) ? ');
+              answer := getchar;
+              WRITELN;
+              IF answer = 'Y' THEN
+                BEGIN
+                  WRITE('':level,'Put a blank disk into ',name,
+                        ', then type <RETURN>');
+                  READLN;
+                  UNITCLEAR(drive);
+                  on_line := (IORESULT = 0);
+                  IF on_line THEN
+                    BEGIN
+                      drives_on_line := drives_on_line + 1;
+                      UNITSTATUS(drive,status,0);
+                      WITH status DO
+                        BEGIN
+                          WRITELN('':level,name,' - number of bytes/sector ',
+                                  bytes_per_sector);
+                          WRITELN('':level,name,' - number of sectors/track ',
+                                  sectors_per_track);
+                          WRITELN('':level,name,' - number of tracks/disk ',
+                                  tracks_per_disk);
+                          is_it_correct(level,drive,'Status incorrect');
+                          IF line_error THEN {Get correct values from User}
+                            BEGIN
+                              WRITE('':level,name,
+                                    ' - Number of bytes/sector ? ');
+                              READLN(bytes_per_sector);
+                              WRITE('':level,name,
+                                    ' - Number of sectors/track ? ');
+                              READLN(sectors_per_track);
+                              WRITE('':level,name,
+                                    ' - Number of tracks/disk ? ');
+                              READLN(tracks_per_disk);
+                            END;
+                          WRITE('':level,name,' - First interleaved track ? ');
+                          READLN(first_interleaved_track);
+                          last_block := (sectors_per_track*(tracks_per_disk -
+                                         first_interleaved_track)) DIV
+                                        (512 DIV bytes_per_sector);
+                        END;
+                    END
+                  ELSE
+                    WRITELN('':level,name,' not on-line');
+                END;
+            END;
+        END;
+    FOR drive:=drive_1 TO drive_6 DO
+      WITH drive_table[drive] DO
+        IF on_line THEN
+          BEGIN
+            name := unit_names[drive];
+            squawk(level,test_start,name);
+            {
+                Testing individual drive starts here
+            }
+            read_nothing(level,drive);
+            write_nothing(level,drive);
+            bytes_right(level,drive);
+            bad_block(level,drive);
+            end_to_end(level,drive);
+            partial(level,drive);
+            squawk(level,test_end,name);
+          END;
+    level := level - 1;
+    IF drives_on_line > 1 THEN
+      all_drives(level);
+    show_error_count(level,'Disk Tester');
+  END {of disk_tester};

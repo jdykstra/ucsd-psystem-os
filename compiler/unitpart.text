@@ -1,0 +1,430 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+(*
+ * UCSD p-System Operating System
+ * Copyright (C) 2010 Peter Miller
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of the ucsd-psystem-os project nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *)
+
+SEGMENT PROCEDURE WRITELINKERINFO(DECSTUFF:BOOLEAN);
+  TYPE
+    LITYPES = (EOFMARK,MODDULE,GLOBREF,PUBBLIC,PRIVVATE,CONNSTANT,GLOBDEF,
+               PUBLICDEF,CONSTDEF,EXTPROC,EXTFUNC,SSEPPROC,SSEPFUNC,
+               SEPPREF,SEPFREF);
+    OPFORMAT = (WORD, BYTE, BIG);
+    LIENTRY = RECORD
+                LINAME: ALPHA;
+                CASE LITYPE: LITYPES OF
+                  MODDULE,
+                  PUBBLIC,
+                  PRIVVATE,
+                  SEPPREF,
+                  SEPFREF:          (FORMAT: OPFORMAT;
+                                     NREFS: INTEGER;
+                                     NWORDS: INTEGER);
+                  CONSTDEF:         (CONSTANT: INTEGER);
+                  PUBLICDEF:        (BASEOFFSET: INTEGER);
+                  EXTPROC,EXTFUNC,
+                  SSEPPROC,SSEPFUNC:(PROCNUM: INTEGER;
+                                     NPARAMS: INTEGER;
+                                     RANGE: ^INTEGER)
+              END;
+
+  VAR FCP,LCP: CTP; CURRENTBLOCK: INTEGER; I: NONRESIDENT;
+      EXTNAME: ALPHA; FIC: ADDRRANGE;
+      LIREC: LIENTRY;
+
+  PROCEDURE GETREFS(ID,LENGTH: INTEGER);
+    VAR LIC: ADDRRANGE; J,MAX,BLOCKCOUNT,COUNT: INTEGER;
+
+    PROCEDURE GETNEXTBLOCK;
+    BEGIN
+      CURRENTBLOCK := CURRENTBLOCK + 1;
+      IF CURRENTBLOCK > REFBLK THEN CURRENTBLOCK := 0;
+      IF BLOCKREAD(REFFILE,REFLIST^,1,CURRENTBLOCK) <> 1 THEN;
+    END (*GETNEXTBLOCK*) ;
+
+  BEGIN (*GETREFS*)
+    IF (NREFS = 1) AND (REFBLK = 0) THEN EXIT(GETREFS);
+    COUNT := 0;
+    FOR BLOCKCOUNT := 0 TO REFBLK DO
+      BEGIN
+        IF CURRENTBLOCK < REFBLK THEN MAX := REFSPERBLK ELSE MAX := NREFS-1;
+        FOR J := 1 TO MAX DO
+          IF ID = REFLIST^[J].KEY THEN
+            BEGIN GENWORD(REFLIST^[J].OFFSET); COUNT := COUNT + 1 END;
+        IF BLOCKCOUNT < REFBLK THEN GETNEXTBLOCK;
+      END;
+    LIC := IC; IC := FIC; GENWORD(COUNT); IC := LIC;
+    (*NOW FILL REST OF 8-WORD RECORD*)
+    FOR J := 1 TO ((8 - (COUNT MOD 8)) MOD 8) DO GENWORD(0)
+  END (* GETREFS *) ;
+
+  PROCEDURE GLOBALSEARCH(FCP: CTP);
+    VAR NEEDEDBYLINKER: BOOLEAN;
+
+  BEGIN
+    NEEDEDBYLINKER := TRUE;
+    WITH LIREC,FCP^ DO
+      CASE KLASS OF
+        TYPES: NEEDEDBYLINKER := FALSE;
+        KONST: IF (IDTYPE^.SIZE = 1) AND NOT INMODULE THEN
+                 BEGIN LITYPE := CONSTDEF;
+                   CONSTANT := VALUES.IVAL
+                 END
+               ELSE NEEDEDBYLINKER := FALSE;
+        FORMALVARS,
+        ACTUALVARS:
+               BEGIN
+                 IF INMODULE THEN
+                   BEGIN
+                     IF PUBLIC THEN
+                       BEGIN LITYPE := PUBBLIC;
+                         NWORDS := 0
+                       END
+                     ELSE
+                       BEGIN LITYPE := PRIVVATE;
+                         IF KLASS = FORMALVARS THEN
+                           NWORDS := PTRSIZE
+                         ELSE
+                           NWORDS := IDTYPE^.SIZE
+                       END;
+                     FORMAT := BIG
+                   END
+                 ELSE
+                   BEGIN LITYPE := PUBLICDEF;
+                     BASEOFFSET := VADDR
+                   END
+               END;
+        FIELD: NEEDEDBYLINKER := FALSE;
+        PROC,
+        FUNC:  BEGIN
+                 IF PFDECKIND = DECLARED THEN
+                   IF PFKIND = ACTUAL THEN
+                     IF KLASS = PROC THEN
+                       IF EXTURNAL THEN
+                         IF SEPPROC THEN LITYPE := SEPPREF
+                         ELSE LITYPE := EXTPROC
+                       ELSE
+                         IF SEPPROC THEN
+                           LITYPE := SSEPPROC
+                         ELSE NEEDEDBYLINKER := FALSE
+                     ELSE (*KLASS = FUNC*)
+                       IF EXTURNAL THEN
+                         IF SEPPROC THEN LITYPE := SEPFREF
+                         ELSE LITYPE := EXTFUNC
+                       ELSE
+                         IF SEPPROC THEN
+                           LITYPE := SSEPFUNC
+                         ELSE NEEDEDBYLINKER := FALSE
+                   ELSE NEEDEDBYLINKER := FALSE
+                 ELSE NEEDEDBYLINKER := FALSE;
+                 IF NEEDEDBYLINKER THEN
+                   BEGIN
+                     LCP := NEXT; NPARAMS := 0;
+                     WHILE LCP <> NIL DO
+                       BEGIN
+                         WITH LCP^ DO
+                           IF KLASS = FORMALVARS THEN
+                             NPARAMS := NPARAMS + PTRSIZE
+                           ELSE
+                             IF KLASS = ACTUALVARS THEN
+                               IF IDTYPE^.FORM <= POWER THEN
+                                 NPARAMS := NPARAMS + IDTYPE^.SIZE
+                               ELSE NPARAMS := NPARAMS + PTRSIZE;
+                         LCP := LCP^.NEXT
+                       END;
+                     IF LITYPE IN [SEPPREF,SEPFREF] THEN
+                       BEGIN FORMAT := BYTE; NWORDS := NPARAMS END
+                     ELSE
+                       BEGIN PROCNUM := PFNAME; RANGE := NIL END
+                   END
+                 END (*PROC,FUNC*);
+        MODULE:  BEGIN
+                   IF NOT INMODULE THEN NEEDEDBYLINKER := FALSE
+                   ELSE
+                     BEGIN LITYPE := MODDULE; NWORDS := 0; FORMAT := BYTE END
+                 END
+      END (*CASE,WITH*);
+    IF NEEDEDBYLINKER THEN
+      IF SEGTABLE[SEG].SEGKIND = 2 (*SEGPROC*) THEN
+        WITH LIREC DO
+          IF (LITYPE = CONSTDEF) OR (LITYPE = PUBLICDEF) THEN
+            NEEDEDBYLINKER := FALSE;
+    IF NEEDEDBYLINKER THEN
+      WITH LIREC DO
+        BEGIN LINAME := FCP^.NAME;
+          FOR LGTH := 1 TO 8 DO GENBYTE(ORD(LINAME[LGTH]));
+          GENWORD(ORD(LITYPE));
+          CASE LITYPE OF
+            MODDULE,
+            PUBBLIC,
+            PRIVVATE,
+            SEPPREF,SEPFREF: BEGIN
+                               GENWORD(ORD(FORMAT));
+                               FIC := IC; GENWORD(0);
+                               GENWORD(NWORDS);
+                               IF LITYPE = MODDULE THEN GETREFS(FCP^.SEGID,1)
+                               ELSE
+                                IF LITYPE IN [SEPPREF,SEPFREF] THEN
+                                  GETREFS(-FCP^.PFNAME,1)
+                                ELSE GETREFS(FCP^.VADDR + 32,FCP^.IDTYPE^.SIZE);
+                             END;
+            CONSTDEF: BEGIN  GENWORD(CONSTANT); GENWORD(0); GENWORD(0) END;
+            PUBLICDEF: BEGIN GENWORD(BASEOFFSET); GENWORD(0); GENWORD(0) END;
+            EXTPROC,EXTFUNC:     BEGIN
+                                   GENWORD(PROCNUM);
+                                   GENWORD(NPARAMS);
+                                   GENWORD(ORD(RANGE))
+                                 END;
+            SSEPPROC,SSEPFUNC:   BEGIN
+                                   GENWORD(PROCNUM);
+                                   GENWORD(NPARAMS);
+                                   GENWORD(ORD(RANGE));
+                                   FOR LGTH := 1 TO 8 DO
+                                     GENBYTE(ORD(LINAME[LGTH]));
+                                   IF LITYPE = SSEPPROC THEN
+                                     GENWORD(ORD(SEPPREF))
+                                   ELSE GENWORD(ORD(SEPFREF));
+                                   GENWORD(ORD(BYTE));
+                                   FIC := IC; GENWORD(0); GENWORD(NPARAMS);
+                                   GETREFS(-PROCNUM,1)
+                                 END
+          END(*CASE*)
+        END(*WITH*);
+    IF IC >= 1024 THEN BEGIN WRITECODE(FALSE); IC := 0 END;
+
+    IF FCP^.LLINK <> NIL THEN GLOBALSEARCH(FCP^.LLINK);
+    IF FCP^.RLINK <> NIL THEN GLOBALSEARCH(FCP^.RLINK)
+
+  END (*GLOBALSEARCH*);
+
+BEGIN (*WRITELINKERINFO*)
+  IC := 0;
+  IF CODEINSEG THEN ERROR(399);
+  IF INMODULE THEN
+      CURRENTBLOCK := REFBLK;
+  IF DECSTUFF THEN (*SKIP IF NO DECLARATIONPART LINKER INFO*)
+    BEGIN FCP := DISPLAY[GLEV].FNAME;
+      IF FCP <> NIL THEN GLOBALSEARCH(FCP)
+    END;
+  (*NOW DO NONRESIDENT PROCS*)
+  WITH LIREC DO
+    FOR I := SEEK TO DECOPS DO
+      IF PFNUMOF[I] <> 0 THEN
+        BEGIN
+          CASE I OF
+            SEEK:       BEGIN LINAME := 'FSEEK   '; NPARAMS := 2 END;
+            FREADREAL:  BEGIN LINAME := 'FREADREA'; NPARAMS := 2 END;
+            FWRITEREAL: BEGIN LINAME := 'FWRITERE'; NPARAMS := 5 END;
+            FREADDEC:   BEGIN LINAME := 'FREADDEC'; NPARAMS := 3 END;
+            FWRITEDEC:  BEGIN LINAME := 'FWRITEDE';
+                                    NPARAMS := 2+DECSIZE(MAXDEC) END;
+            DECOPS:     BEGIN LINAME := 'DECOPS  '; NPARAMS := 0 END;
+          END;
+          FOR LGTH := 1 TO 8 DO GENBYTE(ORD(LINAME[LGTH]));
+          IF SEPPROC THEN
+            BEGIN GENWORD(ORD(SEPPREF));
+              GENWORD(ORD(BYTE)); FIC := IC; GENWORD(0); GENWORD(NPARAMS);
+              GETREFS(-PFNUMOF[I],1)
+            END
+          ELSE
+            BEGIN GENWORD(ORD(EXTPROC));
+              GENWORD(PFNUMOF[I]); GENWORD(NPARAMS); GENWORD(0)
+            END;
+          PFNUMOF[I] := 0;
+        END;
+  (* NOW DO EOFMARK END-RECORD*)
+  FOR LGTH := 1 TO 8 DO GENBYTE(ORD(' '));
+  GENWORD(ORD(EOFMARK)); GENWORD(LCMAX);
+  GENWORD(0);GENWORD(0);
+  WRITECODE(TRUE);
+  CLINKERINFO := FALSE;
+  IF DECSTUFF THEN DLINKERINFO := FALSE
+END (*WRITELINKERINFO*);
+
+SEGMENT PROCEDURE UNITPART(FSYS: SETOFSYS);
+  VAR UMARKP: TESTP;
+
+  PROCEDURE OPENREFFILE;
+  BEGIN
+    REWRITE(REFFILE,'*SYSTEM.INFO[*]');
+    IF IORESULT <> 0 THEN ERROR(402)
+  END (* OPENREFFILE *) ;
+
+  PROCEDURE UNITDECLARATION(FSYS: SETOFSYS; VAR UMARKP:TESTP);
+    VAR LCP: CTP; FOUND: BOOLEAN; LLEXSTK: LEXSTKREC;
+  BEGIN
+    IF INMODULE THEN ERROR(182 (* NESTED MODULES NOT ALLOWED *));
+    IF CODEINSEG THEN
+      BEGIN ERROR(399); SEGINX := 0; CURBYTE := 0 END;
+    WITH LLEXSTK DO
+      BEGIN
+        DOLDTOP := TOP;
+        DOLDLEV := LEVEL;
+        POLDPROC := CURPROC;
+        SOLDPROC := NEXTPROC;
+        DOLDSEG := SEG;
+        DLLC := LC;
+        PREVLEXSTACKP := TOS
+      END;
+    SEG := NEXTSEG;
+    NEXTSEG := NEXTSEG + 1;
+    IF NEXTSEG > MAXSEG THEN ERROR(250);
+    NEXTPROC := 1;
+    LC := LCAFTERMARKSTACK;
+    PUBLICPROCS := FALSE;
+    INMODULE := TRUE;
+    INSYMBOL;
+    IF SY <> IDENT THEN ERROR(2)
+    ELSE
+      BEGIN FOUND := FALSE;
+        LCP := MODPTR;
+        WHILE (LCP <> NIL) AND NOT FOUND DO
+          IF LCP^.NAME <> ID THEN LCP := LCP^.NEXT
+          ELSE BEGIN FOUND := TRUE; ERROR(101) END;
+        IF NOT FOUND THEN
+          BEGIN NEW(LCP,MODULE);
+            WITH LCP^ DO
+              BEGIN NAME := ID; IDTYPE := NIL; NEXT := MODPTR;
+                KLASS := MODULE; SEGID := SEG
+              END;
+            MODPTR := LCP
+          END;
+      END;
+    SEGTABLE[SEG].SEGNAME := ID;
+    MARK(UMARKP);
+    NEW(REFLIST);
+    NEW(TOS);
+    TOS^ := LLEXSTK;
+    LEVEL := 1;
+    IF TOP < DISPLIMIT THEN
+      BEGIN TOP := TOP +1;
+        WITH DISPLAY[TOP] DO
+          BEGIN FNAME := NIL; FFILE := NIL; FLABEL := NIL; OCCUR := BLCK END;
+        IF LCP <> NIL THEN ENTERID(LCP)
+      END
+    ELSE ERROR(250);
+    INSYMBOL;
+    IF SY = SEMICOLON THEN INSYMBOL ELSE ERROR(14)
+  END (*UNITDECLARATION*) ;
+
+BEGIN (*UNITPART*)
+  OPENREFFILE;
+  REPEAT
+    RESET(REFFILE); NREFS := 1; REFBLK := 0;
+    IF (SY = SEPARATSY) THEN
+      BEGIN SEPPROC := TRUE;
+        INSYMBOL; IF SY <> UNITSY THEN ERROR(24)
+      END
+    ELSE
+      SEPPROC := FALSE;
+    UNITDECLARATION(FSYS,UMARKP);
+    IF SEPPROC THEN
+      SEGTABLE[SEG].SEGKIND := 4 (* SEPRTSEG *)
+    ELSE
+      SEGTABLE[SEG].SEGKIND := 3 (* UNITSEG *);
+    SEGTABLE[SEG].TEXTADDR := CURBLK;
+    WRITETEXT;
+    IF SY = INTERSY THEN INSYMBOL
+    ELSE ERROR(22);
+    ININTERFACE := TRUE;
+    DECLARATIONPART(FSYS);
+    IF PUBLICPROCS THEN
+      BEGIN
+        ININTERFACE := FALSE;
+        IF SY <> IMPLESY THEN BEGIN ERROR(23); SKIP(FSYS - STATBEGSYS) END
+        ELSE INSYMBOL;
+        BLOCK(FSYS - [SEPARATSY,UNITSY,INTERSY,IMPLESY]);
+        IF REFBLK > 0 THEN
+          IF BLOCKWRITE(REFFILE,REFLIST^,1,REFBLK) <> 1 THEN ERROR(402);
+        WRITELINKERINFO(TRUE);
+      END
+    ELSE
+      BEGIN DLINKERINFO := FALSE;
+        WITH SEGTABLE[SEG] DO
+          BEGIN
+            CODELENG := 0;
+            DISKADDR := CURBLK;
+            SEGKIND := 0 (* LINKED *)
+          END;
+      END;
+    SEPPROC := FALSE; (*FALSE WHENEVER NOT INMODULE*)
+    INMODULE := FALSE;
+    IF SY = ENDSY THEN INSYMBOL
+    ELSE BEGIN ERROR(13); SKIP(FSYS) END;
+    IF SY <> PERIOD THEN
+      IF SY = SEMICOLON THEN INSYMBOL
+      ELSE ERROR(14);
+    WITH TOS^ DO
+        BEGIN
+          TOP := DOLDTOP;
+          LEVEL := DOLDLEV;
+          CURPROC := POLDPROC;
+          NEXTPROC := SOLDPROC;
+          SEG := DOLDSEG;
+          LC := DLLC;
+        END;
+    TOS := TOS^.PREVLEXSTACKP;
+    RELEASE(UMARKP)
+  UNTIL NOT (SY IN [UNITSY,SEPARATSY]);
+  CLOSE(REFFILE)
+END (*UNITPART*);

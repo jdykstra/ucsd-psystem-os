@@ -1,0 +1,291 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+{------------ PROCEDURES FOR MOVING, MAKING AND CHANGING FILES ----------------}
+
+  { Checks to see if file is endangered by the operation to be performed }
+  FUNCTION FINDSAME(DOO : BOOLEAN):BOOLEAN;
+  BEGIN
+    FINDSAME := TRUE;
+    IF (LASTSTATE = OKFILE) AND (DOO OR (SOURCETITLE <> GTID) OR
+                                            (SOURCEVID <> GVID)) THEN
+      FINDSAME := PURGEIT(CONCAT(GVID,':',GTID),'Remove old')
+  END;
+
+  { Allows the user to change the name of any file in the directory }
+  { or the name of any blocked device                               }
+  PROCEDURE CHANGER;
+  VAR
+    GFIB : UNTYPED;
+    GFIBP : FIBP;
+    IORSLT,LOC : INTEGER;
+
+  BEGIN { CHANGER }
+    REPEAT
+      CHECKFILE('Change','Change to what',0,FILEBLKDEXP,TRUE,TRUE,
+                                                      [OKFILE,OKDIR]);
+      IF ((STRING1 <> '') AND (STRING3 <> '')) OR WILDCARD THEN
+
+        { Changing a filename }
+        BEGIN
+          VOLNAME2 := VOLNAME1;   { Dest volname must be the same as source }
+          TOWHERE := CONCAT(VOLNAME1,':');
+          IF NOT WILDCARD THEN
+            TOWHERE := CONCAT(TOWHERE,STRING3);  { Dest filename is in STRING3 }
+          LOC := 0;
+          WHILE SEARCHDIR('Change',LOC,TRUE,TRUE,FALSE) DO
+            BEGIN
+              RESET(GFIB,FROMWHERE);   { Opens file to be changed }
+              CHECKRSLT(IORESULT);
+              GFIBP := GETPTR(GFIB);   { Gets the pointer to the files header }
+              SCANINPUT(TOWHERE,[BADFILE,OKFILE],FILEEXP,DESTINATION,TRUE);
+              IF FINDSAME(FALSE) THEN
+                WITH GFIBP^ DO
+                  BEGIN
+                    FHEADER.DACCESS.YEAR := 100; { Let the OP-SYSTEM know }
+                    PRINTMESS(FVID,FHEADER.DTID,GTID);
+                    FHEADER.DTID := GTID;        { Change the filename }
+                  END;
+              CLOSE(GFIB);
+              CHECKRSLT(IORESULT)
+            END
+        END
+      ELSE
+        IF LENGTH(STRING1) + LENGTH(STRING3) = 0 THEN
+
+          { Changing a volume name }
+          BEGIN
+            SCANINPUT(TOWHERE,[NOVOL,OKDIR],BLKDEXP,DESTINATION,TRUE);
+            IF LASTSTATE = OKDIR THEN
+              MESSAGES(VOLONLINE,TRUE); { Don't allow two vols with same name }
+
+            { Allocate room for the directory & read it in }
+            NEW(GDIR);
+            UNITREAD(SOURCEUNIT,GDIR^,SIZEOF(DIRECTORY),DIRBLK);
+            CHECKRSLT(IORESULT);
+            GDIR^[0].DVID := GVID;  { Change the volume name }
+            UNITWRITE(SOURCEUNIT,GDIR^,SIZEOF(DIRECTORY),DIRBLK);
+            IORSLT := IORESULT;
+            RELEASE(GDIR);
+            CHECKRSLT(IORSLT);
+            UNITABLE[SOURCEUNIT].UVID := GVID;   { Update the unitable }
+            IF (SYVID = SOURCEVID) AND (SYSCOM^.SYSUNIT = SOURCEUNIT) THEN
+              SYVID := GVID;   { Name of root device has been changed }
+            IF DKVID = SOURCEVID THEN
+              DKVID := GVID;              { Prefixed volume's name was changed }
+            PRINTMESS(SOURCEVID,'',GVID)  { Tell user you did the change       }
+          END
+        ELSE
+          MESSAGES(ILLCHANGE,TRUE)      { Can't change a volname to a filename }
+    UNTIL INSTRING = ''
+  END {CHANGER} ;
+
+  { Allows the user to remove any selected file from the directory }
+  PROCEDURE REMOVER;
+  VAR
+    DELETIONS : BITMAP;
+    LINE,LOC : INTEGER;
+
+  BEGIN { REMOVER }
+    REPEAT
+      CHECKFILE('Remove','',1,FILEEXP,TRUE,TRUE,[OKFILE]);
+      LINE := 0;    { Keeps track of what line of output your at }
+      LOC := 0;
+      FILLCHAR(DELETIONS,SIZEOF(DELETIONS),CHR(0)); { Init's bitmap }
+      WHILE SEARCHDIR('Remove',LOC,FALSE,TRUE,FALSE) DO { Get filename }
+        BEGIN
+          IF NOT QUESTION THEN
+            BEGIN
+              PRINTMESS(GVID,GDIR^[LOC].DTID,'removed');
+              IF SYSCOM^.CRTINFO.HEIGHT = LINE THEN  { Don't scroll output }
+                BEGIN
+                  NSPACEWAIT(FALSE);
+                  CLEARSCREEN;
+                  LINE := 0
+                END;
+              LINE := LINE+1;
+            END;
+          DELETIONS.ENTRIES := DELETIONS.ENTRIES + 1; { File to be removed   }
+          DELETIONS.DIRENTRY [LOC] := TRUE  { Total # of files to be removed }
+        END;
+      IF (FOUND IN [FILEFOUND,ABORTIT]) AND (DELETIONS.ENTRIES > 0) THEN
+        BEGIN
+          CLEARLINE;
+          WRITE('Update directory ? '); { Make user confirm the removal ! }
+          IF NGETCHAR(TRUE) THEN
+            ZAPENTRIES(DELETIONS,TRUE); { Will remove the selected files  }
+        END;
+    UNTIL INSTRING = ''
+  END {REMOVER} ;
+
+  { Allows the user to transfer any file in the directory to another disk or }
+  { to another file. Will also perform complete or partial binary transfers  }
+  { of one disk to another                                                   }
+  PROCEDURE TRANSFER;
+  VAR
+    LASTBLK,LOC : INTEGER;
+
+    { Performs the actual transfer of the file from one location to another }
+    PROCEDURE MOVEFILE;
+    VAR
+      RELBLK,NUMBLKS,NBLOCKS : INTEGER;
+      FIRSTCALL,SINGLEDRIVE : BOOLEAN;
+      GFIBP : FIBP;
+      GFIB : UNTYPED;
+
+    BEGIN
+      RESET(GFIB,FROMWHERE); { Open source file }
+      CHECKRSLT(IORESULT);
+      GFIBP := GETPTR(GFIB); { Gets a pointer to the header of the source file }
+      RELBLK := 0;           { Block relative to the source file }
+      FIRSTCALL := TRUE;
+      REPEAT
+        NUMBLKS := LASTBLK - RELBLK;   { Blocks left to transfer }
+        IF NUMBLKS > GBUFBLKS THEN  { GBUFBLKS = # of blks in transfer buffer }
+          NUMBLKS := GBUFBLKS; { Unable to fit whole file in transfer buffer  }
+        NBLOCKS := BLOCKREAD(GFIB,GBUF^,NUMBLKS,RELBLK);
+        CHECKRSLT(IORESULT);   { NBLOCKS = # of blocks actually read }
+        IF FIRSTCALL THEN
+          BEGIN
+            FIRSTCALL := FALSE;
+            SCANINPUT(TOWHERE,[NOVOL,BADDIR,BADFILE,UNBLKDVOL,OKDIR,OKFILE],
+                                           FILEVOLEXP,DESTINATION,TRUE);
+            IF ((GVID2 <> '') AND (GVID2 [1] = '#') AND (GUNIT = SOURCEUNIT)
+                      AND UNITABLE [GUNIT].UISBLKD) OR (GUNIT = 0) THEN
+
+              { Destination disk is not on-line at the moment }
+              BEGIN
+                CLEARSCREEN;
+                IF GUNIT = 0 THEN
+                  WRITELN('Put in ',GVID,':')
+                ELSE
+                  WRITELN('Insert destination disk');
+                NSPACEWAIT(TRUE);
+
+                { Make sure that the user put the volume on-line }
+                SCANINPUT(TOWHERE,[BADFILE,OKFILE,BADDIR,OKDIR,UNBLKDVOL],
+                                      FILEVOLEXP,DESTINATION,TRUE);
+              END;
+            IF GUNIT IN [1,2] THEN
+              CLEARSCREEN;     { Destination is the CONSOLE: }
+            IF NOT FINDSAME(FALSE) THEN
+              EXIT(MOVEFILE); { User doesn't wish to remove the duplicate file }
+            IF NBLOCKS > DIRBLK THEN
+              RISKVOLUME;     { Make sure that a disk isn't indangered }
+            REWRITE(LFIB,TOWHERE); { Open destination file }
+            CHECKRSLT(IORESULT);
+
+            { Get a pointer to the header of the destination file }
+            LFIBP := GETPTR(LFIB);
+
+            IF NOT LFIBP^.FISBLKD AND GFIBP^.FISBLKD AND
+                                   (GFIBP^.FHEADER.DFKIND = TEXTFILE) THEN
+              BEGIN { Disk to character device don't transfer heading }
+                NBLOCKS := NBLOCKS-2;
+                MOVELEFT(GBUF^[FBLKSIZE+FBLKSIZE],GBUF^,NBLOCKS*FBLKSIZE)
+              END;
+            SINGLEDRIVE := (LFIBP^.FVID <> GFIBP^.FVID) AND
+                                           (LFIBP^.FUNIT = GFIBP^.FUNIT)
+          END
+        ELSE
+          IF SINGLEDRIVE THEN { Allow user to insert destination disk }
+            INSERTVOLUME(LFIBP^.FUNIT,LFIBP^.FVID,FALSE);
+        NUMBLKS := BLOCKWRITE(LFIB,GBUF^,NBLOCKS,RELBLK);
+        CHECKRSLT(IORESULT);
+        IF NBLOCKS <> NUMBLKS THEN
+          MESSAGES(FILEFULL,TRUE);   { Wasn't able to write out all the blocks }
+        IF SINGLEDRIVE AND NOT EOF(GFIB) THEN
+           { Allow user to insert source disk }
+           INSERTVOLUME(LFIBP^.FUNIT,GFIBP^.FVID,FALSE);
+        RELBLK := RELBLK + NUMBLKS   { Increment relative block to the file }
+      UNTIL (RELBLK = LASTBLK) OR EOF(GFIB);
+      WITH LFIBP^,GFIBP^.FHEADER DO
+        BEGIN  { Make the headers to the two files the same }
+          FHEADER.DLASTBYTE := DLASTBYTE;
+          FHEADER.DFKIND := DFKIND;
+          FHEADER.DACCESS := DACCESS;
+          IF (DACCESS.MONTH = 0) AND (THEDATE.MONTH > 0) THEN
+            FHEADER.DACCESS := THEDATE
+        END;
+      CLOSE(LFIB,LOCK);
+      CHECKRSLT(IORESULT);
+      PRINTMESS(GFIBP^.FVID,GFIBP^.FHEADER.DTID,
+                      CONCAT(LFIBP^.FVID,':',LFIBP^.FHEADER.DTID));
+      CLOSE(GFIB);
+    END;
+
+  BEGIN { TRANSFER }
+    REPEAT
+      CHECKFILE('Transfer','To where',0,FILEVOLEXP,TRUE,TRUE,
+                               [BADDIR,OKFILE,OKDIR,UNBLKDVOL]);
+      LASTBLK := MAXINT;   { Will be set to the # of blocks to transfer }
+      LOC := 0;
+      IF (STRING1 = '') AND NOT WILDCARD THEN
+        BEGIN     { Disk to disk binary transfer }
+          IF LASTSTATE IN [OKDIR,BADDIR] THEN
+            GETBLOCKS('Transfer','blocks','# of blocks to transfer',1,LASTBLK);
+          MOVEFILE
+        END
+      ELSE
+        WHILE SEARCHDIR('Transfer',LOC,TRUE,TRUE,TRUE) DO
+          MOVEFILE
+    UNTIL INSTRING = '';
+  END { TRANSFER };
+
+  { Allows the user to create file(s) on the disk }
+  PROCEDURE MAKEFILE;
+  VAR
+  GFIB : UNTYPED;
+  GFIBP : FIBP;
+
+  BEGIN { MAKEFILE }
+    REPEAT
+      CHECKFILE('Make','',1,FILEEXP,FALSE,TRUE,[BADFILE,OKFILE]);
+      IF FINDSAME(TRUE) THEN       { Check for an existing file with this name }
+        BEGIN
+          REWRITE(GFIB,FROMWHERE); { Open the file }
+          CHECKRSLT(IORESULT);
+          GFIBP := GETPTR(GFIB);   { Get a pointer to the header of the file }
+          WITH GFIBP^ DO  { Need to be sure the file is of the correct size }
+            FMAXBLK := FHEADER.DLASTBLK-FHEADER.DFIRSTBLK;
+          CLOSE(GFIB,LOCK);
+          CHECKRSLT(IORESULT);
+          CLEARLINE;
+          WRITELN(GVID,':',GTID,' made')
+        END
+    UNTIL INSTRING = ''
+  END {MAKEFILE} ;

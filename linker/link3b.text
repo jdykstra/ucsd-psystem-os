@@ -1,0 +1,634 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+    {
+    *  Readsrcseg determines the final segment size after adding
+    *  in the external procs/funcs, allocates enough area for the
+    *  entire output code seg, reads in the original code (or uses
+    *  identity segment for sephost special case), and splits the
+    *  segdict off from the code.  For all procs to-be-linked, a new
+    *  destbase position is assigned in seg and the new proc num is
+    *  set up in pdict.  The segment number field of the pdict is
+    *  also updated to the value of s.  All is ready to copy in the
+    *  sep procs/funcs.  The values for segbase and segleng are set
+    *  here too.
+    }
+
+    procedure readsrcseg;
+      var orgleng, addr,
+          addleng, addprocs,
+          nextspot: integer;
+          last: 0..MAXPROC;
+          wp: workp;
+          lheap: ^integer;
+
+        {
+        *  Readnsplit arranges for the source seg to be placed in
+        *  room allocated for segbase.  This may involve disk read
+        *  or perhaps only creating an empty segment.  In any case
+        *  segbase points at lowest addr, and nextspot is pointed
+        *  at the next place code can be copied into.  This is used
+        *  for destbase assignment in readsrcseg.
+        }
+
+        procedure readnsplit;
+          var nblocks, n, pdleng,
+              pddelta, nprocs: integer;
+              cp0, cp1: codep;
+        begin
+          nblocks := (segleng+511) div 512;
+          if memavail-400 < nblocks*256 then
+            begin
+              error('no mem room');
+              exit(linker)
+            end;
+          n := nblocks;
+          repeat
+            { alloc heap space }
+            new(cp1);
+            n := n-1
+          until n <= 0;
+          if sephost then
+            begin { set up identity seg }
+              storeword(0, segbase, segleng-2);
+              nextspot := 0
+            end
+          else
+            begin { read from disk }
+              nblocks := (orgleng+511) div 512;
+              if blockread(seginfo[s]^.srcfile^.code^, segbase^,
+                        nblocks, addr) <> nblocks then
+                begin
+                  error('seg read err');
+                  exit(linker)
+                end;
+              pddelta := segleng-orgleng;
+              nprocs := fetchbyte(segbase, orgleng-1);
+              pdleng := nprocs*2+2;
+              nextspot := orgleng-pdleng;
+              cp0 := getcodep(ord(segbase)+orgleng-pdleng);
+              cp1 := getcodep(ord(segbase)+segleng-pdleng);
+              if cp0 <> cp1 then
+                begin { move proc dict }
+                  n := pdleng;
+                  while n > 2 do
+                    begin
+                      storeword(pddelta+fetchword(segbase, orgleng-n),
+                          segbase, orgleng-n);
+                      n := n-2
+                    end;
+                  moveright(cp0^, cp1^, pdleng);
+                  fillchar(cp0^, pddelta, 0)
+                end
+            end
+        end { readnsplit } ;
+
+    begin { readsrcseg }
+      if sephost then
+        orgleng := 2
+      else
+        with seginfo[s]^, srcfile^.segtbl.diskinfo[srcseg] do
+          begin
+            orgleng := codeleng;
+            addr := codeaddr
+          end;
+      addleng := 0;
+      addprocs := 0;
+      wp := procs;
+      while wp <> NIL do
+        begin { add up final seg size }
+          addleng := addleng+wp^.defsym^.entry.place^.length;
+          if wp^.newproc = 0 then
+            addprocs := addprocs+1;
+          wp := wp^.next
+        end;
+      mark(lheap);
+      segbase := getcodep(ord(lheap));
+      segleng := orgleng+addleng+2*addprocs;
+      if segleng <= 0 then
+        begin
+          error('size oflow');
+          exit(linker)
+        end;
+      readnsplit;
+      last := fetchbyte(segbase, segleng-1);
+      wp := procs;
+      while wp <> NIL do
+        begin { assign places in code seg }
+          with wp^.defsym^.entry.place^ do
+            begin
+              destbase := nextspot;
+              nextspot := nextspot+length
+            end;
+          if wp^.newproc = 0 then
+            begin { assign new proc # }
+              last := last+1;
+              if last > MAXPROC then
+                begin
+                  error('proc num oflow');
+                  last := 1
+                end;
+              wp^.newproc := last
+            end;
+          wp := wp^.next
+        end;
+      storebyte(last, segbase, segleng-1);
+      storebyte(s, segbase, segleng-2)
+    end { readsrcseg } ;
+
+    {
+    *  Copyinprocs goes through procs list and copies procedure
+    *  bodies from the sep segs into the dest code segment into
+    *  locations set up in readsrcseg. If all goes right, we should
+    *  fill dest seg to the exact byte.  The proc dict is
+    *  updated to show procedures' position.
+    }
+
+    procedure copyinprocs;
+      var cp0, cp1, pdp,
+          jtab, sepbase: codep;
+          wp: workp;
+          cursp: segp;
+          lheap: ^integer;
+          smallmem: boolean; { set in readsepseg }
+          {S: STRING[1];
+          DONE: BOOLEAN;
+          BLOCK: CODEP;}
+
+        {
+        *  Readsepseg reads the sep seg in sp onto the heap as
+        *  done in Phase 2.  We set up sepbase and cursp for
+        *  copyinprocs.  If not enough mem space for sep seg
+        *  then smallmem flag is set and read of sep seg is deferred.
+        }
+
+        procedure readsepseg(sp: segp);
+          var n, nblocks: integer;
+        begin
+          release(lheap);
+          smallmem := FALSE;
+          n := sp^.srcfile^.segtbl.diskinfo[sp^.srcseg].codeleng;
+          nblocks := (n+511) div 512;
+          if memavail-400 < nblocks*256 then
+            if memavail-400 < 256 then
+            begin
+              error('out of mem');
+              exit(linker)
+            end
+            else
+              smallmem := TRUE;
+          if not smallmem then
+          begin
+            n := nblocks;
+            repeat
+              new(sepbase);
+              n := n-1
+            until n <= 0;
+            sepbase := getcodep(ord(lheap));
+            if blockread(sp^.srcfile^.code^, sepbase^, nblocks,
+                sp^.srcfile^.segtbl.diskinfo[sp^.srcseg].codeaddr) <> nblocks then
+              begin
+                error('sep seg read err');
+                exit(linker)
+              end;
+          end;
+          cursp := sp
+        end { readsepseg } ;
+
+        {
+        *  Readncopyproc is called if not enough mem to read in
+        *  complete sep seg.  It will read an entire proc if pos-
+        *  sible and copy to output seg, otherwise it reads and
+        *  copies the procedure block by block.
+        }
+
+        procedure copyproc( sp: segp; srcoffset: integer;
+                            cp: codep; size: icrange );
+          var startblk, lastblk, nblks, blk, copybytes: integer;
+        begin
+          release(lheap);
+          startblk:= srcoffset div 512;
+          nblks:= (size + (srcoffset mod 512) + 511) div 512;
+          if memavail -400 >= nblks*256 then { will read entire proc }
+          begin
+            {WRITELN('COPYING WHOLE PROC');}
+            lastblk := startblk;
+            copybytes := size;
+          end
+          else { will copy block by block }
+          begin
+            {WRITELN('COPYING BY BLOX');}
+            lastblk := startblk + nblks - 1;
+            copybytes := 512 - (srcoffset mod 512);
+            nblks := 1;
+          end;
+          new(sepbase);
+          with sp^, srcfile^ do
+            for blk:= startblk to lastblk do
+              if blockread( code^, sepbase^, nblks,
+                  segtbl.diskinfo[srcseg].codeaddr + blk ) <> nblks then
+              begin
+                error('proc read err'); exit(linker)
+              end
+              else
+                if blk = startblk then
+                begin
+                  moveleft( sepbase^[srcoffset mod 512], cp^, copybytes );
+                  cp:= getcodep( ord(cp) + copybytes );
+                end
+                else
+                  if blk = lastblk then { finish up }
+                    moveleft( sepbase^, cp^, (srcoffset + size) mod 512 )
+                  else
+                  begin
+                    moveleft( sepbase^, cp^, 512 );
+                    cp:= getcodep( ord(cp) + 512 );
+                  end;
+        end { copyproc } ;
+
+    begin { copyinprocs }
+          {DONE:= FALSE;
+          REPEAT
+            WRITE('MEMAVAIL=',MEMAVAIL,', USE MORE MEM?');
+            READLN(S);
+            IF LENGTH(S)=0 THEN
+              DONE:= TRUE
+            ELSE
+              NEW(BLOCK);
+          UNTIL DONE;}
+      sepbase := NIL;
+      cursp := NIL;
+      mark(lheap);
+      wp := procs;
+      while wp <> NIL do
+        with wp^, defsym^.entry do
+          begin { copy in each proc }
+            if cursp <> defseg then
+              readsepseg(defseg);
+            if talkative then
+              begin
+                write('   Copying ');
+                if litype = SEPPROC then
+                  write('proc ')
+                else
+                  write('func ');
+                writeln(name)
+              end;
+            cp1 := getcodep(ord(segbase)+place^.destbase);
+            if smallmem then
+              copyproc( defseg, place^.srcbase, cp1, place^.length )
+            else
+            begin
+              cp0 := getcodep(ord(sepbase)+place^.srcbase);
+              moveleft(cp0^, cp1^, place^.length);
+            end;
+            jtab := getcodep(ord(segbase)+place^.destbase+place^.length-2);
+            if fetchbyte(jtab, 0) <> 0 then
+              storebyte(newproc, jtab, 0);
+            pdp := getcodep(ord(segbase)+segleng-2*newproc-2);
+            storeword(ord(pdp)-ord(jtab), pdp, 0);
+            wp := next
+          end;
+      release(lheap)
+    end { copyinprocs } ;
+
+    {
+    *  Fixuprefs is called to search through reflists and fix
+    *  operand fields of P-code and native code to refer to the
+    *  resolved values.  If fixallrefs is true, then all pointers
+    *  in the ref lists are used, otherwise the reference pointers
+    *  are checked to see if they occur in the procs to-be-linked.
+    }
+
+    procedure fixuprefs(work: workp; fixallrefs: boolean);
+      var n, i, ref, val: integer;
+          wp, wp1: workp;
+          rp: refp;
+          skipit: boolean;
+    begin
+      while work <> NIL do
+        with work^, refsym^.entry do
+          begin { for each work item }
+                { figure resolve val }
+            case litype of
+              SEPPREF,
+              SEPFREF:  val := defproc^.newproc;
+              UNITREF:  val := defsegnum;
+              CONSTREF: val := defsym^.entry.constval;
+              GLOBREF:  val := defsym^.entry.icoffset+
+                               defproc^.defsym^.entry.place^.destbase;
+              PUBLREF,
+              PRIVREF:  begin
+                          if litype = PRIVREF then
+                            val := newoffset
+                          else
+                            val := defsym^.entry.baseoffset;
+                          if format = WORD then
+                            val := (val-1)*2+MSDELTA
+                          else { assume BIG }
+                            if val < 0 then
+                              error('addr oflow')
+                        end
+            end;
+            n := nrefs;
+            rp := reflist;
+            while rp <> NIL do
+              begin
+                if n > 8 then
+                  begin
+                    i := 7;
+                    n := n-8
+                  end
+                else
+                  i := n-1;
+                repeat
+                  ref := rp^.refs[i];
+                  skipit := not fixallrefs;
+                  if skipit then
+                    begin { see if pertinent }
+                      wp := NIL;
+                      wp1 := procs;
+                      while wp1 <> NIL do
+                        if wp1^.defseg = refseg then
+                          begin { find matching seg }
+                            wp := wp1;
+                            wp1 := NIL
+                          end
+                        else
+                          wp1 := wp1^.next;
+                      while (wp <> NIL) and skipit do
+                        if wp^.defseg = refseg then
+                          with wp^.defsym^.entry.place^ do
+                            if ref >= srcbase then
+                              if ref < srcbase+length then
+                                begin
+                                  ref := ref-srcbase+destbase;
+                                  skipit := FALSE
+                                end
+                              else
+                                wp := wp^.next
+                            else
+                              wp := NIL
+                        else
+                          wp := NIL
+                    end;
+                  if not skipit then
+                    case format of { fix up this ref }
+                      WORD:  storeword(val+fetchword(segbase, ref),
+                                                segbase, ref);
+                      BYTE:  storebyte(val, segbase, ref);
+                      BIG:   storebig(val, segbase, ref)
+                    end;
+                  i := i-1
+                until i < 0;
+                rp := rp^.next
+              end;
+            work := next
+          end
+    end { fixuprefs } ;
+
+    {
+    *  writetocode takes the finalized destseg and puts it in
+    *  the output code file.  This also involves setting up values
+    *  in the final segtable for writeout just before locking it.
+    }
+
+    procedure writetocode;
+      var nblocks: integer;
+          jtab: codep;
+    begin
+      if hostsp = seginfo[s] then
+        begin { fix up baselc }
+          jtab := getcodep(ord(segbase)+segleng-4);
+          jtab := getcodep(ord(jtab)-fetchword(jtab, 0));
+          storeword(nextbaselc*2-6, jtab, -8)
+        end;
+      with seginfo[s]^, segtbl do
+        begin
+          nblocks := (segleng+511) div 512;
+          if blockwrite(code, segbase^, nblocks, nextblk) <> nblocks then
+            begin
+              error('code write err');
+              exit(linker)
+            end;
+          diskinfo[s].codeaddr := nextblk;
+          diskinfo[s].codeleng := segleng;
+          segname[s] := srcfile^.segtbl.segname[srcseg];
+          segkind[s] := LINKED;
+          nextblk := nextblk+nblocks
+        end
+    end { writetocode } ;
+
+    {
+    *  Linksegment is called for each segment to be placed into
+    *  the final code file.  The global var s has the seginfo index
+    *  pertaining to the segment, and all the other procedures of
+    *  Phase 3 are called from here.  This proc facilitates linking
+    *  the master seg separatly from the other segs to ensure that
+    *  the DATASZ of the outer block correctly reflects the number
+    *  of PRIVREF words allocated by resolve.
+    }
+
+    procedure linksegment;
+
+        {
+        *  Writemap is called for each seg to write some
+        *  info into map file.
+        }
+
+        procedure writemap;
+          var wp: workp;
+              b: boolean;
+        begin
+          with seginfo[s]^ do
+            writeln(map, 'Seg # ',s,', ', srcfile^.segtbl.segname[srcseg]);
+          wp := procs;
+          if wp <> NIL then
+            writeln(map, '   Sep procs');
+          while wp <> NIL do
+            with wp^.defsym^.entry do
+              begin
+                write(map, '      ', name);
+                if litype = SEPPROC then
+                  write(map, ' proc')
+                else
+                  write(map, ' func');
+                write(map, ' # ', wp^.newproc: 3);
+                write(map, '    base =', place^.destbase: 6);
+                write(map, '    leng =', place^.length: 5);
+                writeln(map);
+                wp := wp^.next
+              end;
+          for b := FALSE to TRUE do
+            begin
+              if b then
+                begin
+                  wp := other;
+                  if wp <> NIL then
+                    writeln(map, '   Sep proc refs')
+                end
+              else
+                begin
+                  wp := local;
+                  if wp <> NIL then
+                    writeln(map, '   Local seg refs')
+                end;
+              while wp <> NIL do
+                with wp^.defsym^.entry do
+                  begin
+                    write(map, '      ', name);
+                    case litype of
+                      SEPPROC,
+                      SEPFUNC:   ;
+                      PUBLDEF:   write(map, ' public LC =', baseoffset: 5);
+                      CONSTDEF:  write(map, ' const val =', constval: 6);
+                      PRIVREF:   write(map, ' privat LC =', wp^.newoffset: 5);
+                      UNITREF:   write(map, ' unit seg# =', wp^.defsegnum: 3);
+                      GLOBDEF:   write(map, ' glob def in ',
+                                    wp^.defproc^.defsym^.entry.name,
+                                    ' @', icoffset: 5)
+                    end;
+                    writeln(map);
+                    wp := wp^.next
+                  end
+            end;
+          writeln(map)
+        end { writemap } ;
+
+    begin { linksegment }
+      sephost := FALSE;
+      segbase := NIL;
+      segleng := 0;
+      if talkative then
+        with seginfo[s]^ do
+          writeln('Linking ',
+                   srcfile^.segtbl.segname[srcseg], ' # ', s);
+      buildworklists;
+      if errcount = 0 then
+        begin
+          readsrcseg;
+          if mapname <> '' then
+            writemap;
+          copyinprocs;
+          fixuprefs(local, TRUE);
+          fixuprefs(other, FALSE);
+          writetocode
+        end;
+      if sephost then
+        seplist := seginfo[s]^.next;
+      release(heapbase)
+    end { linksegment } ;
+
+begin { phase3 }
+  if not useworkfile then
+    begin
+      write('Output file? ');
+      readln(fname);
+      useworkfile := fname = ''
+    end;
+  if useworkfile then
+    rewrite(code, '*SYSTEM.WRK.CODE[*]')
+  else
+    rewrite(code, fname);
+  if IORESULT <> 0 then
+    begin
+      error('Code open err');
+      exit(linker)
+    end;
+  nextblk := 1;
+ { clear output seg table }
+  fillchar(segtbl, sizeof(segtbl), 0);
+  fillchar(filler, sizeof(filler), 0);
+  with segtbl do
+    for s := 0 to MAXSEG do
+      begin
+        segname[s] := '        ';
+        segkind[s] := LINKED
+      end;
+  if mapname <> '' then
+    begin
+      rewrite(map, mapname);
+      if IORESULT <> 0 then
+        begin
+          writeln('Can''t open ', mapname);
+          mapname := ''
+        end
+      else
+        begin
+          write(map, 'Link map for ');
+          if hostsp <> NIL then
+            writeln(map, hostsp^.srcfile^.segtbl.segname[hostsp^.srcseg])
+          else
+            writeln(map, 'assem host');
+          writeln(map)
+        end
+    end;
+  mark(heapbase);
+  unitwrite(3, heapbase^, 35);
+  { link all but host }
+  for s := 0 to MAXSEG do
+    if (seginfo[s] <> NIL)
+    and (seginfo[s] <> hostsp) then
+      linksegment;
+  { link host last! }
+  if hostsp <> NIL then
+    begin
+      s := MASTERSEG;
+      linksegment
+    end;
+  if flipped then fliptable(segtbl); { restore byte-flipped state }
+  if blockwrite(code, segtbl, 1, 0) <> 1 then
+    error('Code write err');
+  if errcount = 0 then
+    begin { final cleanup }
+      close(code, LOCK);
+      if useworkfile then
+        with userinfo do
+          begin
+            gotcode := TRUE;
+            codevid := syvid;
+            codetid := 'SYSTEM.WRK.CODE'
+          end;
+      if mapname <> '' then
+        begin
+          if hostsp <> NIL then
+            writeln(map, 'next base LC = ', nextbaselc);
+          close(map, LOCK)
+        end
+    end
+
+end { phase3 } ;

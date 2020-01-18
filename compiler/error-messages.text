@@ -1,0 +1,157 @@
+  1: Error in simple type
+  2: Identifier expected
+  3: 'PROGRAM' expected
+  4: ')' expected
+  5: ':' expected
+  6: Illegal symbol (possibly missing ';' on line above) 
+  7: Error in parameter list
+  8: 'OF' expected
+  9: '(' expected
+ 10: Error in type
+ 11: '[' expected
+ 12: ']' expected
+ 13: 'END' expected
+ 14: ';' expected (possibly on line above)
+ 15: Integer expected
+ 16: '=' expected
+ 17: 'BEGIN' expected
+ 18: Error in declaration part
+ 19: error in <field-list>
+ 20: '.' expected
+ 21: '*' expected
+ 22: 'Interface' expected
+ 23: 'Implementation' expected
+ 24: 'Unit' expected
+ 50: Error in constant
+ 51: ':=' expected
+ 52: 'THEN' expected
+ 53: 'UNTIL' expected
+ 54: 'DO' expected
+ 55: 'TO' or 'DOWNTO' expected in for statement
+ 56: 'IF' expected
+ 57: 'FILE' expected
+ 58: Error in <factor> (bad expression)
+ 59: Error in variable
+101: Identifier declared twice
+102: Low bound exceeds high bound
+103: Identifier is not of the appropriate class
+104: Undeclared identifier
+105: sign not allowed
+106: Number expected
+107: Incompatible subrange types
+108: File not allowed here
+109: Type must not be real
+110: <tagfield> type must be scalar or subrange
+111: Incompatible with <tagfield> part
+112: Index type must not be real
+113: Index type must be a scalar or a subrange
+114: Base type must not be real
+115: Base type must be a scalar or a subrange
+116: Error in type of standard procedure parameter
+117: Unsatisified forward reference
+118: Forward reference type identifier in variable declaration
+119: Re-specified params not OK for a forward declared procedure
+120: Function result type must be scalar, subrange or pointer
+121: File value parameter not allowed
+122: A forward declared function's result type can't be re-specified
+123: Missing result type in function declaration
+124: F-format for reals only
+125: Error in type of standard procedure parameter
+126: Number of parameters does not agree with declaration
+127: Illegal parameter substitution
+128: Result type does not agree with declaration
+129: Type conflict of operands
+130: Expression is not of set type
+131: Tests on equality allowed only
+132: Strict inclusion not allowed
+133: File comparison not allowed
+134: Illegal type of operand(s)
+135: Type of operand must be boolean
+136: Set element type must be scalar or subrange
+137: Set element types must be compatible
+138: Type of variable is not array
+139: Index type is not compatible with the declaration
+140: Type of variable is not record
+141: Type of variable must be file or pointer
+142: Illegal parameter solution
+143: Illegal type of loop control variable
+144: Illegal type of expression
+145: Type conflict
+146: Assignment of files not allowed
+147: Label type incompatible with selecting expression
+148: Subrange bounds must be scalar
+149: Index type must be integer
+150: Assignment to standard function is not allowed
+151: Assignment to formal function is not allowed
+152: No such field in this record
+153: Type error in read
+154: Actual parameter must be a variable
+155: Control variable cannot be formal or non-local
+156: Multidefined case label
+157: Too many cases in case statement
+158: No such variant in this record
+159: Real or string tagfields not allowed
+160: Previous declaration was not forward
+161: Again forward declared
+162: Parameter size must be constant
+163: Missing variant in declaration
+164: Substition of standard proc/func not allowed
+165: Multidefined label
+166: Multideclared label
+167: Undeclared label
+168: Undefined label
+169: Error in base set
+170: Value parameter expected
+171: Standard file was re-declared
+172: Undeclared external file
+174: Pascal function or procedure expected
+175: Actual parameter max string length < formal Max length
+182: Nested units not allowed
+183: External declaration not allowed at this nesting level
+184: External declaration not allowed in interface section
+185: Segment declaration not allowed in unit
+186: Labels not allowed in interface section
+187: Attempt to open library unsuccessful
+188: Unit not declared in previous uses declaration
+189: 'Uses' not allowed at this nesting level
+190: Unit not in library
+191: No private files
+192: 'Uses' must be in interface section
+193: Not enough room for this operation
+194: Comment must appear at top of program
+195: Unit not importable
+201: Error in real number - digit expected
+202: String constant must not exceed source line
+203: Integer constant exceeds range
+204: 8 or 9 in octal number
+250: Too many scopes of nested identifiers
+251: Too many nested procedures or functions
+252: Too many forward references of procedure entries
+253: Procedure too long
+254: Too many long constants in this procedure
+256: Too many external references
+257: Too many externals
+258: Too many local files
+259: Expression too complicated
+300: Division by zero
+301: No case provided for this value
+302: Index expression out of bounds
+303: Value to be assinged is out of bounds
+304: Element expression out of range
+350: No data segment allocated
+351: Segment used twice
+352: No code segment allocated
+353: Non-intrinsic unit called from intrinsic unit
+354: Too many segments for Seg Dictionary
+398: Implementation restriction
+399: Implementation restriction
+400: Illegal character in text
+401: Unexpected end of input
+402: Error in writing code file, not enough room
+403: Error in reading include file
+404: Error in writing list file, not enough room
+405: Call not allowed in separate procedure
+406: Include file not legal
+407: Too many libraries
+408: (*$S+*) needed to compile units
+500: General assembler error

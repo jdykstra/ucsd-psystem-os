@@ -1,0 +1,543 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+SEGMENT PROCEDURE BODYPART(FSYS: SETOFSYS; FPROCP: CTP);
+
+  PROCEDURE LINKERREF(KLASS: IDCLASS; ID,ADDR: INTEGER);
+  BEGIN
+    IF NREFS > REFSPERBLK THEN (*WRITE BUFFER*)
+      BEGIN
+        IF BLOCKWRITE(REFFILE,REFLIST^,1,REFBLK) <> 1 THEN ERROR(402);
+        REFBLK := REFBLK + 1;
+        NREFS := 1
+      END;
+    WITH REFLIST^[NREFS] DO
+      BEGIN
+        IF KLASS IN VARS THEN KEY := ID + 32
+        ELSE (*PROC*) KEY := ID;
+        OFFSET := SEGINX + ADDR
+      END;
+    NREFS := NREFS + 1
+  END (*LINKERREF*) ;
+
+  PROCEDURE GEN0(FOP: OPRANGE);
+    VAR I: INTEGER; ODDIC: BOOLEAN;
+  BEGIN
+    IF FOP <> 38(*LCA*) THEN GENBYTE(FOP+128)
+    ELSE
+      BEGIN
+        ODDIC := ODD(IC); STRGCSTIC := IC;
+        IF NOT ODDIC THEN GENBYTE(215(*NOP*));
+        GENBYTE(166(*LCA*));
+        WITH GATTR.CVAL.VALP^ DO
+          BEGIN GENBYTE(SLGTH);
+            FOR I := 1 TO SLGTH DO GENBYTE(ORD(SVAL[I]));
+            IF ODDIC THEN GENBYTE(215(*NOP*))
+          END
+        END
+  END (*GEN0*) ;
+
+  PROCEDURE GENLDC(IVAL: INTEGER);
+  BEGIN
+    IF (IVAL >= 0) AND (IVAL <= 127) THEN GENBYTE(IVAL)
+    ELSE
+      BEGIN GENBYTE(51(*LDC*)+148);
+        GENBYTE( ABS(IVAL) MOD 256 );
+        GENBYTE( ABS(IVAL) DIV 256 );
+        IF IVAL<0 THEN GEN0(17(*NGI*))
+      END
+  END (*GENLDC*) ;
+
+  PROCEDURE GENBIG(IVAL: INTEGER);
+  BEGIN
+    IF IVAL <= 127 THEN GENBYTE(IVAL)
+    ELSE
+      BEGIN
+        GENBYTE( 128+(IVAL DIV 256) );
+        GENBYTE( IVAL MOD 256 )
+      END
+  END (*GENBIG*) ;
+
+  PROCEDURE GEN1(FOP: OPRANGE; FP2: INTEGER);
+    LABEL 1;
+    VAR I,J: INTEGER;
+  BEGIN
+    GENBYTE(FOP+128);
+    IF FOP = 51(*LDC*) THEN
+      BEGIN
+        IF FP2 = 2 THEN I := REALSIZE
+        ELSE
+          BEGIN I := 8;
+            WHILE I > 0 DO
+              IF GATTR.CVAL.VALP^.CSTVAL[I] <> 0 THEN GOTO 1
+              ELSE I := I - 1;
+      1:  END;
+        GATTR.TYPTR^.SIZE := I;
+        IF I > 1 THEN
+          BEGIN GENBYTE(I);
+            FOR J := I DOWNTO 1 DO GENWORD(GATTR.CVAL.VALP^.CSTVAL[J])
+          END
+        ELSE
+          BEGIN IC := IC - 1;
+            IF I = 1 THEN GENLDC(GATTR.CVAL.VALP^.CSTVAL[1])
+          END
+      END
+    ELSE
+      IF FOP IN [30(*CSP*),32(*ADJ*),45(*RNP*),
+                 46(*CIP*),60(*LDM*),61(*STM*),
+                 65(*RBP*),66(*CBP*),78(*CLP*),
+                 42(*SAS*),79(*CGP*)] THEN GENBYTE(FP2)
+      ELSE
+        IF INMODULE AND (FOP IN [37(*LAO*),41(*LDO*),43(*SRO*)]) THEN
+          BEGIN LINKERREF(ACTUALVARS,FP2,IC); GENBYTE(128); GENBYTE(0) END
+        ELSE
+          IF ((FOP = 74(*LDL*)) OR (FOP = 41(*LDO*)))
+              AND (FP2 <= 16) THEN
+            BEGIN IC := IC-1;
+              IF FOP = 41(*LDO*) THEN GENBYTE(231+FP2)
+              ELSE GENBYTE(215+FP2)
+            END
+          ELSE
+            IF (FOP = 35(*IND*)) AND (FP2 <= 7) THEN
+              BEGIN IC := IC-1; GENBYTE(248+FP2) END
+            ELSE
+              GENBIG(FP2)
+  END (*GEN1*) ;
+
+  PROCEDURE GEN2(FOP: OPRANGE; FP1,FP2: INTEGER);
+  BEGIN
+    IF (FOP = 64(*IXP*)) OR (FOP = 77(*CXP*)) THEN
+      BEGIN GENBYTE(FOP+128); GENBYTE(FP1); GENBYTE(FP2);
+      END
+    ELSE
+      IF FOP IN [47(*EQU*),48(*GEQ*),49(*GRT*),
+                 52(*LEQ*),53(*LES*),55(*NEQ*)] THEN
+        IF FP1 = 0 THEN GEN0(FOP+20)
+        ELSE
+          BEGIN GEN1(FOP,FP1+FP1);
+            IF FP1 > 4 THEN GENBIG(FP2)
+          END
+      ELSE
+        BEGIN (*LDA,LOD,STR*)
+          IF FP1 = 0 THEN GEN1(FOP+20,FP2)
+          ELSE
+            BEGIN
+              GENBYTE(FOP+128); GENBYTE(FP1); GENBIG(FP2)
+            END
+        END;
+  END (*GEN2*) ;
+
+  PROCEDURE GENNR(EXTPROC: NONRESIDENT);
+
+   PROCEDURE ASSIGN(EXTPROC: NONRESIDENT);
+   BEGIN
+     PROCTABLE[NEXTPROC] := 0;
+     PFNUMOF[EXTPROC] := NEXTPROC; NEXTPROC := NEXTPROC + 1;
+     IF NEXTPROC > MAXPROCNUM THEN ERROR(193);(*NOT ENOUGH ROOM FOR THIS*)
+     CLINKERINFO := TRUE                                  (*OPERATION*)
+   END (*ASSIGN*) ;
+
+  BEGIN (*GENNR*)
+    IF PFNUMOF[EXTPROC] = 0 THEN ASSIGN(EXTPROC);
+    IF SEPPROC THEN
+      BEGIN
+        GEN1(79(*CGP*),0); LINKERREF(PROC,-PFNUMOF[EXTPROC],IC-1)
+      END
+    ELSE
+      GEN1(79(*CGP*),PFNUMOF[EXTPROC]);
+  END (*GENNR*) ;
+
+  PROCEDURE GENJMP(FOP: OPRANGE; FLBP: LBP);
+    VAR DISP: INTEGER;
+  BEGIN
+    WITH FLBP^ DO
+      IF DEFINED THEN
+        BEGIN
+          GENBYTE(FOP+128);
+          DISP := OCCURIC-IC-1;
+          IF (DISP >= 0) AND (DISP <= 127) THEN GENBYTE(DISP)
+          ELSE
+            BEGIN
+              IF JTABINX = 0 THEN
+                BEGIN JTABINX := NEXTJTAB;
+                  IF NEXTJTAB = MAXJTAB THEN ERROR(253)
+                  ELSE NEXTJTAB := NEXTJTAB + 1;
+                  JTAB[JTABINX] := OCCURIC
+                END;
+              DISP := -JTABINX;
+              GENBYTE(248-JTABINX-JTABINX)
+            END;
+        END
+      ELSE
+        BEGIN MOVELEFT(REFLIST,CODEP^[IC],2);
+          IF FOP = 57(*UJP*) THEN DISP := IC + 4096
+          ELSE DISP := IC;
+          REFLIST := DISP; IC := IC+2
+        END;
+  END (*GENJMP*) ;
+
+  PROCEDURE LOAD; FORWARD;
+
+  PROCEDURE GENFJP(FLBP: LBP);
+  BEGIN LOAD;
+    IF GATTR.TYPTR <> BOOLPTR THEN ERROR(135);
+    GENJMP(33(*FJP*),FLBP)
+  END (*GENFJP*) ;
+
+  PROCEDURE GENLABEL(VAR FLBP: LBP);
+  BEGIN NEW(FLBP);
+    WITH FLBP^ DO
+      BEGIN DEFINED := FALSE; REFLIST := MAXADDR END
+  END (*GENLABEL*) ;
+
+  PROCEDURE PUTLABEL(FLBP: LBP);
+    VAR LREF: INTEGER; LOP: OPRANGE;
+  BEGIN
+    WITH FLBP^ DO
+      BEGIN LREF := REFLIST;
+        DEFINED := TRUE; OCCURIC := IC; JTABINX := 0;
+        WHILE LREF < MAXADDR DO
+          BEGIN
+            IF LREF >= 4096 THEN
+              BEGIN LREF := LREF - 4096; LOP := 57(*UJP*) END
+            ELSE LOP := 33(*FJP*);
+            IC := LREF;
+            MOVELEFT(CODEP^[IC],LREF,2);
+            GENJMP(LOP,FLBP)
+          END;
+        IC := OCCURIC
+      END
+  END (*PUTLABEL*) ;
+
+  PROCEDURE LOAD;
+  VAR J,M: INTEGER;
+  BEGIN
+    WITH GATTR DO
+      IF TYPTR <> NIL THEN
+        BEGIN
+          CASE KIND OF
+            CST:   IF TYPTR^.FORM = LONGINT THEN
+                     WITH GATTR.CVAL.VALP^ DO
+                       BEGIN
+                         M := 10000;
+                         GENLDC(LONGVAL[1]); GENLDC(18(*DCVT*)); GENNR(DECOPS);
+                         FOR J := 2 TO LLENG DO
+                           BEGIN
+                             IF J = LLENG THEN M := TRUNC(PWROFTEN(LLAST));
+                             GENLDC(M); GENLDC(18(*DCVT*)); GENNR(DECOPS);
+                             GENLDC(8(*DMP*)); GENNR(DECOPS);
+                             GENLDC(LONGVAL[J]);
+                             GENLDC(18(*DCVT*)); GENNR(DECOPS);
+                             GENLDC(2(*DAD*)); GENNR(DECOPS)
+                           END
+                       END
+                   ELSE
+                     IF (TYPTR^.FORM = SCALAR) AND (TYPTR <> REALPTR) THEN
+                       GENLDC(CVAL.IVAL)
+                     ELSE
+                       IF TYPTR = NILPTR THEN GEN0(31(*LDCN*))
+                       ELSE
+                         IF TYPTR = REALPTR THEN GEN1(51(*LDC*),2)
+                         ELSE GEN1(51(*LDC*),5);
+            VARBL: CASE ACCESS OF
+                     DRCT:   IF VLEVEL = 1 THEN GEN1(41(*LDO*),DPLMT)
+                             ELSE GEN2(54(*LOD*),LEVEL-VLEVEL,DPLMT);
+                     INDRCT: GEN1(35(*IND*),IDPLMT);
+                     PACKD:  GEN0(58(*LDP*));
+                     MULTI:  GEN1(60(*LDM*),TYPTR^.SIZE);
+                     BYTE:   GEN0(62(*LDB*))
+                   END;
+            EXPR:
+          END;
+          WITH TYPTR^ DO
+            IF ((FORM = POWER) OR
+               (FORM = LONGINT) AND (KIND <> CST))
+               AND (KIND <> EXPR) THEN GENLDC(TYPTR^.SIZE);
+          KIND := EXPR
+        END
+  END (*LOAD*) ;
+
+  PROCEDURE STORE(VAR FATTR: ATTR);
+  BEGIN
+    WITH FATTR DO
+      IF TYPTR <> NIL THEN
+        CASE ACCESS OF
+          DRCT:   IF VLEVEL = 1 THEN GEN1(43(*SRO*),DPLMT)
+                  ELSE GEN2(56(*STR*),LEVEL-VLEVEL,DPLMT);
+          INDRCT: IF IDPLMT <> 0 THEN ERROR(400)
+                  ELSE GEN0(26(*STO*));
+          PACKD:  GEN0(59(*STP*));
+          MULTI:  GEN1(61(*STM*),TYPTR^.SIZE);
+          BYTE:   GEN0(63(*STB*))
+        END
+  END (*STORE*) ;
+
+  PROCEDURE LOADADDRESS;
+  BEGIN
+    WITH GATTR DO
+      IF TYPTR <> NIL THEN
+        BEGIN
+          CASE KIND OF
+            CST:   IF STRGTYPE(TYPTR) THEN GEN0(38(*LCA*))
+                   ELSE ERROR(400);
+            VARBL: CASE ACCESS OF
+                     DRCT:   IF VLEVEL = 1 THEN GEN1(37(*LAO*),DPLMT)
+                             ELSE GEN2(50(*LDA*),LEVEL-VLEVEL,DPLMT);
+                     INDRCT: IF IDPLMT <> 0 THEN GEN1(34(*INC*),IDPLMT);
+                     PACKD:  ERROR(103)
+                   END
+          END;
+          KIND := VARBL; ACCESS := INDRCT; IDPLMT := 0
+        END
+  END (*LOADADDRESS*) ;
+
+  PROCEDURE BYTEADDRESS;
+  BEGIN
+    WITH GATTR DO
+      IF TYPTR <> NIL THEN
+        BEGIN
+          CASE KIND OF
+            CST:   IF STRGTYPE(TYPTR) THEN GEN0(38(*LCA*))
+                   ELSE ERROR(400);
+            VARBL: CASE ACCESS OF
+                     DRCT:   IF VLEVEL = 1 THEN GEN1(37(*LAO*),DPLMT)
+                             ELSE GEN2(50(*LDA*),LEVEL-VLEVEL,DPLMT);
+                     INDRCT: IF IDPLMT <> 0 THEN GEN1(34(*INC*),IDPLMT);
+                     PACKD:  ERROR(103)
+                   END
+          END;
+          IF KIND <> VARBL THEN BEGIN KIND := VARBL; GENLDC(0) END
+          ELSE
+            IF ACCESS <> BYTE THEN GENLDC(0);
+          ACCESS := BYTE;
+        END
+  END (*BYTEADDRESS*) ;
+
+  PROCEDURE STRGTOPA(FIC: ADDRRANGE);
+    BEGIN
+      IF ODD(FIC) THEN
+        BEGIN
+          MOVERIGHT( CODEP^[FIC+1], CODEP^[FIC+2], ORD(CODEP^[FIC+1])+1 );
+          CODEP^[FIC] := CHR(215(*NOP*)); CODEP^[FIC+1] := CHR(208(*LPA*))
+        END
+      ELSE
+        BEGIN
+          MOVELEFT( CODEP^[FIC+2], CODEP^[FIC+1], ORD(CODEP^[FIC+2])+1 );
+          CODEP^[FIC] := CHR(208); CODEP^[FIC+ORD(CODEP^[FIC+1])+2] := CHR(215)
+        END
+    END (*STRGTOPA*) ;
+
+  PROCEDURE EXPRESSION(FSYS: SETOFSYS); FORWARD;
+
+  PROCEDURE SELECTOR(FSYS: SETOFSYS; FCP: CTP);
+    VAR LATTR: ATTR; LCP: CTP; LMIN,LMAX: INTEGER;
+  BEGIN
+    WITH FCP^, GATTR DO
+      BEGIN TYPTR := IDTYPE; KIND := VARBL;
+        CASE KLASS OF
+          ACTUALVARS:
+            BEGIN VLEVEL := VLEV; DPLMT := VADDR; ACCESS := DRCT;
+              IF INMODULE THEN
+                IF TYPTR <> NIL THEN
+                  IF (VLEV = 1) AND (TYPTR^.FORM = RECORDS) THEN LOADADDRESS
+            END;
+          FORMALVARS:
+            BEGIN
+              IF VLEV = 1 THEN GEN1(41(*LDO*),VADDR)
+              ELSE GEN2(54(*LOD*),LEVEL-VLEV,VADDR);
+              ACCESS := INDRCT; IDPLMT := 0
+            END;
+          FIELD:
+            WITH DISPLAY[DISX] DO
+             BEGIN
+              IF OCCUR = CREC THEN
+                BEGIN ACCESS := DRCT; VLEVEL := CLEV;
+                  DPLMT := CDSPL + FLDADDR
+                END
+              ELSE
+                BEGIN
+                  IF LEVEL = 1 THEN GEN1(41(*LDO*),VDSPL)
+                  ELSE GEN2(54(*LOD*),0,VDSPL);
+                  ACCESS := INDRCT; IDPLMT := FLDADDR
+                END;
+              IF FISPACKD THEN
+                BEGIN LOADADDRESS;
+                  ACCESS := PACKD;
+                  GENLDC(FLDWIDTH); GENLDC(FLDRBIT)
+                END
+             END;
+          FUNC:
+            IF PFDECKIND <> DECLARED THEN ERROR(150)
+            ELSE
+              IF NOT INSCOPE THEN ERROR(103)
+              ELSE
+                  BEGIN ACCESS := DRCT; VLEVEL := PFLEV + 1;
+                    DPLMT := LCAFTERMARKSTACK
+                  END
+        END (*CASE*);
+        IF TYPTR <> NIL THEN
+          IF (TYPTR^.FORM <= POWER) AND
+             (TYPTR^.SIZE > PTRSIZE) THEN
+            BEGIN LOADADDRESS; ACCESS := MULTI END
+      END (*WITH*);
+    IF NOT (SY IN SELECTSYS + FSYS) THEN
+      BEGIN ERROR(59); SKIP(SELECTSYS + FSYS) END;
+    WHILE SY IN SELECTSYS DO
+      BEGIN
+  (*[*) IF SY = LBRACK THEN
+          BEGIN
+            REPEAT LATTR := GATTR;
+              WITH LATTR DO
+                IF TYPTR <> NIL THEN
+                  IF TYPTR^.FORM <> ARRAYS THEN
+                    BEGIN ERROR(138); TYPTR := NIL END;
+              LOADADDRESS;
+              INSYMBOL; EXPRESSION(FSYS + [COMMA,RBRACK]);
+              LOAD;
+              IF GATTR.TYPTR <> NIL THEN
+                IF GATTR.TYPTR^.FORM <> SCALAR THEN ERROR(113);
+              IF LATTR.TYPTR <> NIL THEN
+                WITH LATTR.TYPTR^ DO
+                  BEGIN
+                    IF COMPTYPES(INXTYPE,GATTR.TYPTR) THEN
+                      BEGIN
+                        IF (INXTYPE <> NIL) AND
+                            NOT STRGTYPE(LATTR.TYPTR) THEN
+                          BEGIN GETBOUNDS(INXTYPE,LMIN,LMAX);
+                            IF RANGECHECK THEN
+                              BEGIN GENLDC(LMIN); GENLDC(LMAX);
+                                GEN0(8(*CHK*))
+                              END;
+                            IF LMIN <> 0 THEN
+                              BEGIN GENLDC(ABS(LMIN));
+                                IF LMIN > 0 THEN GEN0(21(*SBI*))
+                                ELSE GEN0(2(*ADI*))
+                              END
+                          END
+                      END
+                    ELSE ERROR(139);
+                    WITH GATTR DO
+                      BEGIN TYPTR := AELTYPE; KIND := VARBL;
+                        ACCESS := INDRCT; IDPLMT := 0;
+                        IF TYPTR <> NIL THEN
+                          IF AISPACKD THEN
+                            IF ELWIDTH = 8 THEN
+                              BEGIN ACCESS := BYTE;
+                                IF STRGTYPE(LATTR.TYPTR) AND RANGECHECK THEN
+                                  GEN0(27(*IXS*))
+                                ELSE (*LEAVE BASE-INDEX PAIR*)
+                              END
+                            ELSE
+                              BEGIN ACCESS := PACKD;
+                                GEN2(64(*IXP*),ELSPERWD,ELWIDTH)
+                              END
+                          ELSE
+                            BEGIN GEN1(36(*IXA*),TYPTR^.SIZE);
+                              IF (TYPTR^.FORM <= POWER) AND
+                                 (TYPTR^.SIZE > PTRSIZE) THEN
+                                ACCESS := MULTI
+                            END
+                      END
+                  END
+            UNTIL SY <> COMMA;
+            IF SY = RBRACK THEN INSYMBOL ELSE ERROR(12)
+          END (*IF SY = LBRACK*)
+        ELSE
+  (*.*)   IF SY = PERIOD THEN
+            BEGIN
+              WITH GATTR DO
+                BEGIN
+                  IF TYPTR <> NIL THEN
+                    IF TYPTR^.FORM <> RECORDS THEN
+                      BEGIN ERROR(140); TYPTR := NIL END;
+                  INSYMBOL;
+                  IF SY = IDENT THEN
+                    BEGIN
+                      IF TYPTR <> NIL THEN
+                        BEGIN SEARCHSECTION(TYPTR^.FSTFLD,LCP);
+                          IF LCP = NIL THEN
+                            BEGIN ERROR(152); TYPTR := NIL END
+                          ELSE
+                            WITH LCP^ DO
+                              BEGIN TYPTR := IDTYPE;
+                                CASE ACCESS OF
+                                  DRCT:   DPLMT := DPLMT + FLDADDR;
+                                  INDRCT: IDPLMT := IDPLMT + FLDADDR;
+                                  MULTI,BYTE,
+                                  PACKD:  ERROR(400)
+                                END (*CASE ACCESS*);
+                                IF FISPACKD THEN
+                                  BEGIN LOADADDRESS;
+                                    ACCESS := PACKD;
+                                    GENLDC(FLDWIDTH); GENLDC(FLDRBIT)
+                                  END;
+                                IF TYPTR <> NIL THEN
+                                  IF (TYPTR^.FORM <= POWER) AND
+                                     (TYPTR^.SIZE > PTRSIZE) THEN
+                                    BEGIN LOADADDRESS; ACCESS := MULTI END
+                              END
+                        END;
+                      INSYMBOL
+                    END (*SY = IDENT*)
+                  ELSE ERROR(2)
+                END (*WITH GATTR*)
+            END (*IF SY = PERIOD*)
+          ELSE
+  (*^*)     BEGIN
+              IF GATTR.TYPTR <> NIL THEN
+                WITH GATTR,TYPTR^ DO
+                  IF (FORM = POINTER) OR (FORM = FILES) THEN
+                    BEGIN LOAD; KIND := VARBL;
+                      ACCESS := INDRCT; IDPLMT := 0;
+                      IF FORM = POINTER THEN TYPTR := ELTYPE
+                      ELSE
+                        BEGIN TYPTR := FILTYPE;
+                          IF TYPTR = NIL THEN ERROR(399)
+                        END;
+                      IF TYPTR <> NIL THEN
+                        IF (TYPTR^.FORM <= POWER) AND
+                           (TYPTR^.SIZE > PTRSIZE) THEN
+                                ACCESS := MULTI
+                    END
+                  ELSE ERROR(141);
+              INSYMBOL
+            END;
+        IF NOT (SY IN FSYS + SELECTSYS) THEN
+          BEGIN ERROR(6); SKIP(FSYS + SELECTSYS) END
+      END (*WHILE*)
+
+  END (*SELECTOR*) ;

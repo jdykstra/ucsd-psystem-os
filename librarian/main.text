@@ -1,0 +1,558 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+(*
+ * UCSD p-System Operating System
+ * Copyright (C) 2010 Peter Miller
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of the ucsd-psystem-os project nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *)
+
+{*************************************}
+{*                                   *}
+{*      Pascal System Librarian      *}
+{*          (Version II.0)           *}
+{*                                   *}
+{*      I.5 release version          *}
+{*        written Summer '78         *}
+{*        by Roger Sumner            *}
+{*                                   *}
+{*      Modified March 1979          *}
+{*        by Gary Dismukes           *}
+{*      to handle byte-flipped       *}
+{*      files;                       *}
+{*      also Procedure Copyinterface *}
+{*      rewritten.                   *}
+{*                                   *}
+{*************************************}
+(*$S+,U-*)
+program segment0;
+CONST
+     MAXSEG = 15;       (*MAX CODE SEGMENT NUMBER*)
+
+TYPE
+                                        (*CODE SEGMENT LAYOUTS*)
+
+     SEGRANGE = 0..MAXSEG;
+     SEGDESC = RECORD
+                 DISKADDR: INTEGER;     (*REL BLK IN CODE...ABS IN SYSCOM^*)
+                 CODELENG: INTEGER      (*# BYTES TO READ IN*)
+               END (*SEGDESC*) ;
+                                        (*SYSTEM COMMUNICATION AREA*)
+                                        (*SEE INTERPRETERS...NOTE  *)
+                                        (*THAT WE ASSUME BACKWARD  *)
+                                        (*FIELD ALLOCATION IS DONE *)
+     SYSCOMREC = RECORD
+                   IORSLT: INTEGER ;    (*RESULT OF LAST IO CALL*)
+                   XEQERR: INTEGER;     (*REASON FOR EXECERROR CALL*)
+                   SYSUNIT: INTEGER;    (*PHYSICAL UNIT OF BOOTLOAD*)
+                   BUGSTATE: INTEGER;   (*DEBUGGER INFO*)
+                   GDIRP: INTEGER;
+                   LASTMP,STKBASE,BOMBP: INTEGER;
+                   MEMTOP,SEG,JTAB: INTEGER;
+                   BOMBIPC: INTEGER;    (*WHERE XEQERR BLOWUP WAS*)
+                   HLTLINE: INTEGER;    (*MORE DEBUGGER STUFF*)
+                   BRKPTS: ARRAY [0..3] OF INTEGER;
+                   RETRIES: INTEGER;    (*DRIVERS PUT RETRY COUNTS*)
+                   EXPANSION: ARRAY [0..8] OF INTEGER;
+                   HIGHTIME,LOWTIME: INTEGER;
+                   MISCINFO: PACKED RECORD
+                               NOBREAK,STUPID,SLOWTERM,
+                               HASXYCRT,HASLCCRT,HAS8510A,HASCLOCK: BOOLEAN
+                             END;
+                   CRTTYPE: INTEGER;
+                   CRTCTRL: PACKED RECORD
+                              RLF,NDFS,ERASEEOL,ERASEEOS,HOME,ESCAPE: CHAR;
+                              BACKSPACE: CHAR;
+                              FILLCOUNT: 0..255;
+                              EXPANSION: PACKED ARRAY [0..3] OF CHAR
+                            END;
+                   CRTINFO: PACKED RECORD
+                              WIDTH,HEIGHT: INTEGER;
+                              RIGHT,LEFT,DOWN,UP: CHAR;
+                              BADCH,CHARDEL,STOP,BREAK,FLUSH,EOF: CHAR;
+                              ALTMODE,LINEDEL: CHAR;
+                              EXPANSION: PACKED ARRAY [0..5] OF CHAR
+                            END;
+                   SEGTABLE: ARRAY [SEGRANGE] OF
+                               RECORD
+                                 CODEUNIT: INTEGER;
+                                 CODEDESC: SEGDESC
+                               END
+                 END (*SYSCOM*);
+
+VAR
+    SYSCOM: ^SYSCOMREC;                 (*MAGIC PARAM...SET UP IN BOOT*)
+
+SEGMENT PROCEDURE LIBRARIAN(III,JJJ: INTEGER);
+
+CONST
+  WINDOW = 2;
+  ERROR = 23;
+  MARKCODE = 15;
+  MARKIN = 5;
+
+
+TYPE
+     BLOCK0P = ^BLOCK0;
+     BLOCK0 = RECORD
+                SEGDSC: ARRAY [SEGRANGE] OF SEGDESC;
+                SEGNAME: ARRAY [SEGRANGE] OF
+                           PACKED ARRAY [0..7] OF CHAR;
+                SEGKIND: ARRAY [SEGRANGE] OF INTEGER;
+                EXTRA: ARRAY [SEGRANGE] OF INTEGER;
+                FILLER: ARRAY [1..88] OF INTEGER;
+                NOTICE: STRING[79]
+              END;
+
+
+VAR NBLOCKS,RSLT,OUTBLOCK: INTEGER;
+    BUF: BLOCK0P;
+    DSEG,SSEG: SEGRANGE;
+    PL,TITLE: STRING;
+    CODETBL: BLOCK0;
+    CODE,INFILE: FILE;
+    firstfile, flipped: Boolean;
+
+
+procedure byteswap(var word: integer);
+  var  temp1,temp2: packed record
+                      case boolean of
+                        TRUE:  (val: integer);
+                        FALSE: (lowbyte: 0..255;
+                                highbyte:0..255);
+                    end;
+begin
+  temp1.val:= word;
+  temp2.lowbyte:= temp1.highbyte;
+  temp2.highbyte:= temp1.lowbyte;
+  word:= temp2.val;
+end;
+
+Function Table_flipped( var Table: block0 ): Boolean;
+  label 1;
+  var s: segrange;
+      highbyte: 0..1;
+      int: record
+             case boolean of
+               TRUE: (val: integer);
+               FALSE:(byte: packed array [0..1] of 0..255)
+             end;
+begin
+  Table_flipped := FALSE;
+  {First determine sex of this machine}
+  int.val := 1;
+  highbyte := ord(int.byte[0] = 1);
+
+  for s:= 0 to MAXSEG do
+    with Table.segdsc[s] do
+    begin
+      int.val:= diskaddr;
+      if int.byte[highbyte] <> 0 then
+      begin
+        Table_flipped:= TRUE;
+        goto 1;
+      end;
+    end;
+1:end;
+
+procedure fliptable(var table: block0);
+  var  s: segrange;
+begin
+  for s := 0 to MAXSEG do
+    with table, segdsc[s] do
+    begin
+      byteswap(diskaddr);
+      byteswap(codeleng);
+      byteswap(segkind[s]);
+      byteswap(extra[s]);
+    end;
+end;
+
+PROCEDURE NEWLINKER;
+
+VAR CCH: CHAR;
+    INTBL: BLOCK0P;
+    NTITLE: STRING;
+    CODETABLE: BLOCK0P;
+    PL: STRING;
+
+PROCEDURE PROMPT(AT: INTEGER);
+BEGIN
+  GOTOXY(0,AT);
+  IF AT = ERROR THEN WRITE(CHR(7));
+  WRITE(PL);
+  WITH SYSCOM^.CRTCTRL DO WRITE(ESCAPE,ERASEEOL);
+END;
+
+FUNCTION CHECKIO:BOOLEAN;
+VAR RSLT:INTEGER;
+BEGIN
+  CHECKIO:=IORESULT=0;
+  IF IORESULT <> 0 THEN
+    BEGIN
+      RSLT:=IORESULT;
+      PL := 'I/O error # ';
+      PROMPT(ERROR);
+      WRITE(OUTPUT,RSLT);
+    END;
+END; (* CHECKIO *)
+
+PROCEDURE OPENFILE;
+BEGIN
+  REPEAT
+    PL := 'Link Code File -> ';
+    PROMPT(4);
+    READLN(INPUT,NTITLE);
+    if ntitle = '*' then
+      ntitle:= '*SYSTEM.LIBRARY';
+    IF LENGTH(NTITLE) > 0 THEN
+      BEGIN
+        TITLE := NTITLE;
+        RESET(INFILE,NTITLE);
+      END;
+  UNTIL (CHECKIO) OR (LENGTH(NTITLE) = 0);
+END (*OPENFILE*) ;
+
+PROCEDURE DISPLAY(AT: INTEGER; WHAT: BLOCK0P);
+VAR
+  T: INTEGER;
+BEGIN
+  GOTOXY(0,AT);
+  WITH WHAT^ DO
+    FOR T := 0 TO 3 DO
+      BEGIN
+        WRITE(T:3,'-',SEGNAME[T],SEGDSC[T].CODELENG:6);
+        WRITE(T+4:5,'-',SEGNAME[T+4],SEGDSC[T+4].CODELENG:6);
+        WRITE(T+8:5,'-',SEGNAME[T+8],SEGDSC[T+8].CODELENG:6);
+        WRITELN(T+12:5,'-',SEGNAME[T+12],SEGDSC[T+12].CODELENG:6)
+      END;
+  PL := 'Code file length - ';
+  PROMPT(12);
+  WRITE(OUTPUT,OUTBLOCK);
+END;
+
+
+PROCEDURE LINKCODE;
+  VAR NBLOCKS: INTEGER;
+
+  PROCEDURE LINKIT;
+
+    PROCEDURE COPYLINKINFO(INFOBLK: INTEGER);
+      VAR N, NRECS: INTEGER;
+          DONE: BOOLEAN;
+          REC: ARRAY [0..7] OF INTEGER;
+          BUF: ARRAY [0..31, 0..7] OF INTEGER;
+
+        PROCEDURE GETREC;
+        BEGIN
+          IF NRECS = 0 THEN
+            IF BLOCKREAD(INFILE, BUF, 1, INFOBLK) <> 1 THEN
+              BEGIN
+                PL := 'Link info read err';
+                PROMPT(ERROR);
+                DONE := TRUE
+              END
+            ELSE
+              IF BLOCKWRITE(CODE, BUF, 1, OUTBLOCK) <> 1 THEN
+                BEGIN
+                  PL := 'Code file overflow';
+                  PROMPT(ERROR);
+                  DONE := TRUE
+                END
+              ELSE
+                BEGIN
+                  OUTBLOCK := OUTBLOCK+1;
+                  INFOBLK := INFOBLK+1;
+                  NRECS := 32
+                END;
+          IF NOT DONE THEN
+            REC := BUF[32-NRECS];
+          NRECS := NRECS-1
+        END { GETREC } ;
+
+    BEGIN { COPYLINKINFO }
+      NRECS := 0; DONE := FALSE;
+      REPEAT
+        GETREC;
+        if flipped then
+          byteswap(rec[4]);
+        IF NOT (REC[4] IN [0..14]) THEN
+          BEGIN
+            PL := 'Bad link info';
+            PROMPT(ERROR);
+            REC[4] := 0
+          END;
+        DONE := REC[4] = 0;
+        IF NOT DONE THEN
+          IF REC[4] IN [1..5,13,14] THEN
+            BEGIN { COPY REF LIST }
+              if flipped then
+                byteswap(rec[6]);
+              N := (REC[6]+7) DIV 8;
+              WHILE N > 0 DO
+                BEGIN GETREC; N := N-1 END
+            END
+      UNTIL DONE
+    END { COPYLINKINFO } ;
+
+      Procedure Copyinterface (start: integer);
+        { Rewritten March 4, 1979 by G. Dismukes for II.0 }
+        var blkcount, ifsize: integer;
+            done: Boolean;
+            buf: packed array [0..1023] of char;
+      begin
+        if (start <= 0) or (start > 200) then
+          exit(Copyinterface);
+        ifsize:= intbl^.segdsc[sseg].diskaddr - start;
+        if (ifsize <= 0) or odd(ifsize) then
+        begin
+          pl:= 'Interface error';
+          prompt(error);
+          exit(Copyinterface);
+        end;
+        codetable^.extra[dseg]:= outblock;
+        done:= FALSE;
+        blkcount:= 0;
+        repeat
+          if blockread(infile, buf, 2, start+blkcount) <> 2 then
+          begin
+            pl:= 'Interface read err';
+            prompt(error);
+            done:= TRUE;
+          end
+          else
+            if blockwrite(code, buf, 2, outblock) <> 2 then
+            begin
+              pl:= 'Interface write err';
+              prompt(error);
+              done:= TRUE;
+            end
+            else
+            begin
+              outblock:= outblock + 2;
+              blkcount:= blkcount + 2;
+              done:= (blkcount = ifsize);
+            end;
+        until done;
+      end;
+
+    BEGIN
+      WITH INTBL^,SEGDSC[SSEG] DO
+        BEGIN
+          CODETABLE^.EXTRA[DSEG] := 0;
+          IF (SEGKIND[SSEG] IN [3,4]) THEN
+            COPYINTERFACE(EXTRA[SSEG]);
+          NBLOCKS := (CODELENG+511) DIV 512;
+          IF BLOCKREAD(INFILE,BUF^,NBLOCKS,DISKADDR) <> NBLOCKS THEN
+            BEGIN
+              PL := 'Error reading seg ';
+              PROMPT(ERROR);
+              WRITE(OUTPUT,SSEG);
+            END
+          ELSE
+            IF BLOCKWRITE(CODE,BUF^,NBLOCKS,OUTBLOCK) <> NBLOCKS THEN
+              BEGIN
+                PL := 'I/O error - no room on disk';
+                PROMPT(ERROR);
+              END
+            ELSE
+              BEGIN
+                CODETABLE^.SEGNAME[DSEG] := SEGNAME[SSEG];
+                CODETABLE^.SEGDSC[DSEG].CODELENG := CODELENG;
+                CODETABLE^.SEGDSC[DSEG].DISKADDR := OUTBLOCK;
+                OUTBLOCK := OUTBLOCK+NBLOCKS;
+                IF (SEGKIND[SSEG] < 0) OR (SEGKIND[SSEG] > 4) THEN
+                  SEGKIND[SSEG] := 0;
+                CODETABLE^.SEGKIND[DSEG] := SEGKIND[SSEG];
+                IF SEGKIND[SSEG] <> 0 THEN
+                  COPYLINKINFO(DISKADDR+NBLOCKS);
+              END
+        END;
+      DISPLAY(MARKCODE,CODETABLE);
+    END;
+
+FUNCTION CONFIRM: BOOLEAN;
+  VAR
+    N: INTEGER;
+  BEGIN
+    CONFIRM:=FALSE;
+    (*get segment*)
+    N:= 0;
+    PL := '';
+    PROMPT(WINDOW);
+    REPEAT
+      READ(CCH);
+      IF CCH = CHR(8) THEN
+        N := N DIV 10;
+      IF CCH IN ['0'..'9'] THEN
+        N := N*10 + ORD(CCH)-ORD('0')
+    UNTIL NOT (CCH IN [CHR(8),'0'..'9']);
+    IF CCH <> ' ' THEN (*probably N or Q*)
+      EXIT(CONFIRM);
+    IF N IN [0..MAXSEG] THEN (*good segment number*)
+      WITH INTBL^ DO
+        IF SEGDSC[N].CODELENG > 0 THEN (*any chunk of code*)
+          BEGIN
+            SSEG := N;
+            REPEAT
+              PL := 'Seg to link into? ';
+              PROMPT(WINDOW);
+              READ(DSEG)
+            UNTIL DSEG IN [0..MAXSEG];
+            READ(CCH); { EAT XTRA CHAR }
+            CCH := 'Y'; (* TRICK THE REPLACEMENT BELOW *)
+            IF (CODETABLE^.SEGDSC[DSEG].CODELENG <> 0) THEN (*linking again*)
+              BEGIN
+                PL :=
+'WARNING - Segment already linked.  Please Reconfirm (y/n) - ';
+                PROMPT(WINDOW);
+                READ(INPUT,CCH);
+                WRITELN(OUTPUT);
+              END;
+            CONFIRM := CCH IN ['Y','y']
+          END;
+  END; (* CONFIRM *)
+
+BEGIN
+  IF LENGTH(NTITLE)>0 THEN
+    IF BLOCKREAD(INFILE,INTBL^,1,0) = 1 THEN
+      DISPLAY(MARKIN,INTBL)
+    ELSE
+      BEGIN
+        RSLT:=IORESULT;
+        PL := 'Read error # ';
+        PROMPT(ERROR);
+        WRITE(OUTPUT,RSLT);
+      END;
+  if firstfile then
+    if tableflipped(intbl^) then
+    begin
+      fliptable(intbl^);
+      flipped:= TRUE;
+    end
+    else
+  else
+    if flipped <> tableflipped(intbl^) then
+    begin
+      pl:= 'Incompatible byte sex';
+      prompt(error);
+    end
+    else
+      if flipped then
+        fliptable(intbl^);
+  PL :=
+'Segment # to link and <space>, N(ew file, Q(uit, A(bort';
+  PROMPT(0);
+  REPEAT
+    IF CONFIRM THEN
+    begin
+      if firstfile then
+        firstfile:= FALSE;
+      LINKIT;
+    end;
+  UNTIL CCH IN ['N','Q','A','n','q','a'];
+  CLOSE(INFILE)
+END (*LINKCODE*) ;
+
+BEGIN
+  PAGE(OUTPUT);
+  PL := 'Pascal System Librarian [II.0]';
+  PROMPT(0);
+  NEW(CODETABLE);
+  NEW(INTBL);
+  PL := 'Output code file -> ';
+  REPEAT
+    PROMPT(11);
+    READLN(INPUT,TITLE);
+    if title = '*' then
+      title:= '*SYSTEM.LIBRARY';
+    IF LENGTH(TITLE) = 0 THEN EXIT(LIBRARIAN)
+    ELSE REWRITE(CODE,TITLE)
+  UNTIL (LENGTH(TITLE) = 0) OR (CHECKIO);
+  OUTBLOCK := 1; NEW(BUF);
+  IF SIZEOF(BLOCK0) <> 512 THEN
+    HALT;
+  FILLCHAR(CODETABLE^, SIZEOF(BLOCK0), 0);
+  WITH CODETABLE^ DO
+    FOR DSEG := 0 TO MAXSEG DO
+      SEGNAME[DSEG] := '        ';
+  firstfile:= TRUE;
+  flipped:= FALSE;
+  REPEAT
+    OPENFILE;
+    LINKCODE;
+  UNTIL CCH IN ['Q','q','A','a'];
+  IF CCH IN ['A','a'] THEN EXIT(LIBRARIAN);
+  PL := 'Notice? ';
+  PROMPT(23);
+  READLN(CODETABLE^.NOTICE);
+  if flipped then
+    fliptable(codetable^);
+  IF BLOCKWRITE(CODE,CODETABLE^,1,0) = 1 THEN
+    CLOSE(CODE,LOCK)
+  ELSE
+    WRITELN(OUTPUT,'Code write error ')
+END { NEWLINKER } ;
+
+BEGIN
+  NEWLINKER
+END { LIBRARIAN } ;
+
+BEGIN END.

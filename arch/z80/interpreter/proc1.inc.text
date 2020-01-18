@@ -1,0 +1,568 @@
+;
+; UCSD PASCAL - Version I.5
+; Copyright (C) 1978, 1979 Regents of the University of California
+; All Rights Reserved
+;
+; Permission to use, copy, modify and distribute any part of UCSD
+; PASCAL solely authored by UC authors before June 1, 1979 for
+; educational, research and non-profit purposes, without fee, and
+; without a written agreement is hereby granted, provided that the
+; above copyright notice, this paragraph and the following three
+; paragraphs appear in all copies.
+;
+; Those desiring to incorporate UCSD PASCAL into commercial products or
+; use for commercial purposes should contact the Technology Transfer &
+; Intellectual Property Services, University of California, San Diego,
+; 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+; Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+;
+; IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+; FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+; INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+; THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+; DAMAGE.
+;
+; THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+; OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+; UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+; MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+; EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+; WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+; THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+; OTHER RIGHTS.
+;
+; Case Number: SD1991-807 (2006)
+; http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+;
+;;; Source: http://bitsavers.org/bits/UCSD_Pascal/ucsd_II.0/
+;;;     U120_Z80_P-CODE_SOURCE.raw.gz
+;;; Date: 1978-Nov-06
+
+        .IF ~LSTPROC
+         .NOLIST
+        .ELSE
+         .LIST
+        .ENDC
+
+; Copyright (c) by Regents of the University of California, San Diego
+
+;***************************************************************;
+;            PROGRAM FLOW - JUMPS AND PROCEDURE CALLS           ;
+;***************************************************************;
+
+;***** Jumps
+
+; JTAB format below...see procedure operators
+
+EFJ     ; Equal false jump (jump if not equal)
+        POP     DE
+        POP     HL
+        LD      A,L
+        SUB     E
+        JP      NZ,UJP
+        LD      A,H
+        SBC     A,D
+        JP      NZ,UJP
+        JP      NOJ
+
+NFJ     ; Not equal false jump (jump if equal)
+        POP     DE
+        POP     HL
+        LD      A,L
+        SUB     E
+        JP      NZ,NOJ
+        LD      A,H
+        SBC     A,D
+        JP      NZ,NOJ
+        JP      UJP
+
+FJP      ; False jump
+        POP     AF              ; Sneaky but quick.  Carry is bit zero.
+        JP      NC,UJP
+NOJ     INC     BC
+        JP      BACK
+
+UJP     ; Unconditional jump
+        LD      A,(BC)          ; get jump offset
+        INC     BC
+        TSTA                    ; if small then short relative jump
+        JP      M,$10
+        ADD     A,C             ; BC = BC + A
+        LD      C,A
+        LD      A,00H
+        ADC     A,B
+        LD      B,A
+        JP      BACK
+$10     LD      HL,(JTAB)       ; use offset as index in JTAB
+        LD      C,A
+        LD      B,0FFH          ; BC = sign extended offset,0FFH
+        ADD     HL,BC           ; HL = ^jump entry
+        LD      E,(HL)
+        INC     HL
+        LD      D,(HL)
+        SELREL                  ; entry is self-relative
+        JP      BACK
+
+XJP     ; Case jump
+                ; Index is (SP)
+                ; In the code, starting on a word boundary,
+                ; are 3 words...
+                ;   min index for table
+                ;   max index
+                ;   else jump (point IPC here if index out of table range)
+                ; ...and the case table jump addresses
+        INC     BC              ; put HL on word boundary
+        LD      A,C
+        AND     0FEH
+        LD      L,A
+        LD      H,B
+        LD      C,(HL)  ; BC = min
+        INC     HL
+        LD      B,(HL)
+        INC     HL
+        LD      E,(HL)  ; DE = max
+        INC     HL
+        LD      D,(HL)
+        INC     HL
+        LD      (IPCSAV),HL     ; save addr of else jump
+        POP     HL              ; get index
+        EX      DE,HL
+        ; HL = max, DE = index, BC = min
+        LD      A,D
+        XOR     H
+        JP      M,$10
+        LD      A,L             ; decide if index too large...
+        SUB     E
+        LD      A,H
+        SBC     A,D
+        JP      P,$20
+        JP      BACK1
+$10     AND     D
+        JP      P,BACK1
+$20     EX      DE,HL           ; ...or too small.
+        LD      A,B
+        XOR     H
+        JP      P,$30
+        AND     H
+        JP      M,BACK1
+$30     SUBHLBC                 ; and put index-min in HL
+        JP      M,BACK1
+        INC     HL              ; take in to account else jump
+        ADD     HL,HL           ; and set HL = case table[index]
+        EX      DE,HL
+        LD      HL,(IPCSAV)
+        ADD     HL,DE
+        LD      C,(HL)
+        INC     HL
+        LD      B,(HL)
+        DEC     HL
+        SUBHLBC                 ; entry is negative self relative again.
+        LD      C,L
+        LD      B,H
+        JP      BACK
+
+
+
+;***** Procedure calling and returning
+
+; Variables used...
+SEGBOT  .EQU    TPROC           ; pointer to bottom of segment
+RLBASE  .EQU    TPROC+2         ; base relocation amount
+REFP    .EQU    TPROC+4         ; pointer to relevant refcount
+PROCBOT .EQU    TPROC+6         ; pc relative (proc) relocation amount
+RLDELTA .EQU    TPROC+8         ; the relocation abount for the relocation
+                                ;   currently being done.
+SEGNUM  .EQU    TPROC+10.       ; segment # currently being called
+SEGTP   .EQU    TPROC+12.       ; ^segtable entry for segment
+NEWSEG  .EQU    TPROC+14.       ; new SEGP
+NEWJTB  .EQU    TPROC+16.       ; new JTAB pointer
+
+; Mark stack control word (MSCW) format:
+
+MSSP    .EQU    +0AH            ; Caller's top of stack
+MSIPC   .EQU    +08H            ; Caller's IPC (return address)
+MSSEG   .EQU    +06H            ; Caller's segment (proc table) pointer
+MSJTAB  .EQU    +04H            ; Caller's jtab pointer
+MSDYN   .EQU    +02H            ; Dynamic link - pointer to caller's MSCW
+MSSTAT  .EQU    +00H            ; Static link - pointer to parent's MSCW
+MSBASE  .EQU    -02H            ; Base link (only if CBP) - pointer
+                                ; to base MSCW of caller
+
+; Jump table (JTAB) format
+;       .EQU    +01H            ; lex level of proc
+;       .EQU     00H            ; proc-num
+ENTRIC  .EQU    -02H            ; address of entry point (self-relative)
+EXITIC  .EQU    -04H            ; address of exit code (self-relative)
+PARMSZ  .EQU    -06H            ; number of bytes of parameters
+DATASZ  .EQU    -08H            ; number of bytes of local data segment
+; -0AH to -08H-2*(# of long jumps)      self-relative jump address
+
+;Proc table (pointed to by msseg) format
+;       .EQU    +01H            ; number of procs in segment
+;       .EQU     00H            ; seg_num
+;-02H to -2*(number of procs)   self-relative pointers to each procs JTAB
+
+
+; Seg table (part of syscom) format:
+;                00H            ; unit number code for seg is on
+;               +02H            ; block # code for seg starts at
+;               +04H            ; segment length (in bytes)
+
+; Operator formats:
+;   RBP,RNP: number of words to return (0..2)
+;   CBP,CGP,CLP,CIP: proc_num
+;   CXP: seg_num, proc_num
+
+
+RBP     ; Return from base procedure
+        LD      HL,(MP)         ; HL := old base
+        DEC     HL
+        LD      D,(HL)
+        DEC     HL
+        LD      E,(HL)
+        EX      DE,HL
+        LD      (BASE),HL       ; restore previous base environment
+        LD      DE,DISP0
+        ADD     HL,DE
+        LD      (BASED0),HL
+        ; then fall into RNP
+RNP     ; Return from normal procedure
+        LD      HL,(MPD0)       ; DE := old sp (didn't want to index)
+        LD      E,(HL)
+        INC     HL
+        LD      D,(HL)
+        LD      A,(BC)          ; A := Number of words to return
+        ADD     A,A             ; Double for bytes
+        JP      Z,$20           ; No value to return
+        LD      C,A             ; BC := # bytes to return
+        LD      B,00H
+        LD      HL,(MPD0)       ; HL := ^last byte of where params go
+        ADD     HL,BC
+        INC     HL
+        .IF Z80
+         DEC    DE      ; do the move
+         LDDR
+         INC  DE     ;EITHER WAY TO $20 , DE = NEW SP
+        .ENDC
+        .IF ~Z80
+$10     LD      A,(HL)
+        DEC     DE
+        DEC     HL
+        LD      (DE),A
+        LD      A,(HL)
+        DEC     DE
+        DEC     HL
+        LD      (DE),A
+        DEC     C
+        DEC     C
+        JP      NZ,$10
+        .ENDC
+$20     ; use info in MSCW to restore machine state
+        LD      HL,(MP)
+        LD      SP,HL
+        POP     HL      ; junk stat link
+        POP     HL      ; HL := dyn link
+        LD      (MP),HL         ; new local MSCW := dyn link
+        LD      BC,DISP0
+        ADD     HL,BC
+        LD      (MPD0),HL
+        POP     HL     ; rest should be obvious
+        LD      (JTAB),HL
+        ; well...it used to be obvious.  See if current seg same as old
+        POP     HL
+        LD      A,(SEGP)
+        CP      L
+        JP      NZ,$30
+        LD      A,(SEGP+1)
+        CP      H
+        JP      Z,$40
+$30     ; it is different.  Decrement refcount for current segment.
+        PUSH    HL
+        LD      HL,(SEGP)
+        LD      A,(HL)
+        CALL    DECREF          ; decrements refcount for seg A
+        POP     HL
+$40     LD      (SEGP),HL
+        POP     BC              ; ipc
+        EX      DE,HL  ; restore SP
+        LD      SP,HL
+        JP      BACK
+
+DECREF  ; Decrements refcount for seg # A.
+        ;   if count becomes 0, return Zero flag set
+        LD      L,A
+        LD      H,0
+        ADD     HL,HL
+        ADD     HL,HL
+        LD      BC,INTSEGT+1
+        ADD     HL,BC
+        LD      B,(HL)
+        DEC     L
+        LD      C,(HL)
+        DEC     BC
+        LD      (HL),C
+        INC     L
+        LD      (HL),B
+        LD      A,C
+        OR      B
+        RET
+
+STKCHK  ; check for stack overflow
+        LD      HL,(NP)
+        EX      DE,HL
+        LD      HL,-60. ; leave a 30-word evaluation stack
+        ADD     HL,SP
+        LD      A,L
+        SUB     E
+        LD      A,H
+        SBC     A,D
+        RET
+
+
+        ; The callable routine used to build a mark stack control word...
+        ;   each actual procedure opcode uses it as a basis, then does some
+        ;   other stuff (usually setting the static chain pointer correctly).
+BLDXNL  ; entry point for BLDMSCW if CXP is doing call
+        POP     HL      ; (RETADR) := return_address
+        LD      (RETADR),HL
+        JP      BLD3
+BLDSTP  ; entry point from CSP trap
+        POP     HL
+        LD      (RETADR),HL
+        JP      BLD4
+BLDMSCW ; Build a MSCW, copy down parameters, and set up proper environment
+        ; for called procedure
+        LD      HL,(SEGP)
+        LD      (NEWSEG),HL
+        POP     HL              ; (RETADR) := return_address
+        LD      (RETADR),HL
+        XOR     A               ; indicate no code read in, not a CXP call
+        PUSH    AF
+BLD3    LD      A,(BC)          ; A := proc_num
+        INC     BC
+        SAVIPC
+BLD4    NEGA                    ; DE := -proc_num (need to index proc table
+        LD      E,A             ;   backward...segp^[-proc_num] = ^jtab)
+        LD      D,0FFH
+        LD      HL,(NEWSEG)
+        ADD     HL,DE
+        ADD     HL,DE
+        LD      E,(HL)          ; DE := ^jtab
+        INC     HL
+        LD      D,(HL)
+        ; entry is negative self-relative
+        .IF Z80
+        SCF
+        SBC     HL,DE
+        .ENDC
+        .IF ~Z80
+        SCF
+        LD      A,L
+        SBC     A,E
+        LD      L,A
+        LD      A,H
+        SBC     A,D
+        LD      H,A
+        .ENDC
+        LD      (NEWJTB),HL
+        ; is it an assembly language proc ?
+        LD      A,(HL)
+        TSTA
+        JP      NZ,$40
+        ; it is. See if CXP and take special action if necessary,
+        ; leave BACK1 as ret address, and jump to it !
+        POP     AF              ; See if this was a CXP call
+        TSTA
+        JP      Z,$35
+        ; oops. it was. this means we bumped ref pointer, but will never
+        ;   execute a nice return instruction to bump down the pointer.
+        EX      DE,HL           ; save ^jtab
+        LD      HL,(SEGNUM)     ; To fix, we will just zero that refcount
+        LD      H,0
+        ADD     HL,HL
+        ADD     HL,HL
+        LD      BC,INTSEGT
+        ADD     HL,BC
+        DEC     (HL)            ; just wipe out low...high should be zero
+        EX      DE,HL
+$35     LD      DE,BACK1
+        PUSH    DE
+        DEC     HL
+        LD      D,(HL)
+        DEC     L
+        LD      E,(HL)
+        EX      DE,HL
+        JP      (HL)
+$40     ; Regular procedure...now get datasz and parmsz
+        LD      DE,DATASZ               ; HL := ^datasz
+        ADD     HL,DE
+        LD      E,(HL)                  ; DE := datasz
+        INC     HL
+        LD      D,(HL)
+        INC     HL
+        LD      C,(HL)                  ; BC := parmsz
+        INC     HL
+        LD      B,(HL)
+        POP     AF                      ; now extend stack in proper manner...
+        JP      C,$50
+        ; code not read in, so extend by datasz
+        CLRA            ; HL := SP-datasz
+        SUB     E
+        LD      L,A
+        LD      A,00H
+        SBC     A,D
+        LD      H,A
+        ADD     HL,SP
+        LD      SP,HL                   ; SP := SP-datasz
+        EX      DE,HL           ; DE := ^param dest
+        ADD     HL,DE                   ; HL := ^params
+        JP      $60
+$50     ; code was read in, so extend by parmsz+datasz
+        EX      DE,HL           ; HL := datasz
+        ADD     HL,BC           ;               + parmsz
+        CLRA                    ; HL := SP-datasz-parmsz
+        SUB     L
+        LD      L,A
+        LD      A,00H
+        SBC     A,H
+        LD      H,A
+        ADD     HL,SP
+        LD      SP,HL           ; SP := SP-datasz-parmsz
+        EX      DE,HL           ; DE := ^parma dest
+        LD      HL,(NEWSEG)     ; HL := ^params
+        INC     HL
+        INC     HL
+$60     LD      A,C             ; see if parsz = 0
+        OR      B
+        JP      Z,$80
+        ; copy the params down
+        .IF Z80
+        LDIR
+        .ENDC
+        .IF ~Z80
+        CLRA                    ; BC := -BC
+        SUB     C
+        LD      C,A
+        LD      A,00H
+        SBC     A,B
+        LD      B,A
+$70     LD      A,(HL)
+        LD      (DE),A
+        INC     HL
+        INC     DE
+        LD      A,(HL)
+        LD      (DE),A
+        INC     HL
+        INC     DE
+        INC     C
+        INC     C
+        JP      NZ,$70
+        INC     B
+        JP      NZ,$70
+        .ENDC
+        ; now build a MSCW as if this were a CLP
+$80     PUSH    HL              ; mssp
+        LD      HL,(IPCSAV)     ; msipc
+        PUSH    HL
+        LD      HL,(SEGP)       ; msseg
+        PUSH    HL
+        LD      HL,(JTAB)       ; msjtab
+        PUSH    HL
+        LD      HL,(MP)         ; msdyn
+        PUSH    HL
+        PUSH    HL              ; msstat
+        ;check for stack overflow
+        CALL    STKCHK
+        JP      C,STKOVR
+        ; set up environment for called procedure
+        LD      HL,0000H        ; (MP) := SP
+        ADD     HL,SP
+        LD      (MP),HL
+        LD      DE,DISP0
+        ADD     HL,DE
+        LD      (MPD0),HL
+        LD      HL,(NEWSEG)
+        LD      (SEGP),HL
+        LD      HL,(NEWJTB)
+        LD      (JTAB),HL
+        ; DE := entric
+        DEC     HL
+        LD      D,(HL)
+        DEC     HL
+        LD      E,(HL)
+        LD      A,L             ; negative self-relative, asusual
+        SUB     E
+        LD      C,A
+        LD      A,H
+        SBC     A,D
+        LD      B,A
+        LD      HL,(RETADR)
+        JP      (HL)
+
+CLP     ; Call local procedure
+        CALL    BLDMSCW         ; Does everything for CLP
+        JP      BACK
+
+CGP     ; Call global procedure
+        CALL    BLDMSCW
+        POP     HL      ; Junk stat pointer BLDMSCW gave us...
+        LD      HL,(BASE)
+        PUSH    HL              ; ... and make stat point to BASE
+        JP      BACK
+
+CBP     ; Call base procedure
+        CALL    BLDMSCW         ; and then make this a BASE MSCW
+CBPXNL  LD      HL,(BASE)       ; save old base pointer
+        PUSH    HL
+        PUSH    BC      ; save new IPC
+        EX      DE,HL           ; then make this MSCW the new base
+        LD      HL,(MPD0)
+        LD      (BASED0),HL
+        LD      HL,(MP)
+        LD      (BASE),HL
+        EX      DE,HL           ; Use the old base's statlink...
+        LD      C,(HL)
+        INC     HL
+        LD      B,(HL)
+        EX      DE,HL           ; ...as our own statlink
+        LD      (HL),C
+        INC     HL
+        LD      (HL),B
+        POP     BC              ; get back IPC
+        JP      BACK
+
+CIP     ; Call intermediate procedure
+        CALL    BLDMSCW         ; then try to point statlink at parent
+CIPXNL  PUSH    BC              ; save IPC for awhile
+        LD      HL,(MP)         ; BC := ^new MSCW
+        LD      C,L
+        LD      B,H
+        LD      HL,(JTAB)       ; A := lex level of called proc
+        INC     HL
+        LD      A,(HL)
+        DEC     A
+        JP      P,$10           ; if lex level <= 0, base procedure
+        POP     BC              ; get back ipc
+        JP      CBPXNL          ; and do call base proc stuff
+
+        ; find first proc with lex level one less than ours
+$10     ; see if this is the MSCW that has the goods we need
+        LD      HL,MSJTAB+1     ; HL := ^msjtab (high byte)
+        ADD     HL,BC
+        LD      D,(HL)          ; DE := ^jump table
+        DEC     HL
+        LD      E,(HL)
+        DEC     HL              ; BC := msdyn, ^ next mscw
+        LD      B,(HL)
+        DEC     HL
+        LD      C,(HL)
+        EX      DE,HL           ; get lexl from jtab
+        INC     HL
+        CP      (HL)
+        JP      NZ,$10
+        POP     DE      ; get IPC
+        POP     HL      ;junk old stat link
+        PUSH    BC      ; new msstat is the found mscw
+        LD      C,E     ; set up IPC again
+        LD      B,D
+        JP      BACK

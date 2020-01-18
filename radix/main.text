@@ -1,0 +1,461 @@
+(*
+ * UCSD PASCAL - Version I.5
+ * Copyright (C) 1978, 1979 Regents of the University of California
+ * All Rights Reserved
+ *
+ * Permission to use, copy, modify and distribute any part of UCSD
+ * PASCAL solely authored by UC authors before June 1, 1979 for
+ * educational, research and non-profit purposes, without fee, and
+ * without a written agreement is hereby granted, provided that the
+ * above copyright notice, this paragraph and the following three
+ * paragraphs appear in all copies.
+ *
+ * Those desiring to incorporate UCSD PASCAL into commercial products or
+ * use for commercial purposes should contact the Technology Transfer &
+ * Intellectual Property Services, University of California, San Diego,
+ * 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910,
+ * Ph: (858) 534-5815, Fax: (858) 534-7345, E-Mail: invent@ucsd.edu.
+ *
+ * IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF UCSD PASCAL, EVEN IF
+ * THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ *
+ * THE SOFTWARE PROVIDED HEREIN IS ON AN "AS IS" BASIS, AND THE UNIVERSITY
+ * OF CALIFORNIA HAS NO OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT,
+ * UPDATES, ENHANCEMENTS, OR MODIFICATIONS. THE UNIVERSITY OF CALIFORNIA
+ * MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OF ANY KIND,
+ * EITHER IMPLIED OR EXPRESS, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, OR
+ * THAT THE USE OF UCSD PASCAL WILL NOT INFRINGE ANY PATENT, TRADEMARK OR
+ * OTHER RIGHTS.
+ *
+ * Case Number: SD1991-807 (2006)
+ * http://invent.ucsd.edu/technology/cases/1995-prior/SD1991-807.shtml
+ *)
+
+ (* UCSD PASCAL I.5 P-SYSTEM "RADIX" *)
+
+ PROGRAM CONVERSION;
+
+
+ CONST  ORDA = 65;    {ASCII value of the character 'A'; ORD('A') }
+        ORD0 = 48;    {ASCII value of the character '0'; ORD('0') }
+
+        { The following values are terminal DEPENDENT }
+
+           EEOLN = 29;   {Erase to end of line}
+           EEOS = 11;    {Erase to end of screen}
+           ESCAPE = 27;
+
+
+ TYPE
+      OREC = PACKED ARRAY[0..4] OF 0..7;  {High order bit comes from BREC }
+      HREC = PACKED ARRAY[0..3] OF 0..15;
+      BREC = PACKED ARRAY[0..15] OF 0..1;
+
+      LETSET = SET OF '0'..'F';
+
+      OCTSTR = STRING[6];    { These types are declared so as to allow type    }
+      HEXSTR = STRING[4];    { checking of parameters passed to procedures in  }
+      BINSTR = STRING[16];   { this program.  Octal and Integer have the same  }
+                             { maximum length. No need to declare twice }
+
+      XRANGE = 0..2; { This is for the arrays which determine the position of }
+      YRANGE = 0..2; { where to writeout the information }
+
+      ACROSS = 0..79;  { 80 Characters across screen }
+      DOWN   = 0..23;  { 24 Lines down the screen    }
+
+
+ VAR  R: RECORD CASE INTEGER OF  { Takes all the packed arrays above plus an   }
+          1: (INT: INTEGER);     { Integer and assigns them all to read out of }
+          2: (OCTREC: OREC);     { the same word.  Thus an octal value placed  }
+          3: (HEXREC: HREC);     { in the record can be read out as an integer }
+          4: (BINREC: BREC);     { using INT. }
+        END;
+
+      CH: CHAR;
+
+      OCTLET, BINLET, DECLET, HEXLET: LETSET;  { Test sets for valid input }
+
+      OCTX, NUMX, BINX, INTX, HEXX: PACKED ARRAY[XRANGE] OF ACROSS;
+      OCTY, NUMY, BINY, INTY, HEXY: PACKED ARRAY[YRANGE] OF DOWN;
+           { Arrays for positioning output correctly }
+
+      X: XRANGE; { Global indices for the above arrays }
+      Y: YRANGE;
+
+
+ PROCEDURE PROMPT(S: STRING);  { Displays any string on the top line }
+ BEGIN
+   GOTOXY(0,0);
+   WRITE(S);
+   WRITE(CHR(ESCAPE),CHR(EEOLN));  { Clears the line after the string }
+ END; (* PROMPT *)
+
+ PROCEDURE CLEARSCREEN;  { Clears the entire screen }
+ BEGIN
+   GOTOXY(0,0);
+   WRITE(CHR(ESCAPE),CHR(EEOS));
+ END;  (* CLEARSCREEN *)
+
+ PROCEDURE INIT;    { Initialize }
+ VAR I: INTEGER;
+ BEGIN
+   HEXLET:=['A'..'F'];  { Initializes the test sets for input testing }
+   DECLET:=['0'..'9'];
+   OCTLET:=['0'..'7'];
+   BINLET:=['0'..'1'];
+   FOR I:=0 TO 2 DO     { Initializes the writeout positioning arrays }
+     BEGIN
+       NUMX[I]:=9 + (I * 27);
+       INTX[I]:=9 + (I * 27);
+       HEXX[I]:=9 + (I * 27);
+       OCTX[I]:=9 + (I * 27);
+       BINX[I]:=9 + (I * 27);
+     END;
+   FOR I:=0 TO 2 DO
+     BEGIN
+       NUMY[I]:=3 + (I * 6);
+       INTY[I]:=4 + (I * 6);
+       HEXY[I]:=5 + (I * 6);
+       OCTY[I]:=6 + (I * 6);
+       BINY[I]:=7 + (I * 6);
+     END;
+ END;  (* INIT *)
+
+ PROCEDURE INITSCREEN; { Initializes the screen and the screen indices, X and Y }
+ VAR I,J,K: INTEGER;
+     NAME: PACKED ARRAY[3..7] OF STRING;
+ BEGIN
+   CLEARSCREEN;
+   X:=0;
+   Y:=0;
+   NAME[3]:='NUMBER :';
+   NAME[4]:='INTEGER:';
+   NAME[5]:='HEX    :';
+   NAME[6]:='OCTAL  :';
+   NAME[7]:='BINARY :';
+   FOR I:=3 TO 7 DO
+     FOR J:=0 TO 2 DO
+       FOR K:=0 TO 2 DO
+         BEGIN
+           GOTOXY(J * 27, I + (K * 6));
+           WRITE(NAME[I]);
+         END;
+ END; (* INITSCREEN *)
+
+ PROCEDURE DECTO(NUM: OCTSTR; VAR NUMVALID: BOOLEAN);
+   { Procedure takes a string and converts it into an Integer }
+
+ VAR I: INTEGER;
+     MINUS: BOOLEAN;
+ BEGIN
+   MINUS:=FALSE;
+   NUMVALID:=TRUE;
+   WITH R DO
+     BEGIN
+       INT:=0;
+       IF NUM[1] = '-' THEN
+         BEGIN
+           MINUS:=TRUE;
+           DELETE(NUM,1,1);
+         END;
+       I:=1;
+       WHILE (I <= LENGTH(NUM)) AND NUMVALID DO
+         BEGIN  { Loop reads from left to right and adds value of new c }
+                { character to 10 times the old value. Also checks for }
+                { overflow and valid input. }
+
+           IF NUM[I] IN DECLET THEN
+             IF (INT < 3277) AND ( ORD(NUM[I]) - ORD0 <= 8 ) THEN
+               INT:=(INT*10) + ORD(NUM[I]) - ORD0
+             ELSE
+               NUMVALID:=FALSE
+           ELSE
+             NUMVALID:=FALSE;
+           I:=I+1;
+         END; (* WHILE *)
+       IF MINUS THEN          { This works on -32768 because -32768 is its }
+         IF INT <= 32767 THEN { own negation in two's complement }
+           INT:= -INT
+         ELSE
+           NUMVALID:=FALSE;
+     END; (* WITH *)
+   IF NOT NUMVALID THEN
+     BEGIN
+       GOTOXY(NUMX[X],NUMY[Y]);
+       WRITE(' ':16);
+       PROMPT('INVALID INTEGER NUMBER. Type <space> to continue');
+     END;
+ END;  (* DECTO *)
+
+ PROCEDURE HEXTO(NUM: HEXSTR; VAR NUMVALID: BOOLEAN);
+   { Procedure takes a string and converts it into a Hexadecimal number }
+ VAR I,J: INTEGER;
+ BEGIN
+   WITH R DO
+     BEGIN
+       FOR I:=0 TO 3 DO
+         HEXREC[I]:=0;
+       I:=0;
+       NUMVALID:=TRUE;
+       J:=LENGTH(NUM);
+       WHILE (J >= 1) AND NUMVALID DO
+         BEGIN { Loop reads from right to left and puts the value of the }
+               { character into the next array element. Also checks for  }
+               { valid input }
+
+           IF NUM[J] IN HEXLET THEN
+             HEXREC[I]:= ORD(NUM[J])-ORDA + 10
+           ELSE
+             IF NUM[J] IN DECLET THEN
+               HEXREC[I]:=ORD(NUM[J])-ORD0
+             ELSE
+               NUMVALID:=FALSE;
+           J:=J-1;
+           I:=I+1;
+         END; (* WHILE *)
+     END; (* WITH *)
+   IF NOT NUMVALID THEN
+     BEGIN
+       GOTOXY(NUMX[X],NUMY[Y]);
+       WRITE(' ':16);
+       PROMPT('INVALID HEXADECIMAL NUMBER. Type <space> to continue');
+     END;
+ END;  (* HEXTO *)
+
+ PROCEDURE OCTTO(NUM: OCTSTR; VAR NUMVALID: BOOLEAN);
+   { Procedure takes a string and converts it to an Octal number }
+ VAR I,J: INTEGER;
+ BEGIN
+   WITH R DO
+     BEGIN
+       FOR I:=0 TO 4 DO
+         OCTREC[I]:=0;
+       IF LENGTH(NUM) = 6 THEN  { If there is a high order byte get its value }
+         BEGIN
+           BINREC[15]:=ORD(NUM[1])-ORD0;
+           DELETE(NUM,1,1);
+         END
+       ELSE                     { or else set it to zero }
+         BINREC[15]:=0;
+       I:=0;
+       NUMVALID:=TRUE;
+       J:=LENGTH(NUM);
+       WHILE (J >= 1) AND NUMVALID DO
+         BEGIN  { Loop reads from right to left and puts the value of the }
+                { character into the next array element.  Also checks for }
+                { valid input }
+
+            IF NUM[J] IN OCTLET THEN
+              OCTREC[I]:=ORD(NUM[J])-ORD0
+            ELSE
+              NUMVALID:=FALSE;
+            J:=J-1;
+            I:=I+1;
+         END;  (* WHILE *)
+     END;  (* WITH *)
+   IF NOT NUMVALID THEN
+     BEGIN
+       GOTOXY(NUMX[X],NUMY[Y]);
+       WRITE(' ':16);
+       PROMPT('INVALID OCTAL NUMBER. Type <space> to continue');
+     END;
+ END;  (* OCTTO *)
+
+ PROCEDURE BINTO(NUM: BINSTR; VAR NUMVALID: BOOLEAN);
+   { Procedure takes a string a converts it into a binary number }
+ VAR I,J: INTEGER;
+ BEGIN
+   WITH R DO
+     BEGIN
+       FOR I:=0 TO 15 DO
+         BINREC[I]:=0;
+       I:=LENGTH(NUM);
+       NUMVALID:=TRUE;
+       J:=0;
+       WHILE (I >= 1) AND NUMVALID DO
+         BEGIN  { Loop reads from right to left and puts the value of the }
+                { character into the next array element.  Also checks for }
+                { valid input. }
+
+           IF NUM[I] IN BINLET THEN
+             BINREC[J]:=ORD(NUM[I])-ORD0
+           ELSE
+             NUMVALID:=FALSE;
+           I:=I-1;
+           J:=J+1;
+         END; (* WHILE *)
+     END;  (* WITH *)
+   IF NOT NUMVALID THEN
+     BEGIN
+       GOTOXY(NUMX[X],NUMY[Y]);
+       WRITE(' ':16);
+       PROMPT('INVALID BINARY NUMBER. Type <space> to continue');
+     END;
+ END;  (* BINTO *)
+
+ PROCEDURE WRITEOUT;
+ { Procedure writes out all the elements of global variable R to the appropiate }
+ { section of the screen and then increments X and Y }
+ VAR I: INTEGER;
+ BEGIN
+   GOTOXY(INTX[X],INTY[Y]);
+   WRITE(R.INT);
+
+   GOTOXY(HEXX[X],HEXY[Y]);
+   FOR I:=3 DOWNTO 0 DO
+     IF R.HEXREC[I] < 10 THEN WRITE(R.HEXREC[I])
+     ELSE WRITE(CHR(ORD(R.HEXREC[I])-10+ORDA));
+
+   GOTOXY(OCTX[X],OCTY[Y]);
+   WRITE(R.BINREC[15],R.OCTREC[4],R.OCTREC[3],R.OCTREC[2],R.OCTREC[1],
+         R.OCTREC[0]);
+
+   GOTOXY(BINX[X],BINY[Y]);
+   FOR I:=15 DOWNTO 0 DO
+     WRITE(R.BINREC[I]);
+
+   IF X = 2 THEN  { If end of row }
+     BEGIN
+       IF Y = 2 THEN  { If end of screen }
+         BEGIN
+           PROMPT('Type <space> to clear the screen and continue');
+           READ(CH);
+           INITSCREEN;
+          END
+       ELSE
+         Y:=Y+1;
+       X:=0;
+     END
+   ELSE
+     X:=X+1;
+
+ END;  (* WRITEOUT *)
+
+ PROCEDURE OUTER;
+ { This procedure is the outer loop and only working loop of the program. }
+ { It reads all user input and calls the appropiate procedure. }
+ VAR CH: CHAR;
+ STR: STRING;
+     NUMVALID,VALID: BOOLEAN;
+     O: OCTSTR;     { For passing strings to the procedures.  Octal and }
+     H: HEXSTR;     { Integer have the same size string. }
+     B: BINSTR;
+ BEGIN
+   INIT;
+   INITSCREEN;
+   REPEAT
+     VALID:=TRUE;
+     PROMPT(
+ 'Type the number followed by the Radix (H,O,I,B), or type C(learscreen, Q(uit');
+     GOTOXY(NUMX[X],NUMY[Y]);
+     READLN(STR);
+     IF LENGTH(STR) = 0 THEN
+       VALID:=FALSE
+     ELSE
+       IF STR[LENGTH(STR)] IN ['H','O','B','I','C','Q'] THEN
+         CASE STR[LENGTH(STR)] OF
+           'Q' : EXIT(OUTER);
+
+           'C' : INITSCREEN;
+
+           'I' : BEGIN
+                   DELETE(STR,LENGTH(STR),1); { Delete radix character }
+                   IF (LENGTH(STR) > 6) OR (LENGTH(STR) = 0) THEN
+                     VALID:=FALSE
+                   ELSE
+                     BEGIN
+                       O:=STR;
+                       DECTO(O,NUMVALID);
+                       IF NUMVALID THEN WRITEOUT
+                       ELSE READ(CH);
+                     END;
+                 END;
+
+           'H' : BEGIN
+                   DELETE(STR,LENGTH(STR),1); { Delete radix character }
+                   IF (LENGTH(STR) > 4) OR (LENGTH(STR) = 0) THEN
+                     VALID:=FALSE
+                   ELSE
+                     BEGIN
+                       H:=STR;
+                       HEXTO(H,NUMVALID);
+                       IF NUMVALID THEN WRITEOUT
+                       ELSE READ(CH);
+                     END;
+                 END;
+
+           'O' : BEGIN
+                   DELETE(STR,LENGTH(STR),1); { Delete radix character }
+                   IF (LENGTH(STR) > 6) OR ( LENGTH(STR) = 0) THEN
+                     VALID:=FALSE
+                   ELSE
+                     BEGIN
+                       O:=STR;
+                       OCTTO(O,NUMVALID);
+                       IF NUMVALID THEN WRITEOUT
+                       ELSE READ(CH);
+                     END;
+                 END;
+
+           'B' : BEGIN
+                   DELETE(STR,LENGTH(STR),1);
+                   IF (LENGTH(STR) > 16) OR (LENGTH(STR) = 0)  THEN
+                     VALID:=FALSE
+                   ELSE
+                     BEGIN
+                       B:=STR;
+                       BINTO(B,NUMVALID);
+                       IF NUMVALID THEN WRITEOUT
+                       ELSE READ(CH);
+                     END;
+                 END;
+         END  (* CASE *)
+       ELSE
+         VALID:=FALSE;  (* END OF IF RADIX IN SET *)
+     IF NOT VALID THEN
+       BEGIN
+         PROMPT('INVALID INPUT.  Type <space> to continue.');
+         GOTOXY(NUMX[X],NUMY[Y]);
+         WRITE(' ':17);  { Blank out bad input }
+         READ(CH);
+       END;
+   UNTIL 1 = 2; {FOREVER}
+ END; (* OUTER *)
+
+ PROCEDURE HEADER;
+ BEGIN
+   CLEARSCREEN;
+
+   WRITELN('     This program will convert numbers specified as HEX, OCTAL,');
+   WRITELN('INTEGER and BINARY numbers to the other radices.');
+   WRITELN;
+   WRITELN('     Simply type the number followed by the first letter of the');
+   WRITELN('radix it is in, (i.e. 7BC9H, -12789I, 110010100B, 177760O )');
+   WRITELN('followed by a carriage return.');
+   WRITELN;
+   WRITELN('     This program works only with uppercase characters.  Lower ');
+   WRITELN('case characters will give "INVALID INPUT" responses. ');
+   WRITELN;
+   WRITELN('     For further information see the document.');
+   WRITELN;
+   WRITELN;
+   WRITELN('     Type a <space> to continue;   Q(uit');
+ END;
+
+ BEGIN (* MAIN *)
+   HEADER;
+   READ(CH);
+   OUTER;
+ END.
+
+
+{ +------------------------------------------------------------------+
+  |                                                                  |
+  |                     F     I     N     I     S                    |
+  |                                                                  |
+  +------------------------------------------------------------------+ }
