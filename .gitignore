@@ -1,3 +1,14 @@
+/Makefile
+/config.log
+/config.status
+/stage1/
+
+/compiler/vstamp.inc.text
+/filer/globals.text
+/pascalio/globals.text
+/system/vstamp.inc.text
+/yaloe/globals.text
+
 /build/
 
 # Eclipse
