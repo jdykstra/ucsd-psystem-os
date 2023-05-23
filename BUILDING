@@ -1,3 +1,11 @@
+Build as below, or using Meson:
+
+	meson setup --cross-file cross/klebsch-stage1.ini build/
+	meson compile -C build/
+
+Peter Miller's original BUILDING text
+-------------------------------------
+
 Build(ucsd-psystem-os)                                  Build(ucsd-psystem-os)
 
 
