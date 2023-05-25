@@ -1,4 +1,4 @@
-project('ucsd-psystem-os')
+project('ucsd-psystem-os', meson_version: '>=0.64.0')
 
 fs = import('fs')
 
@@ -16,14 +16,14 @@ disk = find_program('ucsdpsys_disk')
 mkfs = find_program('ucsdpsys_mkfs')
 setup = find_program('ucsdpsys_setup')
 
-# Where in our installation prefix to volumes get installed
+# Where in our installation prefix volumes get installed
 volume_install_dir = get_option('datadir') / 'ucsd-psystem-os'
 
 # Flag used by many ucsdpsys tools to determine endianess and address
 # orientation.
 arch_flag = '--arch=' + host_machine.cpu()
 
-# Arg subset used by many ucsdpsys tools to specify in in/output files.
+# Arg subset used by many ucsdpsys tools to specify in/output files.
 inout_args = ['-o', '@OUTPUT@', '@INPUT@']
 
 # Generators don't support adding extra dependencies per invocation so we
