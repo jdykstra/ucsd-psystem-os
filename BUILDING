@@ -1,7 +1,14 @@
-Build as below, or using Meson:
+Build OS using Meson:
 
 	meson setup --cross-file cross/klebsch-stage1.ini build/
 	meson compile -C build/
+
+If unfamiliar with Meson, see https://mesonbuild.com/ for package installation,
+initial setup, and built-in build configuration options.
+
+Building OS requires the tools from the ucsd-psystem-xc and ucsd-psystem-fs
+projects.  Executing the resulting volume contents requires ucsd-psystem-vm.
+
 
 Peter Miller's original BUILDING text
 -------------------------------------
