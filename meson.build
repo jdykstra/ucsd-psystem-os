@@ -21,7 +21,7 @@ volume_install_dir = get_option('datadir') / 'ucsd-psystem-os'
 
 # Flag used by many ucsdpsys tools to determine endianess and address
 # orientation.
-arch_flag = '--arch=' + host_machine.cpu()
+arch_flag = '--arch=' + get_option('target_arch')
 
 # Arg subset used by many ucsdpsys tools to specify in/output files.
 inout_args = ['-o', '@OUTPUT@', '@INPUT@']
@@ -42,7 +42,7 @@ ld_command = [ld, inout_args]
 mkfsdisk_env = environment({
   'MKFS': mkfs.full_path(),
   'DISK': disk.full_path(),
-  'MKFS_ARCH': host_machine.cpu(),
+  'MKFS_ARCH': get_option('target_arch'),
   'MKFS_SIZE': get_option('disk_kb').to_string(),
 })
 mkfsdisk_command = [python, files('etc/mkfsdisk.py'), '@OUTPUT@', '@INPUT@']
@@ -56,7 +56,7 @@ subdir('editor')
 subdir('filer')
 subdir('compiler')
 subdir('linker')
-subdir('host' / host_machine.system())
+subdir('host' / 'klebsch')
 subdir('long_integer')
 subdir('transcendental')
 subdir('turtle_graphics')
