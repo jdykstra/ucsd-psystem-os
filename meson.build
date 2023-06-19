@@ -32,7 +32,11 @@ pc_args = [arch_flag, '-Wno-shadow', '-I@OUTDIR@', '-I@CURRENT_SOURCE_DIR@']
 pc_command = [pc, pc_args, inout_args]
 pc_system_command = [pc, pc_args, '-fignore-undefined-segment-zero', inout_args]
 
-as_args = [arch_flag, '-I.', '-I@CURRENT_SOURCE_DIR@']
+# All "assembly" files in this project contain only constant data, so theoreticaly 
+# they could be built either as p-code or machine instructions.  However,
+# the linker expects a segment kind of SEPRTSEG, which only comes from a
+# machine language assembly.
+as_args = ['--arch=6502', '-I.', '-I@CURRENT_SOURCE_DIR@']
 as_command = [as, as_args, inout_args]
 
 ar_system_command = [ar, '-o', '@OUTPUT@', '--file=@INPUT@', '--remove-system-segments']
