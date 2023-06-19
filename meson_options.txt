@@ -1,12 +1,1 @@
-option('target_arch', 
-	type : 'combo', 
-	choices : ['p-code-le', 'p-code-be'], 
-	description : 'Byte sex of target machine:  little-ended or big-ended`', 
-	value : 'p-code-le')
-
-option('disk_kb', 
-	type : 'integer', 
-	min : 4, 
-	max : 16384, 
-	description : 'Size of generated disk images in kB',
-	value : 140)
+option('disk_kb', type : 'integer', min : 4, max : 16384, value : 140)
